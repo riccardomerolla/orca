@@ -127,18 +127,18 @@ Event dispatch, terminal rendering, interaction handling.
 
 ---
 
-## Epic 7: Entry Point & Wiring
+## Epic 7: Entry Point & Wiring ✅
 
 The `orca` function that ties everything together.
 
 | # | Task | Description | Status |
 |---|---|---|---|
-| 7.1 | CLI argument parsing | Parse `userPrompt` (positional) and `--verbose` via mainargs. Unit test: parse various arg combinations. | |
-| 7.2 | `orca` context function | `def orca(...)(...: FlowContext ?=> Unit): Unit`. Creates FlowContext, registers listeners, runs the flow within an Ox scope. | |
-| 7.3 | Top-level accessors | `def claude(using FlowContext)`, `def git(using FlowContext)`, etc. Verify they compile and resolve inside `orca:` blocks. | |
-| 7.4 | FlowContext construction | Wire up: Claude backend, Codex backend (lazy), all tools, event dispatcher, interaction channel. Support custom overrides (`orca(git = ..., interaction = ...)`). | |
-| 7.5 | Retry wiring | Wrap LLM calls with `ox.retry(schedule)`. Corrective retry on parse failure. Unit test: mock backend that fails twice then succeeds. | |
-| 7.6 | scala-cli smoke test | Integration test: `sbt publishLocal`, then spawn `scala-cli run` with a minimal `.sc` script that uses the library. Verify exit code 0 and expected output. | |
+| 7.1 | CLI argument parsing | Parse `userPrompt` (positional) and `--verbose` via mainargs. Unit test: parse various arg combinations. | ✅ |
+| 7.2 | `orca` context function | `def orca(...)(...: FlowContext ?=> Unit): Unit`. Creates FlowContext, registers listeners, runs the flow within an Ox scope. | ✅ |
+| 7.3 | Top-level accessors | `def claude(using FlowContext)`, `def git(using FlowContext)`, etc. Verify they compile and resolve inside `orca:` blocks. | ✅ |
+| 7.4 | FlowContext construction | Wire up: Claude backend, Codex backend (lazy), all tools, event dispatcher, interaction channel. Support custom overrides (`orca(git = ..., interaction = ...)`). | ✅ |
+| 7.5 | Retry wiring | Wrap LLM calls with `ox.retry(schedule)`. Corrective retry on parse failure. Unit test: mock backend that fails twice then succeeds. | ✅ |
+| 7.6 | scala-cli smoke test | Integration test: `sbt publishLocal`, then spawn `scala-cli run` with a minimal `.sc` script that uses the library. Verify exit code 0 and expected output. | ✅ |
 
 **Exit criteria**: A minimal `.sc` script runs via `scala-cli` and calls `claude.ask("hello")`. End-to-end path works.
 
