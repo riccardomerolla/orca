@@ -1,6 +1,6 @@
 package orca.cli
 
-import orca.*
+import _root_.orca.*
 import org.jline.terminal.TerminalBuilder
 
 import java.io.PrintStream

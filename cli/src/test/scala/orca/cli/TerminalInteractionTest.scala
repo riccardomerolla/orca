@@ -1,6 +1,6 @@
 package orca.cli
 
-import orca.*
+import _root_.orca.*
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 

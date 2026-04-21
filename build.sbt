@@ -59,7 +59,7 @@ lazy val cli = (project in file("cli"))
   .settings(commonSettings)
   .settings(
     name := "orca-cli",
-    libraryDependencies ++= Seq(ox, mainargs, jline, fansi)
+    libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 
 lazy val orca = (project in file("."))
