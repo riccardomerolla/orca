@@ -9,7 +9,8 @@ class OrcaTest extends munit.FunSuite:
   private def silentInteraction: TerminalInteraction =
     new TerminalInteraction(
       new PrintStream(new ByteArrayOutputStream()),
-      useColor = false
+      useColor = false,
+      animated = false
     )
 
   test(
@@ -24,7 +25,11 @@ class OrcaTest extends munit.FunSuite:
   test("orca wires the interaction's listeners so emit reaches them"):
     val buf = new ByteArrayOutputStream()
     val interaction =
-      new TerminalInteraction(new PrintStream(buf), useColor = false)
+      new TerminalInteraction(
+        new PrintStream(buf),
+        useColor = false,
+        animated = false
+      )
     orca(interaction = interaction) {
       summon[FlowContext].emit(OrcaEvent.StageStarted("plan"))
     }

@@ -9,7 +9,8 @@ class OrcaOverridesTest extends munit.FunSuite:
   private def silentInteraction: TerminalInteraction =
     new TerminalInteraction(
       new PrintStream(new ByteArrayOutputStream()),
-      useColor = false
+      useColor = false,
+      animated = false
     )
 
   test("orca uses a custom FsTool when supplied"):
@@ -45,7 +46,11 @@ class OrcaOverridesTest extends munit.FunSuite:
   test("orca collects extra listeners alongside the interaction's"):
     val buf = new ByteArrayOutputStream()
     val interaction =
-      new TerminalInteraction(new PrintStream(buf), useColor = false)
+      new TerminalInteraction(
+        new PrintStream(buf),
+        useColor = false,
+        animated = false
+      )
     val tracker = new CostTracker
     orca(interaction = interaction, extraListeners = List(tracker)) {
       summon[FlowContext]

@@ -17,11 +17,14 @@ import java.io.PrintStream
   */
 class TerminalInteraction(
     out: PrintStream = System.err,
-    useColor: Boolean = true
+    useColor: Boolean = true,
+    animated: Boolean = true
 ) extends Interaction:
 
   private val listener = new TerminalListener
   private val listenersList: List[OrcaListener] = List(listener)
+  private val spinner: Option[OrcaSpinner] =
+    if animated then Some(new OrcaSpinner(out)) else None
 
   def listeners: List[OrcaListener] = listenersList
 
@@ -52,15 +55,20 @@ class TerminalInteraction(
     def onEvent(event: OrcaEvent): Unit = event match
       case OrcaEvent.StageStarted(name) =>
         out.println(paint(fansi.Color.Cyan, s"$StageStartGlyph $name"))
+        spinner.foreach(_.start(name))
       case OrcaEvent.StageCompleted(name, _) =>
+        spinner.foreach(_.stop())
         out.println(paint(fansi.Color.Green, s"$StageDoneGlyph $name"))
       case OrcaEvent.LlmOutput(text) =>
+        spinner.foreach(_.stop())
         out.print(text)
       case OrcaEvent.ToolUse(tool, args) =>
+        spinner.foreach(_.stop())
         out.println(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
       case OrcaEvent.TokensUsed(_) =>
         () // Token accounting is owned by CostTracker.
       case OrcaEvent.Error(message) =>
+        spinner.foreach(_.stop())
         out.println(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
 
   private def paint(attr: fansi.EscapeAttr, text: String): String =

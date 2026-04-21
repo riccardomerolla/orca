@@ -10,7 +10,8 @@ class TerminalInteractionTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val interaction = new TerminalInteraction(
       out = new PrintStream(buf),
-      useColor = false
+      useColor = false,
+      animated = false
     )
     events.foreach(e => interaction.listeners.head.onEvent(e))
     buf.toString
@@ -45,7 +46,8 @@ class TerminalInteractionTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val interaction = new TerminalInteraction(
       out = new PrintStream(buf),
-      useColor = false
+      useColor = false,
+      animated = false
     )
     val handle = new InteractiveHandle[Backend.ClaudeCode.type]:
       def awaitTermination(): LlmResult[Backend.ClaudeCode.type] =
@@ -64,7 +66,8 @@ class TerminalInteractionTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val interaction = new TerminalInteraction(
       out = new PrintStream(buf),
-      useColor = false
+      useColor = false,
+      animated = false
     )
     val handle = new InteractiveHandle[Backend.ClaudeCode.type]:
       def awaitTermination(): LlmResult[Backend.ClaudeCode.type] =
