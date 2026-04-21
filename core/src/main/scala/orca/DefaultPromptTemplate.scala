@@ -4,6 +4,11 @@ object DefaultPromptTemplate extends PromptTemplate:
 
   val DoneMarker: String = "<<<ORCA_DONE>>>"
 
+  private val RawJsonRules: String =
+    """- no surrounding prose or commentary
+      |- no markdown code fences
+      |- raw JSON only""".stripMargin
+
   def autonomous(
       input: String,
       outputSchema: String,
@@ -11,9 +16,7 @@ object DefaultPromptTemplate extends PromptTemplate:
   ): String =
     s"""Complete the task described in the input. Respond with a JSON value that
        |conforms to the output schema below. Rules:
-       |- no surrounding prose or commentary
-       |- no markdown code fences
-       |- raw JSON only
+       |$RawJsonRules
        |
        |Input:
        |$input
@@ -40,4 +43,21 @@ object DefaultPromptTemplate extends PromptTemplate:
        |
        |Output schema:
        |$outputSchema
+       |""".stripMargin
+
+  def retry(failedResponse: String, parseError: String): String =
+    s"""Your previous response could not be parsed as a JSON value matching the
+       |required schema.
+       |
+       |Parser error:
+       |$parseError
+       |
+       |Previous response:
+       |--- BEGIN RESPONSE ---
+       |$failedResponse
+       |--- END RESPONSE ---
+       |
+       |Please produce a valid JSON value matching the schema from the original
+       |instructions. Rules:
+       |$RawJsonRules
        |""".stripMargin

@@ -12,6 +12,14 @@ class DefaultPromptTemplateTest extends munit.FunSuite:
     assert(prompt.contains("no markdown code fences"))
     assert(!prompt.contains(DefaultPromptTemplate.DoneMarker))
 
+  test("retry prompt includes the failed response, error, and raw-JSON rules"):
+    val failed = """{"name":"widget"""
+    val error = "expected '}' at offset 15"
+    val prompt = DefaultPromptTemplate.retry(failed, error)
+    assert(prompt.contains(failed))
+    assert(prompt.contains(error))
+    assert(prompt.contains("no markdown code fences"))
+
   test(
     "interactive prompt embeds input, schema, and ORCA_DONE on its own line"
   ):
