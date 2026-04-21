@@ -10,7 +10,8 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       config: LlmConfig,
       outputSchema: String,
       workDir: os.Path
-  )(using Ox): Unit = ???
+  )(using Ox): Unit =
+    ClaudeStopHook.writeTo(workDir)
 
   def runHeadless(
       prompt: String,
