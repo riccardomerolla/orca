@@ -15,7 +15,7 @@ case class LlmConfig(
 object LlmConfig:
   val default: LlmConfig = LlmConfig()
   val defaultRetrySchedule: Schedule =
-    Schedule.Backoff(maxRepeats = 3, firstDuration = 1.second)
+    Schedule.exponentialBackoff(1.second).maxRepeats(3)
 
 enum AutoApprove derives CanEqual:
   case All

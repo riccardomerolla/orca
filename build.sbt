@@ -17,6 +17,7 @@ ThisBuild / scalacOptions ++= Seq(
 
 ThisBuild / javacOptions ++= Seq("--release", "21")
 
+
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(munit),
   testFrameworks += new TestFramework("munit.Framework")

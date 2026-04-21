@@ -15,17 +15,31 @@ import ox.supervised
   *   ...
   * ```
   *
-  * Pass a parsed `OrcaArgs` to receive `userPrompt`; pass custom `interaction`
-  * / `listeners` to override the defaults.
+  * Any tool can be overridden for testing or custom wiring, e.g. `orca(git =
+  * MyGit(), interaction = SlackInteraction(...))`.
   */
 def orca(
     args: OrcaArgs = OrcaArgs(),
     interaction: Interaction = new TerminalInteraction(),
     extraListeners: List[OrcaListener] = Nil,
-    workDir: os.Path = os.pwd
+    workDir: os.Path = os.pwd,
+    claude: ClaudeTool = null,
+    git: GitTool = null,
+    gh: GitHubTool = null,
+    fs: FsTool = null,
+    promptTemplate: PromptTemplate = DefaultPromptTemplate
 )(body: FlowContext ?=> Unit): Unit =
   supervised:
     val dispatcher =
       new EventDispatcher(interaction.listeners ++ extraListeners)
-    val ctx = new DefaultFlowContext(args.userPrompt, dispatcher, workDir)
+    val ctx = DefaultFlowContext.withDefaults(
+      userPrompt = args.userPrompt,
+      dispatcher = dispatcher,
+      workDir = workDir,
+      claude = claude,
+      git = git,
+      gh = gh,
+      fs = fs,
+      template = promptTemplate
+    )
     body(using ctx)
