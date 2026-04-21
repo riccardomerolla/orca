@@ -55,3 +55,19 @@ class ClaudeBackendTest extends munit.FunSuite:
     val file = workDir / ".claude" / "orca-system-prompt.md"
     assert(os.exists(file))
     assertEquals(os.read(file), "you are a poet")
+
+  test("continueHeadless passes --resume <id> and returns the new session id"):
+    val resumedJson =
+      """{"session_id":"sess-456","result":"resumed","usage":{"input_tokens":1,"output_tokens":2}}"""
+    val (cli, backend) = stubBackend(CliResult(0, resumedJson, ""))
+    val existing = SessionId[Backend.ClaudeCode.type]("sess-123")
+    val result = backend.continueHeadless(
+      existing,
+      "keep going",
+      LlmConfig.default,
+      os.temp.dir()
+    )
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(args.containsSlice(Seq("-p", "keep going")))
+    assert(args.containsSlice(Seq("--resume", "sess-123")))
+    assertEquals(SessionId.value(result.sessionId), "sess-456")

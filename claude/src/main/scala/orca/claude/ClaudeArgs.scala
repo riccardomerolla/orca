@@ -1,17 +1,19 @@
 package orca.claude
 
-import orca.{AutoApprove, LlmConfig}
+import orca.{AutoApprove, Backend, LlmConfig, SessionId}
 
 object ClaudeArgs:
 
   def headless(
       prompt: String,
       config: LlmConfig,
-      systemPromptFile: Option[os.Path]
+      systemPromptFile: Option[os.Path],
+      resume: Option[SessionId[Backend.ClaudeCode.type]] = None
   ): Seq[String] =
     Seq("claude", "-p", prompt, "--output-format", "json") ++
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
+      resumeArgs(resume) ++
       autoApproveArgs(config)
 
   private def modelArgs(config: LlmConfig): Seq[String] =
@@ -19,6 +21,11 @@ object ClaudeArgs:
 
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt-file", f.toString))
+
+  private def resumeArgs(
+      resume: Option[SessionId[Backend.ClaudeCode.type]]
+  ): Seq[String] =
+    resume.toSeq.flatMap(id => Seq("--resume", SessionId.value(id)))
 
   private def autoApproveArgs(config: LlmConfig): Seq[String] =
     config.autoApprove match
