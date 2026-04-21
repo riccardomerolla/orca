@@ -13,6 +13,9 @@ object ClaudeStopHook:
   val SettingsRelativePath: os.SubPath = os.sub / ".claude" / "settings.json"
   val ScriptRelativePath: os.SubPath = os.sub / ".claude" / "orca-stop-hook.sh"
 
+  def sentinelPath(sessionIdValue: String): os.Path =
+    os.Path(s"/tmp/orca-$sessionIdValue.json")
+
   val settingsJson: String =
     """{
       |  "hooks": {

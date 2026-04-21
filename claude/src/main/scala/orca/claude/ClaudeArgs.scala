@@ -16,6 +16,17 @@ object ClaudeArgs:
       resumeArgs(resume) ++
       autoApproveArgs(config)
 
+  def interactive(
+      prompt: String,
+      sessionId: SessionId[Backend.ClaudeCode.type],
+      config: LlmConfig,
+      systemPromptFile: Option[os.Path]
+  ): Seq[String] =
+    Seq("claude", prompt, "--session-id", SessionId.value(sessionId)) ++
+      modelArgs(config) ++
+      systemPromptFileArgs(systemPromptFile) ++
+      autoApproveArgs(config)
+
   private def modelArgs(config: LlmConfig): Seq[String] =
     config.model.toSeq.flatMap(m => Seq("--model", m))
 
