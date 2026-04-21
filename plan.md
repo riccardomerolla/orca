@@ -77,20 +77,20 @@ The input serialization → prompt construction → response parsing chain. Test
 
 ---
 
-## Epic 4: Claude Code Backend
+## Epic 4: Claude Code Backend ✅
 
 First real backend. Subprocess-based, testable with a `CliRunner` abstraction.
 
 | # | Task | Description | Status |
 |---|---|---|---|
-| 4.1 | CliRunner abstraction | Trait with `run(args, stdin, env, cwd)` returning `(exitCode, stdout, stderr)`. Real implementation via `os.proc`. Test stub returning canned responses. | |
-| 4.2 | Headless invocation | Implement `runHeadless`: construct `claude -p` command with flags (`--output-format json`, `--append-system-prompt-file`, `--allowedTools`, `--permission-mode`). Parse JSON response into `LlmResult`. Unit test with stubbed CliRunner. | |
-| 4.3 | Session management | Implement `continueHeadless` with `--resume <id>`. Parse `session_id` from response. Unit test: verify `--resume` flag is passed, session ID extracted. | |
-| 4.4 | NDJSON streaming | Parse `stream-json` output line by line. Emit `OrcaEvent.LlmOutput` for each text event. Unit test with canned NDJSON. | |
-| 4.5 | Stop hook generation | `prepareWorkspace`: write `.claude/settings.json` with the Stop hook that detects `<<<ORCA_DONE>>>` and writes the sentinel file. Unit test: verify generated JSON is valid, hook script is correct. | |
-| 4.6 | Interactive mode | `launchInteractive`: spawn `claude` (no `-p`) with `--session-id` and `--append-system-prompt-file`. Terminal handoff via `os.Inherit`. `awaitTermination`: watch for sentinel file, then SIGINT. Unit test with stubbed CliRunner. | |
-| 4.7 | Config mapping | Map `LlmConfig` fields to Claude CLI flags: `autoApprove` → `--permission-mode`, model → `--model`, etc. Unit test: config → args mapping. | |
-| 4.8 | Integration tests | Real `claude -p` calls (gated). Test: headless prompt returns valid JSON, session resume works, streaming emits events. | |
+| 4.1 | CliRunner abstraction | Trait with `run(args, stdin, env, cwd)` returning `(exitCode, stdout, stderr)`. Real implementation via `os.proc`. Test stub returning canned responses. | ✅ |
+| 4.2 | Headless invocation | Implement `runHeadless`: construct `claude -p` command with flags (`--output-format json`, `--append-system-prompt-file`, `--allowedTools`, `--permission-mode`). Parse JSON response into `LlmResult`. Unit test with stubbed CliRunner. | ✅ |
+| 4.3 | Session management | Implement `continueHeadless` with `--resume <id>`. Parse `session_id` from response. Unit test: verify `--resume` flag is passed, session ID extracted. | ✅ |
+| 4.4 | NDJSON streaming | Parse `stream-json` output line by line. Emit `OrcaEvent.LlmOutput` for each text event. Unit test with canned NDJSON. | ✅ |
+| 4.5 | Stop hook generation | `prepareWorkspace`: write `.claude/settings.json` with the Stop hook that detects `<<<ORCA_DONE>>>` and writes the sentinel file. Unit test: verify generated JSON is valid, hook script is correct. | ✅ |
+| 4.6 | Interactive mode | `launchInteractive`: spawn `claude` (no `-p`) with `--session-id` and `--append-system-prompt-file`. Terminal handoff via `os.Inherit`. `awaitTermination`: watch for sentinel file, then SIGINT. Unit test with stubbed CliRunner. | ✅ |
+| 4.7 | Config mapping | Map `LlmConfig` fields to Claude CLI flags: `autoApprove` → `--permission-mode`, model → `--model`, etc. Unit test: config → args mapping. | ✅ |
+| 4.8 | Integration tests | Real `claude -p` calls (gated). Test: headless prompt returns valid JSON, session resume works, streaming emits events. | ✅ |
 
 **Exit criteria**: Claude Code backend passes unit tests with stubbed CLI. Integration tests pass against real `claude` (when available).
 
