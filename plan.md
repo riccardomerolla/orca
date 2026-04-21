@@ -61,17 +61,17 @@ All traits, types, and signatures — compilable, no implementations yet. This i
 
 ---
 
-## Epic 3: Structured I/O Pipeline
+## Epic 3: Structured I/O Pipeline ✅
 
 The input serialization → prompt construction → response parsing chain. Testable entirely without a backend.
 
 | # | Task | Description | Status |
 |---|---|---|---|
-| 3.1 | JSON Schema generation | Given a Tapir `Schema[O]`, produce a JSON Schema string via `TapirSchemaToJsonSchema`. Unit test: generate schema for `ReviewResult`, validate it with `json-schema-validator`. | |
-| 3.2 | Default prompt templates | Implement `DefaultPromptTemplate` — `autonomous()` and `interactive()` methods. Unit test: template output contains input JSON, output schema, and (for interactive) `<<<ORCA_DONE>>>` instructions. | |
-| 3.3 | Response parsing | Parse a JSON string into `O` using jsoniter-scala. Handle: valid JSON, malformed JSON (throw), JSON wrapped in markdown fences (strip). Unit test: valid input, fenced input, invalid input. | |
-| 3.4 | Corrective retry prompt | When parsing fails, construct a retry prompt with the error message. Unit test: verify prompt includes original input + error. | |
-| 3.5 | ORCA_DONE extraction | Given raw agent output (possibly containing prose before the marker), extract the JSON payload after `<<<ORCA_DONE>>>`. Unit test: marker at end, marker mid-text, no marker (error). | |
+| 3.1 | JSON Schema generation | Given a Tapir `Schema[O]`, produce a JSON Schema string via `TapirSchemaToJsonSchema`. Unit test: generate schema for `ReviewResult`, validate it with `json-schema-validator`. | ✅ |
+| 3.2 | Default prompt templates | Implement `DefaultPromptTemplate` — `autonomous()` and `interactive()` methods. Unit test: template output contains input JSON, output schema, and (for interactive) `<<<ORCA_DONE>>>` instructions. | ✅ |
+| 3.3 | Response parsing | Parse a JSON string into `O` using jsoniter-scala. Handle: valid JSON, malformed JSON (throw), JSON wrapped in markdown fences (strip). Unit test: valid input, fenced input, invalid input. | ✅ |
+| 3.4 | Corrective retry prompt | When parsing fails, construct a retry prompt with the error message. Unit test: verify prompt includes original input + error. | ✅ |
+| 3.5 | ORCA_DONE extraction | Given raw agent output (possibly containing prose before the marker), extract the JSON payload after `<<<ORCA_DONE>>>`. Unit test: marker at end, marker mid-text, no marker (error). | ✅ |
 
 **Exit criteria**: Schema generation, prompt construction, and response parsing all work in isolation. No backend needed.
 
