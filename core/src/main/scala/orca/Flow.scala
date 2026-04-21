@@ -134,7 +134,29 @@ private def gatherReviews(
       s"${kept.size} issue(s) at or above confidence $confidenceThreshold"
   )
 
+/** Run `command` via a login shell, capture both stdout and stderr, and hand
+  * the combined output to `llm` to summarize as a `ReviewResult`. An empty
+  * output short-circuits to `ReviewResult.empty` so clean runs skip the
+  * round-trip to the LLM.
+  */
 def lint(
     command: String,
     llm: LlmTool[?]
-)(using FlowContext): ReviewResult = ???
+)(using FlowContext): ReviewResult =
+  val proc = os
+    .proc("bash", "-c", command)
+    .call(check = false, mergeErrIntoOut = true)
+  val output = proc.out.text().trim
+  if output.isEmpty then ReviewResult.empty
+  else
+    llm
+      .result[ReviewResult]
+      .prompt(
+        s"""Summarize the following lint output into a ReviewResult. Each
+           |distinct issue should produce a ReviewIssue; use reasonable
+           |confidence based on how actionable the message is.
+           |
+           |Lint output:
+           |$output
+           |""".stripMargin
+      )
