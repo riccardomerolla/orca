@@ -111,17 +111,17 @@ Git, GitHub, Fs wrappers. Independently testable.
 
 ---
 
-## Epic 6: Events & Terminal UI
+## Epic 6: Events & Terminal UI ✅
 
 Event dispatch, terminal rendering, interaction handling.
 
 | # | Task | Description | Status |
 |---|---|---|---|
-| 6.1 | Event dispatcher | Synchronous event dispatch to registered `OrcaListener` list. Unit test: listener receives all emitted events in order. | |
-| 6.2 | stage() and fail() | `stage` emits `StageStarted`/`StageCompleted`, wraps body. `fail` emits `Error`, throws `OrcaFlowException`. Unit test: verify events emitted. | |
-| 6.3 | CostTracker | Listener that accumulates `TokensUsed` events. Prints summary. Unit test: feed events, check totals. | |
-| 6.4 | TerminalInteraction | JLine 3 + fansi. Spinner during autonomous stages, colored stage names, streaming LLM output. Terminal handoff (`os.Inherit`) for interactive stages. Manual testing (not easily unit-testable). | |
-| 6.5 | Interaction ↔ backend wiring | `TerminalInteraction.runInteractive` saves terminal state, hands to `InteractiveHandle`, restores on return. | |
+| 6.1 | Event dispatcher | Synchronous event dispatch to registered `OrcaListener` list. Unit test: listener receives all emitted events in order. | ✅ |
+| 6.2 | stage() and fail() | `stage` emits `StageStarted`/`StageCompleted`, wraps body. `fail` emits `Error`, throws `OrcaFlowException`. Unit test: verify events emitted. | ✅ |
+| 6.3 | CostTracker | Listener that accumulates `TokensUsed` events. Prints summary. Unit test: feed events, check totals. | ✅ |
+| 6.4 | TerminalInteraction | JLine 3 + fansi. Spinner during autonomous stages, colored stage names, streaming LLM output. Terminal handoff (`os.Inherit`) for interactive stages. Manual testing (not easily unit-testable). | ✅ |
+| 6.5 | Interaction ↔ backend wiring | `TerminalInteraction.runInteractive` saves terminal state, hands to `InteractiveHandle`, restores on return. | ✅ |
 
 **Exit criteria**: Event dispatch, stage/fail, CostTracker pass unit tests. Terminal rendering works visually (manual verification).
 
