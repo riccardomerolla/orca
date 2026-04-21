@@ -25,7 +25,9 @@ class ClaudeInteractiveTest extends munit.FunSuite:
   private def withSentinel[A](sessionIdValue: String)(body: os.Path => A): A =
     val sentinel = ClaudeStopHook.sentinelPath(sessionIdValue)
     try body(sentinel)
-    finally if os.exists(sentinel) then os.remove(sentinel)
+    finally
+      if os.exists(sentinel) then
+        val _ = os.remove(sentinel)
 
   test("launchInteractive spawns claude interactively with --session-id"):
     val cli = new StubCliRunner(processFactory = () => new FakeCliProcess())
