@@ -31,6 +31,7 @@ lazy val core = (project in file("core"))
       jsoniter,
       jsoniterMacros,
       tapirApispec,
+      sttpApispecCirce,
       ox,
       scribe,
       jsonSchemaValidator

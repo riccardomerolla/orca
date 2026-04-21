@@ -1,12 +1,22 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
+import com.github.plokhotnyuk.jsoniter_scala.macros.{
+  CodecMakerConfig,
+  ConfiguredJsonValueCodec,
+  JsonCodecMaker
+}
 import sttp.tapir.Schema
 
-enum Severity derives Schema, ConfiguredJsonValueCodec:
+enum Severity derives CanEqual:
   case Critical
   case Warning
   case Info
+
+object Severity:
+  given Schema[Severity] = Schema.derivedEnumeration.defaultStringBased
+  given JsonValueCodec[Severity] =
+    JsonCodecMaker.make(CodecMakerConfig.withDiscriminatorFieldName(None))
 
 case class ReviewIssue(
     severity: Severity,

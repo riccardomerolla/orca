@@ -6,7 +6,7 @@ object Dependencies {
     val osLib          = "0.11.4"
     val jsoniter       = "2.33.3"
     val tapir          = "1.11.40"
-    val sttpApispec    = "0.11.13"
+    val sttpApispec    = "0.11.10"
     val ox             = "0.5.14"
     val sttpClient     = "4.0.9"
     val mainargs       = "0.7.6"
@@ -22,6 +22,7 @@ object Dependencies {
   val jsoniterMacros = "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % V.jsoniter % "provided, test"
 
   val tapirApispec = "com.softwaremill.sttp.tapir"   %% "tapir-apispec-docs" % V.tapir
+  val sttpApispecCirce = "com.softwaremill.sttp.apispec" %% "jsonschema-circe" % V.sttpApispec
 
   val ox         = "com.softwaremill.ox"           %% "core"                  % V.ox
   val sttpClient = "com.softwaremill.sttp.client4" %% "core"                  % V.sttpClient
