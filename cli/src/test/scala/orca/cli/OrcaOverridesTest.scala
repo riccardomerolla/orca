@@ -18,7 +18,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def write(path: String, content: String): Unit = ()
       def list(glob: String): List[String] = List("custom")
     var observed: String = ""
-    orca(fs = fake, interaction = silentInteraction) {
+    orca(fs = Some(fake), interaction = silentInteraction) {
       observed = fs.read("ignored")
     }
     assertEquals(observed, "canned content")
@@ -37,7 +37,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           O: sttp.tapir.Schema: com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
       ]: LlmCall[Backend.ClaudeCode.type, O] = ???
     var observed: String = ""
-    orca(claude = fakeClaude, interaction = silentInteraction) {
+    orca(claude = Some(fakeClaude), interaction = silentInteraction) {
       observed = summon[FlowContext].claude.ask("hi")
     }
     assertEquals(observed, "echo: hi")

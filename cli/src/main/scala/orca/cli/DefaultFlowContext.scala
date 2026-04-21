@@ -4,9 +4,9 @@ import _root_.orca.*
 import _root_.orca.claude.ClaudeBackend
 
 /** Production FlowContext wiring. Callers typically construct one via
-  * `orca(...)`, which supplies defaults for all tools. Individual tools can be
-  * replaced by passing overrides to `orca`. `codex` remains stubbed pending
-  * Epic 9.
+  * `orca(...)`, which supplies defaults for all tools. Individual tools can
+  * be replaced by passing overrides to `orca`. `codex` remains stubbed
+  * pending Epic 9.
   */
 class DefaultFlowContext(
     val userPrompt: String,
@@ -24,23 +24,23 @@ class DefaultFlowContext(
 
 object DefaultFlowContext:
 
-  /** Build a context with Orca's default tool implementations, allowing callers
-    * to override any individual tool.
+  /** Build a context with Orca's default tool implementations, filling in
+    * any `None` override with the production default.
     */
   def withDefaults(
       userPrompt: String,
       dispatcher: EventDispatcher,
       workDir: os.Path,
-      claude: ClaudeTool = null,
-      git: GitTool = null,
-      gh: GitHubTool = null,
-      fs: FsTool = null,
+      claude: Option[ClaudeTool] = None,
+      git: Option[GitTool] = None,
+      gh: Option[GitHubTool] = None,
+      fs: Option[FsTool] = None,
       template: PromptTemplate = DefaultPromptTemplate
   ): DefaultFlowContext =
     new DefaultFlowContext(
       userPrompt = userPrompt,
       dispatcher = dispatcher,
-      claude = Option(claude).getOrElse(
+      claude = claude.getOrElse(
         new DefaultClaudeTool(
           backend = new ClaudeBackend(OsProcCliRunner),
           config = LlmConfig.default,
@@ -49,7 +49,7 @@ object DefaultFlowContext:
           emit = dispatcher.dispatch
         )
       ),
-      git = Option(git).getOrElse(new OsGitTool(workDir)),
-      gh = Option(gh).getOrElse(new OsGitHubTool(OsProcCliRunner, workDir)),
-      fs = Option(fs).getOrElse(new OsFsTool(workDir))
+      git = git.getOrElse(new OsGitTool(workDir)),
+      gh = gh.getOrElse(new OsGitHubTool(OsProcCliRunner, workDir)),
+      fs = fs.getOrElse(new OsFsTool(workDir))
     )
