@@ -1,5 +1,8 @@
 package orca
 
+import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import ox.{fork, supervised}
+
 import scala.util.control.NonFatal
 
 /** Wrap `body` as a named stage, emitting StageStarted before and
@@ -78,6 +81,15 @@ private def capReason(
 ): IgnoredIssues =
   IgnoredIssues(issues.map(IgnoredIssue(_, reason)))
 
+private case class FixRequest(issues: List[ReviewIssue])
+    derives ConfiguredJsonValueCodec
+
+/** Run the given reviewers in parallel against `task`, optionally include a
+  * lint result, filter issues by `confidenceThreshold`, then hand the remaining
+  * issues to `coder` via `continueSession` for repair. Loops via `fixLoop`
+  * until reviewers report nothing above the threshold or the default iteration
+  * cap is reached.
+  */
 def reviewAndFix[B <: Backend](
     coder: LlmTool[B],
     sessionId: SessionId[B],
@@ -85,7 +97,44 @@ def reviewAndFix[B <: Backend](
     task: String,
     lintCommand: Option[String] = None,
     confidenceThreshold: Double = 0.7
-)(using FlowContext): IgnoredIssues = ???
+)(using FlowContext): IgnoredIssues =
+  stage(s"Review & fix: $task"):
+    fixLoop(
+      evaluate =
+        () => gatherReviews(reviewers, task, lintCommand, confidenceThreshold),
+      fix = issues =>
+        coder
+          .result[IgnoredIssues]
+          .continueSession(sessionId, FixRequest(issues), LlmConfig.default)
+    )
+
+/** Run each reviewer in parallel, optionally include the lint summary,
+  * concatenate the issues, and keep only those above the confidence threshold.
+  * A local `supervised` scope confines the forks so the caller doesn't need
+  * `using Ox`.
+  */
+private def gatherReviews(
+    reviewers: List[LlmTool[?]],
+    task: String,
+    lintCommand: Option[String],
+    confidenceThreshold: Double
+)(using FlowContext): ReviewResult =
+  val reviewResults: List[ReviewResult] =
+    if reviewers.isEmpty then Nil
+    else
+      supervised:
+        reviewers
+          .map(r => fork(r.result[ReviewResult].prompt(task)))
+          .map(_.join())
+  val lintResults: List[ReviewResult] =
+    lintCommand.toList.map(cmd => lint(cmd, claude.haiku))
+  val allIssues = (reviewResults ++ lintResults).flatMap(_.issues)
+  val kept = allIssues.filter(_.confidence >= confidenceThreshold)
+  ReviewResult(
+    issues = kept,
+    summary =
+      s"${kept.size} issue(s) at or above confidence $confidenceThreshold"
+  )
 
 def lint(
     command: String,
