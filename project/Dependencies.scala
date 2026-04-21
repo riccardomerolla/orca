@@ -19,7 +19,7 @@ object Dependencies {
 
   val osLib      = "com.lihaoyi"                          %% "os-lib"             % V.osLib
   val jsoniter   = "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % V.jsoniter
-  val jsoniterMacros = "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % V.jsoniter % "compile-internal"
+  val jsoniterMacros = "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % V.jsoniter % "provided, test"
 
   val tapirApispec = "com.softwaremill.sttp.tapir"   %% "tapir-apispec-docs" % V.tapir
 
