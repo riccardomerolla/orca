@@ -13,11 +13,11 @@ class OrcaTest extends munit.FunSuite:
     )
 
   test(
-    "orca runs the body with a FlowContext carrying the provided userPrompt"
+    "orca runs the body and userPrompt accessor resolves against FlowContext"
   ):
     var seen: String = ""
     orca(args = OrcaArgs("hello world"), interaction = silentInteraction) {
-      seen = summon[FlowContext].userPrompt
+      seen = userPrompt // top-level accessor resolves the ambient FlowContext
     }
     assertEquals(seen, "hello world")
 
