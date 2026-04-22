@@ -42,7 +42,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
         |//> using jvm 21
         |
         |import orca.*
-        |import orca.cli.{orca, OrcaArgs}
+        |import orca.cli.OrcaArgs
         |
         |orca(args = OrcaArgs("smoke test")):
         |  println(s"userPrompt=$userPrompt")

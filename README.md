@@ -13,7 +13,6 @@ integrations, and observability.
 //> using dep "com.virtuslab::orca-cli:0.1.0-SNAPSHOT"
 //> using jvm 21
 import orca.*
-import orca.cli.orca
 
 orca:
   val plan = claude.result[TaskPlan].prompt(userPrompt)
@@ -107,7 +106,6 @@ Write a flow script, `hello.sc`:
 //> using jvm 21
 
 import orca.*
-import orca.cli.orca
 
 orca:
   println(s"Orca says hello. Your task is: $userPrompt")
@@ -163,7 +161,6 @@ script:
 //> using jvm 21
 
 import orca.*
-import orca.cli.orca
 
 case class TaskPlan(branchName: String, description: String)
     derives Schema, ConfiguredJsonValueCodec
