@@ -23,10 +23,10 @@ lazy val commonSettings = Seq(
   testFrameworks += new TestFramework("munit.Framework")
 )
 
-lazy val core = (project in file("core"))
+lazy val tools = (project in file("tools"))
   .settings(commonSettings)
   .settings(
-    name := "orca-core",
+    name := "orca-tools",
     libraryDependencies ++= Seq(
       osLib,
       jsoniter,
@@ -40,7 +40,7 @@ lazy val core = (project in file("core"))
   )
 
 lazy val claude = (project in file("claude"))
-  .dependsOn(core, core % "test->test")
+  .dependsOn(tools, tools % "test->test")
   .settings(commonSettings)
   .settings(
     name := "orca-claude",
@@ -48,7 +48,7 @@ lazy val claude = (project in file("claude"))
   )
 
 lazy val codex = (project in file("codex"))
-  .dependsOn(core)
+  .dependsOn(tools)
   .settings(commonSettings)
   .settings(
     name := "orca-codex",
@@ -56,7 +56,7 @@ lazy val codex = (project in file("codex"))
   )
 
 lazy val flow = (project in file("flow"))
-  .dependsOn(core)
+  .dependsOn(tools)
   .settings(commonSettings)
   .settings(
     name := "orca-flow",
@@ -64,7 +64,7 @@ lazy val flow = (project in file("flow"))
   )
 
 lazy val cli = (project in file("cli"))
-  .dependsOn(core, flow, claude, codex)
+  .dependsOn(tools, flow, claude, codex)
   .settings(commonSettings)
   .settings(
     name := "orca-cli",
@@ -72,7 +72,7 @@ lazy val cli = (project in file("cli"))
   )
 
 lazy val orca = (project in file("."))
-  .aggregate(core, flow, claude, codex, cli)
+  .aggregate(tools, flow, claude, codex, cli)
   .settings(
     name := "orca",
     publish / skip := true
