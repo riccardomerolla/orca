@@ -119,32 +119,95 @@ scala-cli run hello.sc -- "implement feature X"
 
 ## Getting started as a contributor
 
+### Build and test
+
 ```bash
-sbt compile                 # build everything
-sbt test                    # unit tests across core, claude, cli
-ORCA_INTEGRATION=1 sbt test # also runs gated integration tests (needs claude,
-                            # gh, and scala-cli on PATH)
-sbt scalafmtAll             # format every Scala source
+sbt compile                 # build every module
+sbt test                    # run all unit tests (~120 fast tests, no network)
+sbt "core/test"             # scope to one module
+sbt "core/testOnly orca.FixLoopTest"   # scope to one suite
 ```
 
-Metals MCP is configured — open the repo in a Metals-capable editor (VS Code,
-IntelliJ, etc.) and you get type info, jump-to-definition, and diagnostics
-across all modules. The `.metals/` directory contains the MCP server config.
+All suites must be green and all compiler warnings treated as errors
+(`-Wunused:all`, `-Wvalue-discard`, `-Wnonunit-statement`) before a change
+lands.
 
-For AI-assisted development on this repo, the `direct-style-scala`
-plugin supplies the canonical conventions: braceless syntax, explicit return
-types, no class-level `var`s, Ox for concurrency, `.handle*` for Tapir
-endpoints. Compiler warnings are treated as errors (`-Wunused:all`,
-`-Wvalue-discard`, `-Wnonunit-statement`).
-
-### Running the Claude backend end-to-end
+### Formatting
 
 ```bash
+sbt scalafmtAll             # reformat every Scala source in place
+sbt scalafmtCheckAll        # fail if any source would be reformatted
+```
+
+A `sbt scalafmtCheckAll` run is part of CI; please run it locally before
+pushing.
+
+### Integration tests (gated)
+
+Some tests shell out to real external tools and are skipped unless the
+`ORCA_INTEGRATION` env var is set:
+
+```bash
+# All gated integration tests across modules
+ORCA_INTEGRATION=1 sbt test
+
+# Scope to one gated suite
 ORCA_INTEGRATION=1 sbt "claude/testOnly orca.claude.ClaudeIntegrationTest"
+ORCA_INTEGRATION=1 sbt "core/testOnly orca.OsGitHubIntegrationTest"
+ORCA_INTEGRATION=1 sbt "cli/testOnly orca.cli.ScalaCliSmokeTest"
 ```
 
-This spawns real `claude -p` calls, exercises session resume, and verifies the
-stream-json NDJSON parser. Requires an authenticated Claude Code CLI.
+Prerequisites depending on which suite you run:
+
+| Suite | Needs |
+|---|---|
+| `ClaudeIntegrationTest` | `claude` on PATH, authenticated (`claude auth login`) |
+| `OsGitHubIntegrationTest` | `gh` on PATH, authenticated (`gh auth login`) |
+| `ScalaCliSmokeTest` | `scala-cli` on PATH; runs `sbt publishLocal` internally |
+
+Unit tests use fakes (`StubCliRunner`, `FakeLlmTool`, `FakeCliProcess`,
+`TestFlowContext`) so they never touch the network or the real filesystem
+outside of `os.temp.dir()`.
+
+### Iterating quickly
+
+- `sbt --client <cmd>` talks to a persistent sbt server, so compile + test
+  round-trips are a couple of seconds rather than twenty.
+- `~test` (`sbt ~test`) re-runs tests on save if you prefer a watch mode.
+- Metals MCP is configured — open the repo in a Metals-capable editor
+  (VS Code, IntelliJ with Metals, etc.) and you get type info,
+  jump-to-definition, and diagnostics across all modules without running
+  sbt. `.metals/mcp.json` holds the MCP server config so AI-assisted
+  tooling can query real type info.
+
+### Publishing locally
+
+```bash
+sbt publishLocal
+```
+
+Installs `com.virtuslab::orca-core`, `orca-claude`, `orca-codex`, `orca-cli`
+at version `0.1.0-SNAPSHOT` into `~/.ivy2/local` so a scala-cli script with
+`//> using repository ivy2Local` picks them up.
+
+### Coding conventions
+
+For AI-assisted development on this repo, the `direct-style-scala` plugin
+supplies the canonical conventions: braceless syntax, explicit return types on
+public members, no class-level `var`s, Ox for concurrency, `.handle*` (not
+`.serverLogic*`) for Tapir endpoints. Mutable state is allowed in test
+helpers that stand in for external systems. Tests target exactly one
+scenario each.
+
+### Running the `orca` CLI entry
+
+```bash
+sbt "cli/run 'implement feature X' --verbose"
+```
+
+This just exercises the CLI entry point and args parser today; a real flow
+script is the intended consumption path (see "Getting started as a library
+user" above).
 
 ## A first flow
 
