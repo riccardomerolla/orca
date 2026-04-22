@@ -77,17 +77,21 @@ so a consumer who only wants Claude doesn't pull in sttp.
 
 ## Requirements
 
+**To use Orca** (run flow scripts):
+
 - JDK 21 or newer (the library targets `-release 21` and uses Ox virtual
   threads).
-- sbt 1.12+.
-- For the Claude backend: the `claude` CLI installed and authenticated (`claude
-  auth login`).
-- For the GitHub tool: `gh` installed and authenticated.
-- For running the smoke test: `scala-cli`.
+- [scala-cli](https://scala-cli.virtuslab.org/).
+- For the Claude backend: the `claude` CLI, authenticated (`claude auth
+  login`).
+- For the GitHub tool: `gh`, authenticated (`gh auth login`).
+
+**To develop Orca** (hack on this repo): the above plus sbt 1.12+.
 
 ## Getting started as a library user
 
-Orca isn't on Maven Central yet. To try a flow script locally:
+Orca isn't on Maven Central yet. Until it is, one-time setup requires sbt to
+publish the artifacts into your local Ivy cache:
 
 ```bash
 git clone <repo>
@@ -95,7 +99,8 @@ cd orca-sandbox
 sbt publishLocal            # installs com.virtuslab::orca-*:0.1.0-SNAPSHOT
 ```
 
-Write a flow script, `hello.sc`:
+After that, day-to-day flow development only needs scala-cli. Write a flow
+script, `hello.sc`:
 
 ```scala
 //> using dep "com.virtuslab::orca-cli:0.1.0-SNAPSHOT"
