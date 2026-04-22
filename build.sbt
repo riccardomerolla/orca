@@ -55,8 +55,16 @@ lazy val codex = (project in file("codex"))
     libraryDependencies ++= Seq(osLib, sttpClient, sttpClientOx)
   )
 
+lazy val flow = (project in file("flow"))
+  .dependsOn(core)
+  .settings(commonSettings)
+  .settings(
+    name := "orca-flow",
+    libraryDependencies ++= Seq(ox, jsoniterMacros, jsonSchemaValidator)
+  )
+
 lazy val cli = (project in file("cli"))
-  .dependsOn(core, claude, codex)
+  .dependsOn(core, flow, claude, codex)
   .settings(commonSettings)
   .settings(
     name := "orca-cli",
@@ -64,7 +72,7 @@ lazy val cli = (project in file("cli"))
   )
 
 lazy val orca = (project in file("."))
-  .aggregate(core, claude, codex, cli)
+  .aggregate(core, flow, claude, codex, cli)
   .settings(
     name := "orca",
     publish / skip := true

@@ -1,6 +1,6 @@
-package orca.io
+package orca
 
-import orca.{ReviewIssue, ReviewResult, Severity}
+import orca.io.JsonSchemaGen
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}
