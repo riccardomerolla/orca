@@ -1,4 +1,6 @@
-package orca
+package orca.io
+
+import orca.*
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}

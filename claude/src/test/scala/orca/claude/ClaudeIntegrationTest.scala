@@ -1,6 +1,7 @@
 package orca.claude
 
 import orca.*
+import orca.subprocess.*
 
 import scala.util.Using
 

@@ -2,6 +2,8 @@ package orca.cli
 
 import _root_.orca.*
 import _root_.orca.claude.ClaudeBackend
+import _root_.orca.subprocess.OsProcCliRunner
+import _root_.orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 
 /** Production FlowContext wiring. Callers typically construct one via
   * `orca(...)`, which supplies defaults for all tools. Individual tools can be

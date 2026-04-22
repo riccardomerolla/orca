@@ -2,6 +2,7 @@ package orca.claude
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.*
+import orca.subprocess.CliRunner
 import ox.Ox
 
 class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:

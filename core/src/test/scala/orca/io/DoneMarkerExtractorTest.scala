@@ -1,4 +1,6 @@
-package orca
+package orca.io
+
+import orca.*
 
 class DoneMarkerExtractorTest extends munit.FunSuite:
   private val payload = """{"x":1}"""

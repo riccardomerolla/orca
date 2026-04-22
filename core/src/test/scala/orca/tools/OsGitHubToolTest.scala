@@ -1,4 +1,7 @@
-package orca
+package orca.tools
+
+import orca.*
+import orca.subprocess.*
 
 import scala.concurrent.duration.DurationInt
 

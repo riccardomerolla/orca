@@ -1,4 +1,6 @@
-package orca
+package orca.subprocess
+
+import orca.*
 
 class StubCliRunnerTest extends munit.FunSuite:
   test("returns the canned response and records the call"):

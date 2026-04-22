@@ -1,6 +1,7 @@
 package orca.claude
 
 import orca.*
+import orca.subprocess.*
 
 import java.util.UUID
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}

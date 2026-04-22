@@ -1,6 +1,7 @@
 package orca.cli
 
 import _root_.orca.*
+import _root_.orca.io.{JsonSchemaGen, ResponseParser}
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.resilience.retry

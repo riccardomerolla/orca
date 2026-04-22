@@ -1,6 +1,7 @@
 package orca.claude
 
 import orca.*
+import orca.subprocess.CliProcess
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 

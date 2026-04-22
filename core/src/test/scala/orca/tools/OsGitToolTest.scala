@@ -1,4 +1,6 @@
-package orca
+package orca.tools
+
+import orca.*
 
 class OsGitToolTest extends munit.FunSuite:
 

@@ -1,6 +1,7 @@
 package orca.claude
 
 import orca.*
+import orca.subprocess.*
 
 class ClaudeBackendTest extends munit.FunSuite:
 

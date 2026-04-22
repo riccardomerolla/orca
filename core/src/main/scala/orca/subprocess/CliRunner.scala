@@ -1,4 +1,6 @@
-package orca
+package orca.subprocess
+
+import orca.*
 
 case class CliResult(exitCode: Int, stdout: String, stderr: String)
 
