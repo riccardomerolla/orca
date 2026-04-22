@@ -13,7 +13,7 @@ import _root_.orca.{
   OrcaEvent,
   PromptTemplate
 }
-import _root_.orca.claude.ClaudeBackend
+import _root_.orca.claude.{ClaudeBackend, DefaultClaudeTool}
 import _root_.orca.subprocess.OsProcCliRunner
 import _root_.orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 

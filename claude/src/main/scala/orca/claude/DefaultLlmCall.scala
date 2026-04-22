@@ -1,6 +1,6 @@
-package orca.cli
+package orca.claude
 
-import _root_.orca.{
+import orca.{
   AgentInput,
   Backend,
   LlmBackend,
@@ -10,7 +10,7 @@ import _root_.orca.{
   PromptTemplate,
   SessionId
 }
-import _root_.orca.io.{JsonSchemaGen, ResponseParser}
+import orca.io.{JsonSchemaGen, ResponseParser}
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.resilience.retry

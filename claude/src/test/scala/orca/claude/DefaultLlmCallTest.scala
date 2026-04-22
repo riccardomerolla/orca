@@ -1,6 +1,6 @@
-package orca.cli
+package orca.claude
 
-import _root_.orca.{
+import orca.{
   Backend,
   DefaultPromptTemplate,
   InteractiveHandle,
