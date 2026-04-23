@@ -25,9 +25,13 @@ object ClaudeArgs:
       prompt: String,
       sessionId: SessionId[Backend.ClaudeCode.type],
       config: LlmConfig,
-      systemPromptFile: Option[os.Path]
+      systemPromptFile: Option[os.Path],
+      resume: Boolean = false
   ): Seq[String] =
-    Seq("claude", prompt, "--session-id", SessionId.value(sessionId)) ++
+    val sessionArg =
+      if resume then Seq("--resume", SessionId.value(sessionId))
+      else Seq("--session-id", SessionId.value(sessionId))
+    Seq("claude", prompt) ++ sessionArg ++
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
       autoApproveArgs(config)

@@ -2,11 +2,13 @@ package orca.tools.claude
 
 import orca.{
   Backend,
+  Interaction,
   InteractiveHandle,
   JsonData,
   LlmBackend,
   LlmConfig,
   LlmResult,
+  OrcaListener,
   SessionId,
   Usage
 }
@@ -34,29 +36,24 @@ class SequencedBackend(outputs: List[String])
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
+  ): LlmResult[Backend.ClaudeCode.type] = nextResult(prompt)
+
+  /** Record a continuation call tagged with its sessionId so tests can
+    * assert the same session is being resumed across retries.
+    */
+  def continueHeadless(
+      sessionId: SessionId[Backend.ClaudeCode.type],
+      prompt: String,
+      config: LlmConfig,
+      workDir: os.Path
   ): LlmResult[Backend.ClaudeCode.type] =
-    val _ = promptsRef.updateAndGet(prompt :: _)
-    val next = remaining
-      .getAndUpdate(rs => rs.drop(1))
-      .headOption
-      .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
-    LlmResult(
-      sessionId = SessionId[Backend.ClaudeCode.type]("sess-test"),
-      output = next,
-      usage = Usage.empty
-    )
+    nextResult(prompt).copy(sessionId = sessionId)
 
   def prepareWorkspace(
       config: LlmConfig,
       outputSchema: String,
       workDir: os.Path
   )(using ox.Ox): Unit = ???
-  def continueHeadless(
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      prompt: String,
-      config: LlmConfig,
-      workDir: os.Path
-  ): LlmResult[Backend.ClaudeCode.type] = ???
   def runInteractive(
       prompt: String,
       config: LlmConfig,
@@ -69,6 +66,20 @@ class SequencedBackend(outputs: List[String])
       workDir: os.Path
   ): InteractiveHandle[Backend.ClaudeCode.type] = ???
 
+  private def nextResult(
+      prompt: String
+  ): LlmResult[Backend.ClaudeCode.type] =
+    val _ = promptsRef.updateAndGet(prompt :: _)
+    val next = remaining
+      .getAndUpdate(rs => rs.drop(1))
+      .headOption
+      .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
+    LlmResult(
+      sessionId = SessionId[Backend.ClaudeCode.type]("sess-test"),
+      output = next,
+      usage = Usage.empty
+    )
+
 class DefaultLlmCallTest extends munit.FunSuite:
 
   import scala.concurrent.duration.DurationInt
@@ -77,13 +88,20 @@ class DefaultLlmCallTest extends munit.FunSuite:
   private val fastRetry =
     ox.scheduling.Schedule.fixedInterval(1.milli).maxRepeats(5)
 
+  private val stubInteraction: Interaction = new Interaction:
+    val listeners: List[OrcaListener] = Nil
+    def runInteractive[B <: Backend](
+        handle: InteractiveHandle[B]
+    ): LlmResult[B] = handle.awaitTermination()
+
   private def makeCall(backend: SequencedBackend): DefaultLlmCall[Answer] =
     new DefaultLlmCall[Answer](
       backend = backend,
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       template = DefaultPromptTemplate,
       workDir = os.pwd,
-      emit = _ => ()
+      emit = _ => (),
+      interaction = stubInteraction
     )
 
   test(
@@ -119,3 +137,23 @@ class DefaultLlmCallTest extends munit.FunSuite:
       val answer = makeCall(backend).autonomous("a question")
       assertEquals(answer, Answer(7))
       assertEquals(backend.prompts.size, 1)
+
+  test(
+    "continueSession retries against the same sessionId on parse failure"
+  ):
+    val backend = new SequencedBackend(
+      List("garbage", """{"value":11}""")
+    )
+    val sid = SessionId[Backend.ClaudeCode.type]("sess-under-test")
+    supervised:
+      val answer = makeCall(backend).continueSession(sid, "next step")
+      assertEquals(answer, Answer(11))
+      val Seq(first, second) = backend.prompts: @unchecked
+      assert(
+        !first.contains("garbage"),
+        "first attempt must be the original prompt, not a retry"
+      )
+      assert(
+        second.contains("garbage"),
+        "second attempt must quote the first failure as a corrective prompt"
+      )

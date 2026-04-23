@@ -3,10 +3,12 @@ package orca.tools.claude
 import orca.{
   AgentInput,
   Backend,
+  Interaction,
   JsonData,
   LlmBackend,
   LlmCall,
   LlmConfig,
+  LlmResult,
   OrcaEvent,
   PromptTemplate,
   SessionId
@@ -15,14 +17,16 @@ import orca.io.{JsonSchemaGen, ResponseParser}
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
 import ox.resilience.retry
 
-/** Default implementation of LlmCall for the Claude backend. Only the headless
-  * `prompt` path is wired today — session and interactive variants are stubbed
-  * pending Epic 8 integration.
+/** Default implementation of LlmCall for the Claude backend.
   *
-  * `prompt` retries the LLM call using `config.retrySchedule`. On a JSON parse
-  * failure the next attempt uses the corrective retry prompt (carrying the
-  * failed response and the parser error), counting against the same retry
-  * budget as transport failures.
+  * All structured calls share a retry-with-corrective-prompt loop: when
+  * the response fails to parse as `O`, the next attempt's prompt
+  * includes the failed output and the parser error so the model can
+  * self-correct. Headless variants (`autonomous`, `startSession`,
+  * `continueSession`) use `backend.runHeadless` /
+  * `backend.continueHeadless`; interactive variants spawn claude with
+  * an inherited TTY and hand the terminal to the supplied `Interaction`.
+  * Only the final successful attempt's session id is returned.
   */
 private case class FailedAttempt(response: String, parserError: String)
 
@@ -31,7 +35,8 @@ class DefaultLlmCall[O](
     effectiveConfig: LlmConfig => LlmConfig,
     template: PromptTemplate,
     workDir: os.Path,
-    emit: OrcaEvent => Unit
+    emit: OrcaEvent => Unit,
+    interaction: Interaction
 )(using jd: JsonData[O])
     extends LlmCall[Backend.ClaudeCode.type, O]:
 
@@ -41,7 +46,48 @@ class DefaultLlmCall[O](
 
   def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
       ai: AgentInput[I]
+  ): O = runHeadlessWithRetry(input, config, resume = None)._2
+
+  def startSession[I: AgentInput](
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): (SessionId[Backend.ClaudeCode.type], O) =
+    runHeadlessWithRetry(input, config, resume = None)
+
+  /** Continue the given session with a structured input. If the response
+    * fails to parse as `O`, each retry calls `--resume <sessionId>` with
+    * the corrective prompt, which means the transcript that a later
+    * `continueSession` sees will include those stale corrective turns.
+    * That's the price of self-correction against a persistent session.
+    */
+  def continueSession[I: AgentInput](
+      sessionId: SessionId[Backend.ClaudeCode.type],
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): O = runHeadlessWithRetry(input, config, resume = Some(sessionId))._2
+
+  def interactive[I: AgentInput](
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): (SessionId[Backend.ClaudeCode.type], O) =
+    runInteractiveOnce(input, config, resume = None)
+
+  def continueInteractive[I: AgentInput](
+      sessionId: SessionId[Backend.ClaudeCode.type],
+      input: I,
+      config: LlmConfig = LlmConfig.default
   ): O =
+    runInteractiveOnce(input, config, resume = Some(sessionId))._2
+
+  /** Headless retry loop used by autonomous/startSession/continueSession.
+    * On a parse failure the next attempt swaps the original prompt for a
+    * corrective one; the returned session id is whichever one succeeded.
+    */
+  private def runHeadlessWithRetry[I](
+      input: I,
+      config: LlmConfig,
+      resume: Option[SessionId[Backend.ClaudeCode.type]]
+  )(using ai: AgentInput[I]): (SessionId[Backend.ClaudeCode.type], O) =
     val serialized = ai.serialize(input)
     val outputSchema = JsonSchemaGen[O]
     val initialPrompt = template.autonomous(serialized, outputSchema, config)
@@ -56,9 +102,12 @@ class DefaultLlmCall[O](
       val promptText = lastFailure match
         case Some(f) => template.retry(f.response, f.parserError)
         case None    => initialPrompt
-      val result = backend.runHeadless(promptText, effective, workDir)
+      val result = resume match
+        case Some(sid) =>
+          backend.continueHeadless(sid, promptText, effective, workDir)
+        case None => backend.runHeadless(promptText, effective, workDir)
       emit(OrcaEvent.TokensUsed(effective.model, result.usage))
-      try ResponseParser.parse[O](result.output)
+      try (result.sessionId, ResponseParser.parse[O](result.output))
       catch
         case e: JsonReaderException =>
           lastFailure = Some(
@@ -70,24 +119,25 @@ class DefaultLlmCall[O](
           )
           throw e
 
-  def startSession[I: AgentInput](
+  /** Interactive variant. No retry: the user is steering the session and
+    * a parse failure here means the agent didn't write the done-marker
+    * payload correctly — surface the JsonReaderException directly so the
+    * flow sees it rather than silently re-launching claude.
+    */
+  private def runInteractiveOnce[I](
       input: I,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.ClaudeCode.type], O) = ???
-
-  def continueSession[I: AgentInput](
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O = ???
-
-  def interactive[I: AgentInput](
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.ClaudeCode.type], O) = ???
-
-  def continueInteractive[I: AgentInput](
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O = ???
+      config: LlmConfig,
+      resume: Option[SessionId[Backend.ClaudeCode.type]]
+  )(using ai: AgentInput[I]): (SessionId[Backend.ClaudeCode.type], O) =
+    val serialized = ai.serialize(input)
+    val outputSchema = JsonSchemaGen[O]
+    val prompt = template.interactive(serialized, outputSchema, config)
+    val effective = effectiveConfig(config)
+    val handle = resume match
+      case Some(sid) =>
+        backend.continueInteractive(sid, prompt, effective, workDir)
+      case None => backend.runInteractive(prompt, effective, workDir)
+    val result: LlmResult[Backend.ClaudeCode.type] =
+      interaction.runInteractive(handle)
+    emit(OrcaEvent.TokensUsed(effective.model, result.usage))
+    (result.sessionId, ResponseParser.parse[O](result.output))

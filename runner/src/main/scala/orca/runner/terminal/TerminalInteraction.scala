@@ -1,6 +1,13 @@
 package orca.runner.terminal
 
-import orca.{Interaction, InteractiveHandle, OrcaEvent, OrcaListener}
+import orca.{
+  Backend,
+  Interaction,
+  InteractiveHandle,
+  LlmResult,
+  OrcaEvent,
+  OrcaListener
+}
 import org.jline.terminal.TerminalBuilder
 
 import java.io.PrintStream
@@ -33,7 +40,9 @@ class TerminalInteraction(
     * restored when control returns. Uses `dumb = true` so the build doesn't
     * fail when there's no TTY (tests, CI, pipes).
     */
-  def runInteractive(handle: InteractiveHandle[?]): Unit =
+  def runInteractive[B <: Backend](
+      handle: InteractiveHandle[B]
+  ): LlmResult[B] =
     val terminal = TerminalBuilder
       .builder()
       .system(true)
@@ -42,8 +51,7 @@ class TerminalInteraction(
     try
       val savedAttributes = terminal.getAttributes
       out.println(paint(fansi.Color.Yellow, "[entering interactive session]"))
-      try
-        val _ = handle.awaitTermination()
+      try handle.awaitTermination()
       finally terminal.setAttributes(savedAttributes)
     finally
       try terminal.close()

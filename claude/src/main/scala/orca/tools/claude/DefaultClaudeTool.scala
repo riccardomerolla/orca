@@ -3,6 +3,7 @@ package orca.tools.claude
 import orca.{
   Backend,
   ClaudeTool,
+  Interaction,
   JsonData,
   LlmBackend,
   LlmCall,
@@ -17,16 +18,19 @@ import orca.{
   * `withSystemPrompt`, and the model accessors return new instances so flow
   * scripts can chain without side effects.
   *
-  * `ask` and `resultAs[O].autonomous` are implemented against the headless backend
-  * path; session and interactive variants remain stubbed and will land with
-  * Epic 8 / Epic 4 follow-ups once they're exercised end-to-end.
+  * Headless calls (`ask`, `startSession`, `continueSession`, and the full
+  * `resultAs[O]` shape) go straight through the backend. Interactive calls
+  * spawn claude with an inherited TTY, then hand the terminal to
+  * `interaction` so the `Interaction`-specific channel (terminal, Slack,
+  * etc.) owns the user session until the agent writes its done marker.
   */
 class DefaultClaudeTool(
     backend: LlmBackend[Backend.ClaudeCode.type],
     config: LlmConfig,
     template: PromptTemplate,
     workDir: os.Path,
-    emit: OrcaEvent => Unit
+    emit: OrcaEvent => Unit,
+    interaction: Interaction
 ) extends ClaudeTool:
 
   val name: String = "claude"
@@ -67,7 +71,14 @@ class DefaultClaudeTool(
     result.output
 
   def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
-    new DefaultLlmCall[O](backend, effectiveConfig, template, workDir, emit)
+    new DefaultLlmCall[O](
+      backend,
+      effectiveConfig,
+      template,
+      workDir,
+      emit,
+      interaction
+    )
 
   private def withModel(model: String): ClaudeTool =
     copy(config = config.copy(model = Some(model)))
@@ -77,9 +88,10 @@ class DefaultClaudeTool(
       config: LlmConfig = config,
       template: PromptTemplate = template,
       workDir: os.Path = workDir,
-      emit: OrcaEvent => Unit = emit
+      emit: OrcaEvent => Unit = emit,
+      interaction: Interaction = interaction
   ): DefaultClaudeTool =
-    new DefaultClaudeTool(backend, config, template, workDir, emit)
+    new DefaultClaudeTool(backend, config, template, workDir, emit, interaction)
 
   private def effectiveConfig(callConfig: LlmConfig): LlmConfig =
     // Call-level config overrides tool-level values where the call explicitly

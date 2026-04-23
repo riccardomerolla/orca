@@ -45,20 +45,28 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     val sessionId = SessionId[Backend.ClaudeCode.type](
       java.util.UUID.randomUUID().toString
     )
-    val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
-    val args =
-      ClaudeArgs.interactive(prompt, sessionId, config, systemPromptFile)
-    val process = cli.spawn(args, cwd = workDir)
-    new ClaudeInteractiveHandle(process, sessionId)
+    invokeInteractive(prompt, sessionId, config, workDir, resume = false)
 
-  // TODO: implement continueInteractive — same flow as runInteractive but
-  // with --resume <sid> instead of a fresh --session-id.
   def continueInteractive(
       sessionId: SessionId[Backend.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): InteractiveHandle[Backend.ClaudeCode.type] = ???
+  ): InteractiveHandle[Backend.ClaudeCode.type] =
+    invokeInteractive(prompt, sessionId, config, workDir, resume = true)
+
+  private def invokeInteractive(
+      prompt: String,
+      sessionId: SessionId[Backend.ClaudeCode.type],
+      config: LlmConfig,
+      workDir: os.Path,
+      resume: Boolean
+  ): InteractiveHandle[Backend.ClaudeCode.type] =
+    val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
+    val args =
+      ClaudeArgs.interactive(prompt, sessionId, config, systemPromptFile, resume)
+    val process = cli.spawn(args, cwd = workDir)
+    new ClaudeInteractiveHandle(process, sessionId)
 
   private def invokeHeadless(
       prompt: String,

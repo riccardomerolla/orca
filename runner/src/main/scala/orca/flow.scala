@@ -55,6 +55,7 @@ def flowWith(
       userPrompt = args.userPrompt,
       dispatcher = dispatcher,
       workDir = workDir,
+      interaction = interaction,
       claude = claude,
       git = git,
       gh = gh,

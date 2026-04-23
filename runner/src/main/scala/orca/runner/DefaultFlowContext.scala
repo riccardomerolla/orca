@@ -8,6 +8,7 @@ import orca.{
   FsTool,
   GitHubTool,
   GitTool,
+  Interaction,
   LlmConfig,
   OrcaEvent,
   PromptTemplate
@@ -47,6 +48,7 @@ object DefaultFlowContext:
       userPrompt: String,
       dispatcher: EventDispatcher,
       workDir: os.Path,
+      interaction: Interaction,
       claude: Option[ClaudeTool] = None,
       git: Option[GitTool] = None,
       gh: Option[GitHubTool] = None,
@@ -62,7 +64,8 @@ object DefaultFlowContext:
           config = LlmConfig.default,
           template = template,
           workDir = workDir,
-          emit = dispatcher.dispatch
+          emit = dispatcher.dispatch,
+          interaction = interaction
         )
       ),
       git = git.getOrElse(new OsGitTool(workDir)),
