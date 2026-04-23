@@ -138,5 +138,10 @@ class DefaultLlmCall[O](
         backend.continueInteractive(sid, prompt, effective, workDir)
       case None => backend.runInteractive(prompt, effective, workDir)
     val result = interaction.drive(conversation)
+    // TokensUsed emits on the normal path only. If the user cancels
+    // mid-session, drive throws before this line — and the stream-json
+    // protocol doesn't carry partial usage today, so there's nothing
+    // authoritative to emit at cancel time. Revisit when upstream adds
+    // running-usage messages.
     emit(OrcaEvent.TokensUsed(effective.model, result.usage))
     (result.sessionId, ResponseParser.parse[O](result.output))

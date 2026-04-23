@@ -65,6 +65,12 @@ object ClaudeArgs:
   ): Seq[String] =
     resume.toSeq.flatMap(id => Seq("--resume", SessionId.value(id)))
 
+  /** claude's CLI only accepts `--json-schema <inline>` — there's no
+    * `--json-schema-file` form. For typical Orca schemas (a few KB)
+    * inlining is fine; `ARG_MAX` gives us ~128KB of headroom on Linux
+    * and ~256KB of total argv on macOS. If someone builds a flow with
+    * a schema that large, the exec will fail loudly.
+    */
   private def jsonSchemaArgs(schemaFile: Option[os.Path]): Seq[String] =
     schemaFile.toSeq.flatMap(f => Seq("--json-schema", os.read(f)))
 

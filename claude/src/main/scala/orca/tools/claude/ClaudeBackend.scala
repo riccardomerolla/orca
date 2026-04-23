@@ -61,6 +61,10 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
 
   /** Spawn `claude` in stream-json mode, write the opening user turn,
     * and wrap the process in a live [[ClaudeConversation]].
+    *
+    * If the initial write fails (claude exec'd then died, broken
+    * pipe, etc.) we SIGINT the process before surfacing the error so
+    * no subprocess leaks.
     */
   private def openConversation(
       prompt: String,
@@ -71,8 +75,15 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
     val args = ClaudeArgs.streamJson(config, systemPromptFile, resume)
     val process = cli.spawnPiped(args, cwd = workDir)
-    process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))
-    new ClaudeConversation(process, config)
+    try
+      process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))
+      new ClaudeConversation(process, config)
+    catch
+      case e: Exception =>
+        process.sendSigInt()
+        throw OrcaFlowException(
+          s"Failed to open claude stream-json session: ${e.getMessage}"
+        )
 
   private def invokeHeadless(
       prompt: String,
