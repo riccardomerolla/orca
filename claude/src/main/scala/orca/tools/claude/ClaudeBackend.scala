@@ -48,7 +48,7 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      outputSchema: Option[String] = None
+      outputSchema: Option[String]
   ): Conversation[Backend.ClaudeCode.type] =
     openConversation(prompt, config, workDir, resume = None, outputSchema)
 
@@ -57,7 +57,7 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      outputSchema: Option[String] = None
+      outputSchema: Option[String]
   ): Conversation[Backend.ClaudeCode.type] =
     openConversation(
       prompt,

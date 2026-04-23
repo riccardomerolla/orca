@@ -14,9 +14,11 @@ trait PromptTemplate:
     */
   def autonomous(input: String, outputSchema: String, config: LlmConfig): String
 
-  /** Prompt for an interactive call: the model converses with the user and
-    * emits the structured JSON response only after the `<<<ORCA_DONE>>>`
-    * marker.
+  /** Prompt for an interactive call: the model converses with the user on
+    * intermediate turns, then produces a single JSON value matching the
+    * output schema as its final turn. The runtime validates the final
+    * value against the schema via `--json-schema` (or equivalent backend
+    * mechanism); no in-band completion marker is required.
     */
   def interactive(
       input: String,

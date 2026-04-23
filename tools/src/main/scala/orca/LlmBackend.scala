@@ -46,7 +46,7 @@ trait LlmBackend[B <: Backend]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      outputSchema: Option[String] = None
+      outputSchema: Option[String]
   ): Conversation[B]
 
   def continueInteractive(
@@ -54,5 +54,5 @@ trait LlmBackend[B <: Backend]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      outputSchema: Option[String] = None
+      outputSchema: Option[String]
   ): Conversation[B]

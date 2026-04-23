@@ -43,10 +43,12 @@ object DefaultPromptTemplate extends PromptTemplate:
       config: LlmConfig
   ): String =
     s"""Collaborate with the user on the task described in the input. Respond
-       |normally during the conversation. When the task is complete, return a
-       |final value that matches the output schema below — the runtime will
-       |validate the structured result automatically, so reply in plain prose
-       |without code fences.
+       |normally during intermediate turns. Your final turn — after the task
+       |is complete — must be a single JSON value that conforms to the output
+       |schema below. Rules for the final turn:
+       |$RawJsonRules
+       |Intermediate turns are free-form conversation; only the last turn
+       |needs to be the structured value.
        |
        |Input:
        |$input
