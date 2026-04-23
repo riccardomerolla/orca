@@ -21,9 +21,9 @@ import orca.tools.git.OsGitTool
 import orca.tools.github.OsGitHubTool
 
 /** Production FlowContext wiring. Callers typically construct one via
-  * `flow(...)`, which supplies defaults for all tools. Individual tools can be
-  * replaced by passing overrides to `flow`. `codex` remains stubbed pending
-  * Epic 9.
+  * `flow(args, ...)`, which supplies defaults for all tools. Individual
+  * tools can be replaced by passing overrides as named arguments to
+  * `flow`. `codex` remains stubbed pending Epic 9.
   */
 class DefaultFlowContext(
     val userPrompt: String,

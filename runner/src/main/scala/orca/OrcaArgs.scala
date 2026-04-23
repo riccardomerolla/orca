@@ -20,7 +20,7 @@ object OrcaArgs:
   /** Convenience for flow scripts:
     *
     * ```
-    * flowWith(args = OrcaArgs.from(args)):
+    * flow(OrcaArgs.from(args.toSeq)):
     *   // userPrompt resolves against the positional CLI arg
     * ```
     *

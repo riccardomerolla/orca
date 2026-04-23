@@ -5,40 +5,30 @@ import _root_.orca.runner.DefaultFlowContext
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
-/** Bare entry point for flow scripts. Creates a default-configured
-  * FlowContext, registers the terminal interaction's listeners, and runs
-  * `body` inside an Ox `supervised` scope.
+/** Entry point for flow scripts. Takes the parsed CLI args (required) plus
+  * any number of overrides, then runs the body inside an Ox `supervised`
+  * scope with the resulting `FlowContext` as an ambient given.
   *
   * ```
-  * flow:
+  * flow(OrcaArgs.from(args.toSeq)):
   *   val plan = claude.resultAs[Plan].autonomous(userPrompt)
   *   ...
   * ```
   *
-  * Kept to a single parameter on purpose: Scala 3's `flow: <block>`
-  * fewer-braces syntax only propagates the `FlowContext ?=>` given when
-  * the block is the sole argument. Overloads or a second parameter list
-  * silently drop the given from the body. For custom wiring use
-  * `flowWith(...)` — see below.
-  */
-def flow(body: FlowContext ?=> Unit): Unit = flowWith()(body)
-
-/** Configured entry point. Override any of the tools, the interaction
-  * channel, the working directory, etc. Every parameter is defaulted, so
-  * callers only name the ones they change.
+  * With overrides:
   *
   * ```
-  * flowWith(args = OrcaArgs("ship it"), git = Some(myGit)):
+  * flow(OrcaArgs.from(args.toSeq), git = Some(myGit), interaction = SlackInteraction(...)):
   *   ...
   * ```
   *
-  * The two-parameter-list shape is deliberate — it means the block
-  * argument lands in a list of its own, which keeps the
-  * `FlowContext ?=>` given propagating into the body. `flowWith: body`
-  * (no parens) does not work; use plain `flow: body` for that case.
+  * The two-parameter-list shape is deliberate: Scala 3's fewer-braces
+  * propagates the `FlowContext ?=>` given into the body only when the
+  * block lands in a list of its own. `flow(...): body` satisfies that
+  * because the first list is closed by `(...)` before the block starts.
   */
-def flowWith(
-    args: OrcaArgs = OrcaArgs(),
+def flow(
+    args: OrcaArgs,
     interaction: Interaction = new TerminalInteraction(),
     extraListeners: List[OrcaListener] = Nil,
     workDir: os.Path = os.pwd,

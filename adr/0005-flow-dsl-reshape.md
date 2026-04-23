@@ -7,9 +7,11 @@ Status: Accepted · Date: 2026-04-23
 Three related changes land together so a flow script is one import plus a
 bare `flow:` block:
 
-1. **Rename the entry method `orca` → `flow`**, kept to a single
-   parameter (the body). Configured runs go through
-   `flowWith(args = ..., git = ..., ...)(body)`.
+1. **Rename the entry method `orca` → `flow`**, a two-list method whose
+   first list carries the parsed CLI args (required) plus any named
+   overrides, and whose second list is the body as a
+   `FlowContext ?=> Unit`. Users write `flow(OrcaArgs.from(args.toSeq)):
+   ...` or `flow(args, git = Some(myGit)): ...`.
 2. **Move backend implementations under `orca.tools.<capability>`** —
    `orca.tools.claude`, `orca.tools.codex`, `orca.tools.fs`,
    `orca.tools.git`, `orca.tools.github`. Top-level `orca` is reserved
@@ -46,11 +48,12 @@ Five Scala-3-specific constraints pin this shape:
   already type in `//> using dep com.virtuslab::orca`.
 - **Fewer-braces plus context functions.** Scala 3 propagates the
   `FlowContext ?=>` given from a context-function parameter into a
-  `f: <block>` body *only* when `f` has exactly one parameter list with
-  exactly one parameter. Overloads, two lists, or a body after
-  defaulted positional params silently drop the given. Hence `flow`
-  takes only the body and `flowWith(...)` is a separate method for
-  configuration.
+  `f(...): <block>` body when the block lands in its own argument
+  list. A body after defaulted positional params in a single list
+  silently loses the given. `flow(args, ...)(body)` — two lists, block
+  on its own — satisfies the propagation rule, so overrides can be
+  passed as named arguments in the first list without regressing the
+  DSL.
 - **Sibling backend packages keep colliding with accessors.**
   `orca.claude` (a package) shadowed `claude` (an accessor); moving the
   impls to `orca.tools.claude` eliminates the shadow and gives us a
@@ -80,16 +83,16 @@ Five Scala-3-specific constraints pin this shape:
   //> using dep "com.virtuslab::orca:0.1.0-SNAPSHOT"
   import orca.{*, given}
   case class Plan(...) derives JsonData
-  flow:
+  flow(OrcaArgs.from(args.toSeq)):
     claude.resultAs[Plan].autonomous(userPrompt)
   ```
 
-  No other imports, no Schema/codec typeclasses in scope, no qualified
-  names.
+  One import, one `flow(args)` call. No Schema/codec typeclasses in
+  scope, no qualified names, no second entry point to remember.
 
-- `flow:` and `flowWith(...): body` cannot be unified behind one name
-  without reintroducing the fewer-braces regression. They stay as two
-  named entry points; scaladoc on each explains the split.
+- `flow` is a single entry point with a required first argument (the
+  parsed CLI args). Overrides for tools, interaction, etc. ride as
+  named arguments in the same first list.
 
 - Backend authors place their code under `orca.tools.<backend>` and
   follow the same pattern as `orca.tools.claude`. A hypothetical
@@ -108,8 +111,12 @@ Five Scala-3-specific constraints pin this shape:
 
 - **Keep `orca:` as the entry.** Needs either collapsing to a single
   list (breaks named-arg overrides) or a trailing-body-after-defaults
-  shape (still loses the given). Neither preserves bare `orca:` plus
-  `orca(git = ...)`.
+  shape (still loses the given). Neither preserves a bare block-style
+  entry plus named overrides.
+- **Keep a bare `flow:` alongside `flow(args)`.** Tested during
+  iteration; the bare form silently defaulted `userPrompt` to empty,
+  which is a footgun real scripts tripped on immediately. Better to
+  require `args` at the entry so scripts can't forget to wire argv.
 - **Drop the forwarder givens and make `derives JsonData` emit
   `given Schema[A]` and `given codec[A]` alongside.** `derives`
   machinery only emits one given per derivation; the alternative is

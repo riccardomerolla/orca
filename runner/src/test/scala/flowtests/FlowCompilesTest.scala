@@ -26,7 +26,7 @@ object FlowCanary:
     * `resultAs[O]` path without any extra imports.
     */
   def structuredResult(): Unit =
-    flow:
+    flow(OrcaArgs()):
       stage("plan"):
         val (_, _) = claude.resultAs[FlowPlan].interactive(userPrompt)
         val _ = claude.resultAs[FlowPlan].autonomous(userPrompt)
@@ -35,7 +35,7 @@ object FlowCanary:
     * promises for per-task implementation.
     */
   def continuedSession(): Unit =
-    flow:
+    flow(OrcaArgs()):
       stage("impl"):
         val (sessionId, _) = claude.startSession("kick off")
         val _ = claude.continueSession(sessionId, "keep going")
@@ -44,7 +44,7 @@ object FlowCanary:
   /** Every top-level accessor must resolve from `import orca.*` alone.
     */
   def accessors(): Unit =
-    flow:
+    flow(OrcaArgs()):
       stage("tools"):
         val _ = git.createBranch("x")
         git.commit("msg")
@@ -57,7 +57,7 @@ object FlowCanary:
     * `stage`/fork machinery.
     */
   def reviewLoop(): Unit =
-    flow:
+    flow(OrcaArgs()):
       val (sessionId, plan) = stage("plan"):
         claude.resultAs[FlowPlan].interactive(userPrompt)
       for task <- plan.tasks do
@@ -71,10 +71,18 @@ object FlowCanary:
           )
 
   /** Config overrides must be reachable as unqualified names so users can
-    * write `flowWith(args = OrcaArgs(...), workDir = ...)` straight from
-    * `import orca.*`.
+    * write `flow(args = ..., workDir = ...)` straight from `import orca.*`.
     */
   def configured(): Unit =
-    flowWith(args = OrcaArgs("hello"), workDir = os.pwd):
+    flow(args = OrcaArgs("hello"), workDir = os.pwd):
       stage("cfg"):
+        val _ = claude.ask(userPrompt)
+
+  /** Typical scripted entry: parse the CLI argv and hand it straight to
+    * `flow`. `args` here stands in for the scala-cli script's top-level
+    * `args: Array[String]`.
+    */
+  def fromCliArgs(args: Array[String]): Unit =
+    flow(OrcaArgs.from(args.toSeq)):
+      stage("start"):
         val _ = claude.ask(userPrompt)

@@ -45,9 +45,10 @@ case class Task(branchName: String, description: String) derives JsonData
 case class Plan(tasks: List[Task]) derives JsonData
 
 // `args` is scala-cli's script argv; `OrcaArgs.from` parses the
-// positional prompt and flags. For scripts with no CLI input, bare
-// `flow: ...` also works and leaves `userPrompt` as the empty string.
-flowWith(args = OrcaArgs.from(args.toSeq)):
+// positional prompt and flags. Pass `OrcaArgs()` for scripts that take
+// no CLI input; pass overrides (e.g. `git = Some(myGit)`) as extra
+// named arguments.
+flow(OrcaArgs.from(args.toSeq)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
   val (sessionId, plan) = stage("plan"):
     claude.resultAs[Plan].interactive(userPrompt)
@@ -71,8 +72,8 @@ flowWith(args = OrcaArgs.from(args.toSeq)):
 The `{*, given}` selector is load-bearing: plain `import orca.*` leaves
 Scala 3's given instances behind, and the flow DSL relies on them to bridge
 `derives JsonData` to the underlying Schema and codec during macro
-expansion. The rest is just Scala — if you need to override a tool, use
-`flowWith(git = Some(myGit)): ...` instead of bare `flow:`.
+expansion. The rest is just Scala — if you need to override a tool, pass
+it as an extra named argument: `flow(args, git = Some(myGit)): ...`.
 
 ```bash
 scala-cli run ship.sc -- "Add a rate-limiter to the /login endpoint"
@@ -163,8 +164,8 @@ lives in its own sub-package, `orca.runner.terminal`, so swapping it for a
 Slack or HTTP equivalent is a matter of substituting one `Interaction` at the
 call site rather than rewiring modules.
 
-Only the user-facing surface lives in `package orca` (the `flow`/`flowWith`
-entry points, the tool traits, the accessors, `JsonData`, `OrcaArgs`).
+Only the user-facing surface lives in `package orca` (the `flow` entry
+point, the tool traits, the accessors, `JsonData`, `OrcaArgs`).
 Implementations live in focused subpackages: `orca.tools.fs` /
 `orca.tools.git` / `orca.tools.github` (os-backed tool impls),
 `orca.tools.claude` / `orca.tools.codex` (LLM backends), `orca.subprocess`

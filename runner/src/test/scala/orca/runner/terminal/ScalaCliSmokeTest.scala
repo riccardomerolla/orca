@@ -40,7 +40,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
         |
         |import orca.{*, given}
         |
-        |flowWith(args = OrcaArgs("smoke test")):
+        |flow(args = OrcaArgs("smoke test")):
         |  println(s"userPrompt=$userPrompt")
         |""".stripMargin
     )

@@ -1,6 +1,6 @@
 package orca
 
-/** An LLM adapter usable from flow scripts — the handle you call from `flow:`
+/** An LLM adapter usable from flow scripts — the handle you call from a `flow(...)`
   * blocks (`claude`, `codex`, etc.) to run prompts, start or continue sessions,
   * and hand off interactive control. Parameterized by the concrete `Backend` so
   * session ids and results carry the backend identity at the type level.

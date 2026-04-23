@@ -11,13 +11,13 @@ Orca is a Scala library for defining and executing development workflows — pla
 //> using jvm 21
 import orca.{*, given}
 
-flow:
+flow(OrcaArgs.from(args.toSeq)):
   val (_, plan) = claude.resultAs[TaskPlan].interactive(userPrompt)
   git.createBranch(plan.branchName)
   // ...
 ```
 
-Flows use `.sc` (scala-cli script) files, where top-level expressions are allowed. For `.scala` files, wrap in `@main def run() = flow { ... }`.
+Flows use `.sc` (scala-cli script) files, where top-level expressions are allowed. `args` is scala-cli's script argv. For `.scala` files, wrap in `@main def run(args: String*) = flow(OrcaArgs.from(args)) { ... }`.
 
 ```bash
 scala-cli run my-flow.sc -- "implement feature X"
@@ -73,7 +73,7 @@ A flow freely mixes both.
 Each tool is a trait (interface) implemented by the library. Custom implementations can be substituted:
 
 ```scala
-flowWith(git = Some(MyGitImpl()), interaction = SlackInteraction("#dev")):
+flow(OrcaArgs(), git = Some(MyGitImpl()), interaction = SlackInteraction("#dev")):
   // uses custom git implementation and Slack for interactive stages
 ```
 
@@ -279,7 +279,7 @@ trait PromptTemplate:
   def interactive(input: String, outputSchema: String, config: LlmConfig): String
 ```
 
-Custom templates can be provided via `flowWith(promptTemplate = ...)`. The `<<<ORCA_DONE>>>` marker signals task completion in interactive mode.
+Custom templates can be provided via `flow(..., promptTemplate = ...)`. The `<<<ORCA_DONE>>>` marker signals task completion in interactive mode.
 
 For **headless** calls, the backend returns JSON on stdout. For **interactive** calls, a backend-specific mechanism detects the marker (see backends below) and writes the JSON payload to a **sentinel file** at `/tmp/orca-<session-id>.json`.
 
@@ -315,7 +315,7 @@ trait Interaction:
 Built-in: `TerminalInteraction` (default, JLine 3 + fansi), `SlackInteraction(channel)`. Additional listeners for telemetry:
 
 ```scala
-flowWith(interaction = TerminalInteraction, extraListeners = List(CostTracker)):
+flow(OrcaArgs(), interaction = TerminalInteraction, extraListeners = List(CostTracker)):
   // ...
 ```
 
