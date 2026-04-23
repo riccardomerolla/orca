@@ -43,6 +43,9 @@ class TerminalInteraction(
   def runInteractive[B <: Backend](
       handle: InteractiveHandle[B]
   ): LlmResult[B] =
+    // The spinner thread would keep firing `cursor-up + clear` while claude
+    // paints the TTY, overwriting its output. Stop it before handing over.
+    spinner.foreach(_.stop())
     val terminal = TerminalBuilder
       .builder()
       .system(true)

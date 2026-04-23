@@ -44,7 +44,10 @@ case class Task(branchName: String, description: String) derives JsonData
 
 case class Plan(tasks: List[Task]) derives JsonData
 
-flow:
+// `args` is scala-cli's script argv; `OrcaArgs.from` parses the
+// positional prompt and flags. For scripts with no CLI input, bare
+// `flow: ...` also works and leaves `userPrompt` as the empty string.
+flowWith(args = OrcaArgs.from(args.toSeq)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
   val (sessionId, plan) = stage("plan"):
     claude.resultAs[Plan].interactive(userPrompt)

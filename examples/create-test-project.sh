@@ -112,7 +112,9 @@ case class Task(branchName: String, description: String) derives JsonData
 
 case class Plan(tasks: List[Task]) derives JsonData
 
-flow:
+// `args` is scala-cli's top-level script argv. `OrcaArgs.from` parses
+// positional + flag arguments (`userPrompt`, `--verbose`, etc.).
+flowWith(args = OrcaArgs.from(args.toSeq)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
   val (sessionId, plan) = stage("plan"):
     claude.resultAs[Plan].interactive(userPrompt)
