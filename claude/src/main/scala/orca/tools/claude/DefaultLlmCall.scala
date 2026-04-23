@@ -19,14 +19,15 @@ import ox.resilience.retry
 
 /** Default implementation of LlmCall for the Claude backend.
   *
-  * All structured calls share a retry-with-corrective-prompt loop: when
-  * the response fails to parse as `O`, the next attempt's prompt
-  * includes the failed output and the parser error so the model can
-  * self-correct. Headless variants (`autonomous`, `startSession`,
-  * `continueSession`) use `backend.runHeadless` /
-  * `backend.continueHeadless`; interactive variants spawn claude with
-  * an inherited TTY and hand the terminal to the supplied `Interaction`.
-  * Only the final successful attempt's session id is returned.
+  * All structured headless calls share a retry-with-corrective-prompt
+  * loop: when the response fails to parse as `O`, the next attempt's
+  * prompt includes the failed output and the parser error so the model
+  * can self-correct. Only the final successful attempt's session id is
+  * returned. Headless variants (`autonomous`, `startSession`,
+  * `continueSession`) go through `backend.runHeadless` /
+  * `backend.continueHeadless`; interactive variants open a
+  * stream-json `Conversation` via the backend and hand it to the
+  * supplied `Interaction` for rendering and user steering.
   */
 private case class FailedAttempt(response: String, parserError: String)
 

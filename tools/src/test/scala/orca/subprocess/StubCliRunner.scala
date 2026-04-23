@@ -9,26 +9,19 @@ case class CliCall(
     cwd: os.Path
 )
 
-case class SpawnCall(
-    args: List[String],
-    env: Map[String, String],
-    cwd: os.Path
-)
-
 /** A `CliRunner` that returns a pre-configured response and records every
-  * invocation for later assertions. The response can be swapped via
-  * `setResponse` so tests can simulate external state changes across polls.
-  * Test helper — mutable state is confined to AtomicReferences.
+  * `run` invocation for later assertions. The response can be swapped via
+  * `setResponse` so tests can simulate external state changes across
+  * polls. Tests that need a piped subprocess construct
+  * `FakePipedCliProcess` directly — this stub's `spawnPiped` is a no-op
+  * that throws.
   */
 class StubCliRunner(
-    initialResponse: CliResult = CliResult(0, "", ""),
-    pipedProcessFactory: () => PipedCliProcess = () => NoopPipedCliProcess
+    initialResponse: CliResult = CliResult(0, "", "")
 ) extends CliRunner:
   private val current: AtomicReference[CliResult] =
     AtomicReference(initialResponse)
   private val recordedCalls: AtomicReference[List[CliCall]] =
-    AtomicReference(Nil)
-  private val recordedPipedSpawns: AtomicReference[List[SpawnCall]] =
     AtomicReference(Nil)
 
   def setResponse(r: CliResult): Unit = current.set(r)
@@ -36,9 +29,6 @@ class StubCliRunner(
   // Calls are prepended (newest-first) and reversed for chronological access.
   def calls: List[CliCall] = recordedCalls.get().reverse
   def lastCall: Option[CliCall] = recordedCalls.get().headOption
-
-  def pipedSpawns: List[SpawnCall] = recordedPipedSpawns.get().reverse
-  def lastPipedSpawn: Option[SpawnCall] = recordedPipedSpawns.get().headOption
 
   def run(
       args: Seq[String],
@@ -57,17 +47,6 @@ class StubCliRunner(
       env: Map[String, String],
       cwd: os.Path
   ): PipedCliProcess =
-    val _ = recordedPipedSpawns.updateAndGet(ss =>
-      SpawnCall(args.toList, env, cwd) :: ss
+    throw new UnsupportedOperationException(
+      "StubCliRunner does not support spawnPiped; use FakePipedCliProcess directly"
     )
-    pipedProcessFactory()
-
-object NoopPipedCliProcess extends PipedCliProcess:
-  def sendSigInt(): Unit = ()
-  def isAlive: Boolean = false
-  def waitForExit(): Int = 0
-  def tryExitCode: Option[Int] = Some(0)
-  def writeLine(line: String): Unit = ()
-  def closeStdin(): Unit = ()
-  def stdoutLines: Iterator[String] = Iterator.empty
-  def stderrLines: Iterator[String] = Iterator.empty

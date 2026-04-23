@@ -48,11 +48,6 @@ class SequencedBackend(outputs: List[String])
   ): LlmResult[Backend.ClaudeCode.type] =
     nextResult(prompt).copy(sessionId = sessionId)
 
-  def prepareWorkspace(
-      config: LlmConfig,
-      outputSchema: String,
-      workDir: os.Path
-  )(using ox.Ox): Unit = ???
   def runInteractive(
       prompt: String,
       config: LlmConfig,

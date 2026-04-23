@@ -1,7 +1,5 @@
 package orca
 
-import ox.Ox
-
 case class LlmResult[B <: Backend](
     sessionId: SessionId[B],
     output: String,
@@ -9,12 +7,6 @@ case class LlmResult[B <: Backend](
 )
 
 trait LlmBackend[B <: Backend]:
-  def prepareWorkspace(
-      config: LlmConfig,
-      outputSchema: String,
-      workDir: os.Path
-  )(using Ox): Unit
-
   def runHeadless(
       prompt: String,
       config: LlmConfig,

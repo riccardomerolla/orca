@@ -12,7 +12,6 @@ import orca.{
 }
 import orca.subprocess.CliRunner
 import orca.tools.claude.streamjson.OutboundMessage
-import ox.Ox
 
 /** Claude Code backend. Headless calls go through `claude -p --output-format
   * json` — single-shot, parses the JSON result. Interactive calls drive a
@@ -22,12 +21,6 @@ import ox.Ox
   * `ConversationEvent`s the channel renders.
   */
 class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
-
-  def prepareWorkspace(
-      config: LlmConfig,
-      outputSchema: String,
-      workDir: os.Path
-  )(using Ox): Unit = ()
 
   def runHeadless(
       prompt: String,

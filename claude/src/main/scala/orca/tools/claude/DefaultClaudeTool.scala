@@ -20,9 +20,8 @@ import orca.{
   *
   * Headless calls (`ask`, `startSession`, `continueSession`, and the full
   * `resultAs[O]` shape) go straight through the backend. Interactive calls
-  * spawn claude with an inherited TTY, then hand the terminal to
-  * `interaction` so the `Interaction`-specific channel (terminal, Slack,
-  * etc.) owns the user session until the agent writes its done marker.
+  * spawn claude in stream-json mode and wrap the subprocess in a
+  * `Conversation` that the supplied `interaction` drives to completion.
   */
 class DefaultClaudeTool(
     backend: LlmBackend[Backend.ClaudeCode.type],
