@@ -2,6 +2,7 @@ package orca.runner.terminal
 
 import orca.{
   Backend,
+  Conversation,
   Interaction,
   InteractiveHandle,
   LlmResult,
@@ -34,6 +35,15 @@ class TerminalInteraction(
     if animated then Some(new OrcaSpinner(out, useColor = useColor)) else None
 
   def listeners: List[OrcaListener] = listenersList
+
+  /** Stream-json driver path. Real rendering lands in Task 65; until
+    * then, calling `drive` raises. Keeping this as a stub means tests
+    * and call sites compile against the new contract now.
+    */
+  def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
+    throw new UnsupportedOperationException(
+      "TerminalInteraction.drive is not yet implemented; stream-json UI lands in Task 65"
+    )
 
   /** Hand the terminal to the backend's child process. Snapshots terminal
     * attributes beforehand so any raw/cbreak mode the child leaves behind is

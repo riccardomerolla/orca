@@ -93,6 +93,9 @@ class DefaultLlmCallTest extends munit.FunSuite:
     def runInteractive[B <: Backend](
         handle: InteractiveHandle[B]
     ): LlmResult[B] = handle.awaitTermination()
+    def drive[B <: Backend](
+        conversation: orca.Conversation[B]
+    ): LlmResult[B] = throw new UnsupportedOperationException("test stub")
 
   private def makeCall(backend: SequencedBackend): DefaultLlmCall[Answer] =
     new DefaultLlmCall[Answer](
