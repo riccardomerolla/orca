@@ -35,16 +35,24 @@ trait LlmBackend[B <: Backend]:
     * caller hands to an [[Interaction.drive]] for rendering and user
     * steering. The backend owns the subprocess and NDJSON parsing; the
     * channel owns UX.
+    *
+    * `outputSchema` is the JSON Schema the agent's final reply must
+    * conform to, or `None` for free-form text. Backends that support
+    * structured-output validation (claude's `--json-schema`) enforce
+    * it; those that don't can ignore the parameter and let the caller
+    * validate post-hoc.
     */
   def runInteractive(
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      outputSchema: Option[String] = None
   ): Conversation[B]
 
   def continueInteractive(
       sessionId: SessionId[B],
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      outputSchema: Option[String] = None
   ): Conversation[B]

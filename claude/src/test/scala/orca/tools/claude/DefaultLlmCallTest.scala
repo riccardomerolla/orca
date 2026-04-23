@@ -57,13 +57,15 @@ class SequencedBackend(outputs: List[String])
   def runInteractive(
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      outputSchema: Option[String] = None
   ): orca.Conversation[Backend.ClaudeCode.type] = ???
   def continueInteractive(
       sessionId: SessionId[Backend.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      outputSchema: Option[String] = None
   ): orca.Conversation[Backend.ClaudeCode.type] = ???
 
   private def nextResult(

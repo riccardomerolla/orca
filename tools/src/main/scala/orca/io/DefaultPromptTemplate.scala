@@ -2,14 +2,19 @@ package orca.io
 
 import orca.{LlmConfig, PromptTemplate}
 
-/** The `PromptTemplate` Orca uses unless `flow(promptTemplate = ...)`
+/** The `PromptTemplate` Orca uses unless `flow(..., promptTemplate = ...)`
   * overrides it. Each method builds the final prompt string via Scala
-  * string interpolation; the `DoneMarker` is exposed so the interactive
-  * backend can watch for it in streamed output.
+  * string interpolation.
+  *
+  * Autonomous calls ship the JSON Schema inline in the prompt — they
+  * route through `claude -p --output-format json` with no structured
+  * validation on the CLI side. Interactive calls rely on `--json-schema`
+  * for enforcement and let the agent reply in natural conversation until
+  * it has the final structured value; the schema is still summarised in
+  * the prompt so the model knows the target shape, but no magic marker
+  * is required.
   */
 object DefaultPromptTemplate extends PromptTemplate:
-
-  val DoneMarker: String = "<<<ORCA_DONE>>>"
 
   private val RawJsonRules: String =
     """- no surrounding prose or commentary
@@ -38,12 +43,10 @@ object DefaultPromptTemplate extends PromptTemplate:
       config: LlmConfig
   ): String =
     s"""Collaborate with the user on the task described in the input. Respond
-       |normally during the conversation. When the task is complete and you are
-       |ready to hand back a final structured result:
-       |- emit the literal marker $DoneMarker on its own line
-       |- follow it with a single JSON value conforming to the output schema
-       |- do not emit the marker before the task is complete
-       |- do not wrap the JSON in markdown code fences
+       |normally during the conversation. When the task is complete, return a
+       |final value that matches the output schema below — the runtime will
+       |validate the structured result automatically, so reply in plain prose
+       |without code fences.
        |
        |Input:
        |$input

@@ -36,7 +36,7 @@ object ClaudeArgs:
       config: LlmConfig,
       systemPromptFile: Option[os.Path],
       resume: Option[SessionId[Backend.ClaudeCode.type]] = None,
-      jsonSchemaFile: Option[os.Path] = None
+      jsonSchema: Option[String] = None
   ): Seq[String] =
     Seq(
       "claude",
@@ -52,7 +52,7 @@ object ClaudeArgs:
       systemPromptFileArgs(systemPromptFile) ++
       resumeArgs(resume) ++
       autoApproveArgs(config) ++
-      jsonSchemaArgs(jsonSchemaFile)
+      jsonSchemaArgs(jsonSchema)
 
   private def modelArgs(config: LlmConfig): Seq[String] =
     config.model.toSeq.flatMap(m => Seq("--model", m))
@@ -71,8 +71,8 @@ object ClaudeArgs:
     * and ~256KB of total argv on macOS. If someone builds a flow with
     * a schema that large, the exec will fail loudly.
     */
-  private def jsonSchemaArgs(schemaFile: Option[os.Path]): Seq[String] =
-    schemaFile.toSeq.flatMap(f => Seq("--json-schema", os.read(f)))
+  private def jsonSchemaArgs(schema: Option[String]): Seq[String] =
+    schema.toSeq.flatMap(s => Seq("--json-schema", s))
 
   private def autoApproveArgs(config: LlmConfig): Seq[String] =
     config.autoApprove match

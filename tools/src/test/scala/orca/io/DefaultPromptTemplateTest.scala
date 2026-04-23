@@ -12,7 +12,6 @@ class DefaultPromptTemplateTest extends munit.FunSuite:
     assert(prompt.contains(input))
     assert(prompt.contains(schema))
     assert(prompt.contains("no markdown code fences"))
-    assert(!prompt.contains(DefaultPromptTemplate.DoneMarker))
 
   test("retry prompt includes the failed response, error, and raw-JSON rules"):
     val failed = """{"name":"widget"""
@@ -22,16 +21,11 @@ class DefaultPromptTemplateTest extends munit.FunSuite:
     assert(prompt.contains(error))
     assert(prompt.contains("no markdown code fences"))
 
-  test(
-    "interactive prompt embeds input, schema, and ORCA_DONE on its own line"
-  ):
+  test("interactive prompt embeds input and schema and does not ask for a marker"):
     val prompt = DefaultPromptTemplate.interactive(input, schema, config)
     assert(prompt.contains(input))
     assert(prompt.contains(schema))
-    val lineWithMarker =
-      prompt.linesIterator.find(_.contains(DefaultPromptTemplate.DoneMarker))
-    assert(lineWithMarker.isDefined, "marker missing from interactive prompt")
-    assert(
-      lineWithMarker.exists(_.contains("on its own line")),
-      "interactive prompt should instruct the marker be emitted on its own line"
-    )
+    // Explicit negative checks: the stream-json path uses --json-schema for
+    // validation, not a sentinel + transcript scrape.
+    assert(!prompt.contains("<<<"))
+    assert(!prompt.contains("marker"))

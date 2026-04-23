@@ -47,17 +47,25 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
   def runInteractive(
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      outputSchema: Option[String] = None
   ): Conversation[Backend.ClaudeCode.type] =
-    openConversation(prompt, config, workDir, resume = None)
+    openConversation(prompt, config, workDir, resume = None, outputSchema)
 
   def continueInteractive(
       sessionId: SessionId[Backend.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      outputSchema: Option[String] = None
   ): Conversation[Backend.ClaudeCode.type] =
-    openConversation(prompt, config, workDir, resume = Some(sessionId))
+    openConversation(
+      prompt,
+      config,
+      workDir,
+      resume = Some(sessionId),
+      outputSchema
+    )
 
   /** Spawn `claude` in stream-json mode, write the opening user turn,
     * and wrap the process in a live [[ClaudeConversation]].
@@ -70,10 +78,12 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[Backend.ClaudeCode.type]]
+      resume: Option[SessionId[Backend.ClaudeCode.type]],
+      outputSchema: Option[String]
   ): Conversation[Backend.ClaudeCode.type] =
     val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
-    val args = ClaudeArgs.streamJson(config, systemPromptFile, resume)
+    val args =
+      ClaudeArgs.streamJson(config, systemPromptFile, resume, outputSchema)
     val process = cli.spawnPiped(args, cwd = workDir)
     try
       process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))

@@ -135,8 +135,20 @@ class DefaultLlmCall[O](
     val effective = effectiveConfig(config)
     val conversation = resume match
       case Some(sid) =>
-        backend.continueInteractive(sid, prompt, effective, workDir)
-      case None => backend.runInteractive(prompt, effective, workDir)
+        backend.continueInteractive(
+          sid,
+          prompt,
+          effective,
+          workDir,
+          Some(outputSchema)
+        )
+      case None =>
+        backend.runInteractive(
+          prompt,
+          effective,
+          workDir,
+          Some(outputSchema)
+        )
     val result = interaction.drive(conversation)
     // TokensUsed emits on the normal path only. If the user cancels
     // mid-session, drive throws before this line — and the stream-json
