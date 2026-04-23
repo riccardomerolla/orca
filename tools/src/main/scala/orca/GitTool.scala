@@ -2,7 +2,10 @@ package orca
 
 case class CommitInfo(hash: String, message: String, author: String)
 
-// TODO: implement worktrees integration
+/** Git adapter usable from flow scripts — the handle behind the `git`
+  * accessor. Wraps branch, commit, diff, and log operations against the
+  * working repository. Worktree support is tracked as a future enhancement.
+  */
 trait GitTool:
   def createBranch(name: String): Unit
   def checkout(name: String): Unit

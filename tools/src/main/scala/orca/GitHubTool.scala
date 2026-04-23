@@ -13,6 +13,10 @@ enum BuildOutcome:
 
 case class BuildStatus(outcome: BuildOutcome, log: String)
 
+/** GitHub adapter usable from flow scripts — the handle behind the `gh`
+  * accessor. Creates pull requests, reads and writes comments, and polls
+  * GitHub's check-run status.
+  */
 trait GitHubTool:
   def createPr(title: String, body: String): PrHandle
   def readComments(pr: PrHandle): List[Comment]

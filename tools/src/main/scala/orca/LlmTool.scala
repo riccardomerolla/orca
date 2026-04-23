@@ -3,7 +3,12 @@ package orca
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import sttp.tapir.Schema
 
-// TODO: let's add a comment that this a tool for using in flows, allowing llm interaction. Add similar comments to other tools. Nothing elaborate, just the basics.
+/** An LLM adapter usable from flow scripts — the handle you call from
+  * `orca:` blocks (`claude`, `codex`, etc.) to run prompts, start or continue
+  * sessions, and hand off interactive control. Parameterized by the concrete
+  * `Backend` so session ids and results carry the backend identity at the
+  * type level.
+  */
 trait LlmTool[B <: Backend]:
   def name: String
   // TODO: add a comment saying that this allows specifying the shape of the call, and can be followed by the prompt. All user-facing method should have some basic usage info.
