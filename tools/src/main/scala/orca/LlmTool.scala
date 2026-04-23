@@ -28,7 +28,10 @@ trait LlmTool[B <: Backend]:
   def withSystemPrompt(prompt: String): LlmTool[B]
 
 trait ClaudeTool extends LlmTool[Backend.ClaudeCode.type]:
-  // TODO: add a comment that this overrides the default llm config
+  /** Returns a variant of this tool that pins the Claude model for
+    * subsequent calls, overriding `LlmConfig.model`. Typical usage:
+    * `claude.haiku.ask("summarize this")` for a cheap fast call.
+    */
   def haiku: ClaudeTool
   def sonnet: ClaudeTool
   def opus: ClaudeTool
