@@ -18,7 +18,11 @@ trait LlmTool[B <: Backend]:
     * `derives JsonData` on `O` provides both.
     */
   def result[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
-  // TODO: comment that this is a quick version of result[String].(...)
+  /** One-shot headless call that takes a string and returns a string —
+    * equivalent to `result[String].prompt(prompt, config)` without the need
+    * for a schema or codec. Use when the response is free-form text rather
+    * than a structured value.
+    */
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String
   def withConfig(config: LlmConfig): LlmTool[B]
   def withSystemPrompt(prompt: String): LlmTool[B]
