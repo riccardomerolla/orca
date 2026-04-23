@@ -71,7 +71,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       promptOutputs = List(ReviewResult.empty)
     )
     val coder = new FakeLlmTool("coder")
-    val result = reviewAndFix(
+    val result = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(silentReviewer),
@@ -98,7 +98,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       continueSessionOutputs =
         List(IgnoredIssues(List(IgnoredIssue(realIssue, "accepted"))))
     )
-    val result = reviewAndFix(
+    val result = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
@@ -131,7 +131,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         )
       )
     )
-    val result = reviewAndFix(
+    val result = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewerA, reviewerB),

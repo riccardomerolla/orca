@@ -56,7 +56,7 @@ orca:
       claude.continueSession(sessionId, s"Implement ${task.description}")
       git.commit(s"Implement ${task.description}")
 
-      reviewAndFix(
+      reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
@@ -132,7 +132,7 @@ to the runtime requirements above.
 orca/
 ├── build.sbt / project/
 ├── tools/      # tool interfaces + os-backed impls + structured I/O + event bus
-├── flow/       # FlowContext, stage/fail/fixLoop/reviewAndFix/lint, review types
+├── flow/       # FlowContext, stage/fail/fixLoop/reviewAndFixLoop/lint, review types
 ├── claude/     # Claude Code backend + DefaultClaudeTool + DefaultLlmCall
 ├── codex/      # Codex backend (skeleton, Epic 9)
 └── runner/     # orca() entry + DefaultFlowContext + terminal layer

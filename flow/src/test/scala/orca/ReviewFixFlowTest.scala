@@ -25,7 +25,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     )
 
   test(
-    "reviewAndFix wraps the loop in stage events and returns accumulated ignored issues"
+    "reviewAndFixLoop wraps the loop in stage events and returns accumulated ignored issues"
   ):
     val listener = new RecordingListener
     val dispatcher = new EventDispatcher(List(listener))
@@ -49,7 +49,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
         List(IgnoredIssues(List(IgnoredIssue(real, "accepted as trade-off"))))
     )
 
-    val result = reviewAndFix(
+    val result = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
@@ -98,7 +98,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
         List.fill(20)(IgnoredIssues(List(IgnoredIssue(issue("pass"), "ack"))))
     )
 
-    val result = reviewAndFix(
+    val result = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),

@@ -91,7 +91,7 @@ private case class FixRequest(issues: List[ReviewIssue])
   * cap is reached.
   */
 // TODO: this is also a loop? If so, let's keep the names consistent
-def reviewAndFix[B <: Backend](
+def reviewAndFixLoop[B <: Backend](
     coder: LlmTool[B],
     sessionId: SessionId[B],
     reviewers: List[LlmTool[?]],

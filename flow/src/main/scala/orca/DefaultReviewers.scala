@@ -50,7 +50,7 @@ class NamedLlmTool[B <: Backend](
 
 /** Pre-configured reviewer agents built atop the supplied base tool. Each
   * reviewer has its own `name` and system prompt; callers pass them (or a
-  * subset via `SelectedReviewers.pick`) to `reviewAndFix`.
+  * subset via `SelectedReviewers.pick`) to `reviewAndFixLoop`.
   */
 def defaultReviewers[B <: Backend](base: LlmTool[B]): List[LlmTool[B]] = List(
   new NamedLlmTool(
