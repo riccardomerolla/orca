@@ -33,14 +33,17 @@ class TerminalInteraction(
 
   def listeners: List[OrcaListener] = listenersList
 
-  /** Stream-json driver path. Real rendering lands in Task 65; until
-    * then, calling `drive` raises. Keeping this as a stub means tests
-    * and call sites compile against the new contract now.
+  /** Drive a live conversation to completion. Delegates to
+    * [[TerminalConversationRenderer]] for the per-event rendering +
+    * approval-prompt machinery; this class retains responsibility for
+    * the ambient spinner and the `OrcaListener` surface.
     */
   def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
-    throw new UnsupportedOperationException(
-      "TerminalInteraction.drive is not yet implemented; stream-json UI lands in Task 65"
-    )
+    new TerminalConversationRenderer(
+      out = out,
+      useColor = useColor,
+      spinner = spinner
+    ).render(conversation)
 
   private class TerminalListener extends OrcaListener:
     import TerminalInteraction.*
