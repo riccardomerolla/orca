@@ -1,6 +1,22 @@
 # 0006. Drive Claude Code via stream-json instead of TTY handoff
 
 Status: Accepted · Date: 2026-04-23
+Amends: [ADR 0003](0003-pluggable-llm-backends.md) (backend surface)
+Related: [ADR 0002](0002-context-function-flow-dsl.md) (flow DSL)
+
+## Context
+
+Before this ADR, Orca's interactive Claude path spawned `claude` with
+inherited stdio so the user's terminal was claude's terminal. Claude
+was instructed by prompt to emit a `<<<ORCA_DONE>>>` marker followed by
+JSON when done; a user-installed `.claude/settings.json` Stop hook
+watched the transcript for that marker and wrote the JSON payload to a
+filesystem sentinel (`/tmp/orca-<session-id>.json`); Orca polled the
+sentinel, sent SIGINT, and read the result. That path worked but
+coupled Orca to the claude CLI's specifics, prevented non-terminal
+interaction channels (Slack / HTTP), gave us no say over tool
+approvals, and was fragile in several dimensions (transcript races,
+sentinel-file portability, SIGINT timing).
 
 ## Decision
 
@@ -11,6 +27,11 @@ subprocess, not an inherited-TTY handoff. The backend spawns
 handles, writes the initial user turn as NDJSON, and wraps the
 subprocess in a `ClaudeConversation` that a channel's
 `Interaction.drive` consumes event-by-event.
+
+The flag set is deliberate: `--print` is the mode that accepts
+`--input-format stream-json`; `--verbose` surfaces the tool-use and
+`result` messages we need; `--include-partial-messages` lets us stream
+text deltas instead of waiting for whole turns.
 
 ## Shape
 
@@ -49,10 +70,11 @@ Key shifts vs. the previous TTY path:
   exactly once. The driver auto-approves tools that match
   `LlmConfig.autoApprove` before the event would fire; only
   channel-level decisions surface as events.
-- **Cancellation is option (a)** from ADR 0002 follow-up: a user
-  cancel throws `OrcaInteractiveCancelled` (a subclass of
-  `OrcaFlowException`) from `Conversation.awaitResult`. The enclosing
-  `stage(...)` catches or propagates it; the flow keeps running.
+- **Cancellation is exception-based and local**: a user cancel throws
+  `OrcaInteractiveCancelled` (a subclass of `OrcaFlowException`) from
+  `Conversation.awaitResult`. The enclosing `stage(...)` catches or
+  propagates it; the flow keeps running by default, or fails the
+  stage if the body does nothing with the exception.
 
 ## Why
 

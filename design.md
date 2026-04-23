@@ -279,11 +279,7 @@ trait PromptTemplate:
   def interactive(input: String, outputSchema: String, config: LlmConfig): String
 ```
 
-Custom templates can be provided via `flow(..., promptTemplate = ...)`. Interactive completion is signalled by the stream-json `result` message with a validated `structured_output` payload (see ADR 0006).
-
-For **headless** calls, the backend returns JSON on stdout. For **interactive** calls, the backend runs a controlled stream-json subprocess and emits typed `ConversationEvent`s; completion is signalled by a `result` message that carries the validated `structured_output` (when `--json-schema` is used).
-
-If a headless response fails to parse, the library retries with a corrective prompt (counts against the retry budget). Interactive parse failures surface to the caller without retry — the user is steering the session.
+Custom templates can be provided via `flow(..., promptTemplate = ...)`. For **headless** calls, the backend returns JSON on stdout; a parse failure triggers a corrective-retry prompt (counts against the retry budget). For **interactive** calls, the backend runs a stream-json subprocess (ADR 0006) and emits typed `ConversationEvent`s; the final `result` message carries the validated `structured_output` when `--json-schema` is supplied. Interactive parse failures surface to the caller without retry — the user is steering the session.
 
 ### Events and interaction
 
@@ -380,7 +376,7 @@ trait Conversation[B <: Backend]:
 | **Scala 3.x LTS** | Context functions, opaque types, enums, derives |
 | **mainargs** | CLI argument parsing (internal) |
 | **sttp-client** | Codex app-server JSON-RPC over WebSocket (Ox backend) |
-| **JLine 3** | Terminal control, TTY handover |
+| **JLine 3** | Terminal control, line editing, approval prompts |
 | **fansi** | Styled terminal output |
 | **os-lib** | Subprocess management |
 | **jsoniter-scala** | JSON codec (`derives ConfiguredJsonValueCodec`) |

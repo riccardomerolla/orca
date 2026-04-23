@@ -169,9 +169,8 @@ Second backend. WebSocket-based, independent of Claude.
 | 9.1 | Codex headless | Spawn `codex exec --json --full-auto`. Parse JSONL events. Extract `thread_id` from `thread.started`, output from `item.completed`, usage from `turn.completed`. Unit test with canned JSONL. | |
 | 9.2 | App-server lifecycle | Lazy spawn of `codex app-server`. Port management. Health check (wait for ready). Shutdown via Ox `useInScope`. Auto-restart on crash. Unit test with a mock server process. | |
 | 9.3 | WebSocket JSON-RPC client | sttp WebSocket client. Implement `thread/start`, `turn/start`, `thread/resume`, `thread/list`. Unit test with `WebSocketStub`. | |
-| 9.4 | Interactive mode | `launchInteractive` via app-server: create thread, start turn, stream events. Detect `<<<ORCA_DONE>>>` in streamed events, stop sending turns. Wire to `Interaction.runInteractive`. Unit test with stubbed WebSocket. | |
-| 9.5 | Codex stop hook | For headless mode: generate hook config with `{"continue": false}` output. Unit test. | |
-| 9.6 | Integration tests | Real `codex exec` calls (gated). App-server start/stop. | |
+| 9.4 | Interactive mode | `runInteractive` via app-server: create thread, start turn, stream events. Translate each turn event into `ConversationEvent` (AssistantTextDelta / AssistantTurnEnd / ApproveTool / etc.); return a `Conversation[Backend.Codex.type]` the channel drives via `Interaction.drive`. The Codex-side terminal event maps to the driver's outcome. Unit test with stubbed WebSocket. | |
+| 9.5 | Integration tests | Real `codex exec` calls (gated). App-server start/stop. | |
 
 **Exit criteria**: Codex backend passes unit tests. Integration tests pass against real `codex`.
 
