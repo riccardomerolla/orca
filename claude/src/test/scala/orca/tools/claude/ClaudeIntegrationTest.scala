@@ -1,9 +1,7 @@
 package orca.tools.claude
 
-import orca.{LlmConfig, OrcaEvent, SessionId}
+import orca.{ConversationEvent, LlmConfig, SessionId}
 import orca.subprocess.OsProcCliRunner
-
-import scala.util.Using
 
 /** End-to-end tests against the real `claude` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -15,6 +13,10 @@ class ClaudeIntegrationTest extends munit.FunSuite:
   override def munitTests(): Seq[Test] =
     if sys.env.contains("ORCA_INTEGRATION") then super.munitTests()
     else Nil
+
+  override def munitTimeout: scala.concurrent.duration.Duration =
+    import scala.concurrent.duration.DurationInt
+    5.minutes
 
   private val backend = new ClaudeBackend(OsProcCliRunner)
 
@@ -48,30 +50,42 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       s"expected resumed session to recall '42', got: ${second.output}"
     )
 
-  test("stream-json output parses into LlmOutput events"):
-    val proc = os
-      .proc(
-        "claude",
-        "-p",
-        "Say hi.",
-        "--output-format",
-        "stream-json",
-        "--verbose"
-      )
-      .spawn(
-        cwd = os.temp.dir(),
-        stdout = os.Pipe,
-        stderr = os.Inherit
-      )
+  test("stream-json interactive session reaches a Result with a session id"):
+    val conversation = backend.runInteractive(
+      prompt = "Reply with just the number 7. Nothing else.",
+      config = LlmConfig.default,
+      workDir = os.temp.dir(),
+      outputSchema = None
+    )
     try
-      val events = Using.resource(
-        scala.io.Source.fromInputStream(proc.stdout.wrapped)
-      ) { source =>
-        ClaudeNdjsonParser.parseLines(source.getLines()).toList
-      }
-      val _ = proc.join(60_000)
+      // Drain events so the driver can process them; we don't render
+      // anything in the integration test — awaitResult gives the outcome.
+      conversation.events.foreach(_ => ())
+      val result = conversation.awaitResult()
       assert(
-        events.exists(_.isInstanceOf[OrcaEvent.LlmOutput]),
-        s"expected at least one LlmOutput event, got: $events"
+        result.output.contains("7"),
+        s"expected a reply containing '7', got: ${result.output}"
       )
-    finally if proc.isAlive() then proc.destroy(shutdownGracePeriod = 0)
+      assert(SessionId.value(result.sessionId).nonEmpty)
+    finally conversation.cancel()
+
+  test("stream-json session emits text deltas as the agent streams"):
+    val conversation = backend.runInteractive(
+      prompt =
+        "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
+      config = LlmConfig.default,
+      workDir = os.temp.dir(),
+      outputSchema = None
+    )
+    try
+      val events = conversation.events.toList
+      val _ = conversation.awaitResult()
+      assert(
+        events.exists(_.isInstanceOf[ConversationEvent.AssistantTextDelta]),
+        s"expected at least one AssistantTextDelta; got: $events"
+      )
+      assert(
+        events.exists(_ == ConversationEvent.AssistantTurnEnd),
+        s"expected an AssistantTurnEnd; got: $events"
+      )
+    finally conversation.cancel()
