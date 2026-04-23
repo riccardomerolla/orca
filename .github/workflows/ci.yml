@@ -8,21 +8,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: sbt/setup-sbt@v1
-      - uses: coursier/cache-action@v6
-      - run: sbt +test
-
-  integration:
-    runs-on: ubuntu-latest
-    if: ${{ vars.ORCA_INTEGRATION == 'true' }}
     env:
-      ORCA_INTEGRATION: "1"
+      # Integration suites self-gate on this env var. Set the repo
+      # variable ORCA_INTEGRATION=true to include them; otherwise the
+      # suite runs unit tests only.
+      ORCA_INTEGRATION: ${{ vars.ORCA_INTEGRATION == 'true' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
