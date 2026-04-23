@@ -6,14 +6,18 @@ import sttp.tapir.Schema
 import scala.deriving.Mirror
 
 /** Bundles a tapir `Schema` and a jsoniter-scala `ConfiguredJsonValueCodec` for
-  * a type. Flow scripts replace `derives Schema, ConfiguredJsonValueCodec` with
-  * `derives JsonData` on case classes that travel in and out of LLM calls as
-  * structured JSON.
+  * a type. Flow scripts use `derives JsonData` on case classes that travel in
+  * and out of LLM calls as structured JSON.
   *
-  * Package-level forwarder givens (below) expose `Schema[A]` and
-  * `ConfiguredJsonValueCodec[A]` whenever a `JsonData[A]` is in scope, so every
-  * API that still bounds on those underlying typeclasses continues to resolve
-  * them without an explicit import.
+  * The library's public API (e.g. `LlmTool.resultAs[O: JsonData]`,
+  * `AgentInput`'s JSON given) bounds on `JsonData[O]` directly — no Schema or
+  * codec implicits need to leak into user code. The top-level forwarder
+  * `given`s below exist for a narrower reason: when tapir's `Schema.derived`
+  * expands a nested case class inside `derives JsonData`, it looks for
+  * `Schema[Child]` in lexical scope, and the forwarder bridges it from the
+  * child's own `derives JsonData`. User scripts must import them with
+  * `import orca.{*, given}` — Scala 3's plain wildcard imports exclude
+  * givens.
   */
 trait JsonData[A]:
   def schema: Schema[A]
@@ -31,10 +35,6 @@ object JsonData:
 
   inline def derived[A](using Mirror.Of[A]): JsonData[A] =
     apply(Schema.derived[A], ConfiguredJsonValueCodec.derived[A])
-
-// Top-level so they're always in implicit scope under `package orca`; a file
-// importing `orca.*` — or a file that lives in package `orca` itself — sees
-// them without needing to import `JsonData.given` explicitly.
 
 given schemaFromJsonData[A](using jd: JsonData[A]): Schema[A] = jd.schema
 

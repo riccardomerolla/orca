@@ -38,16 +38,16 @@ Save this as `ship.sc` and run it with your task:
 //> using repository ivy2Local
 //> using jvm 21
 
-import orca.*
+import orca.{*, given}
 
 case class Task(branchName: String, description: String) derives JsonData
 
 case class Plan(tasks: List[Task]) derives JsonData
 
-orca:
+flow:
   // 1. Break the user's prompt into concrete subtasks, interactively.
   val (sessionId, plan) = stage("plan"):
-    claude.result[Plan].interactive(userPrompt)
+    claude.resultAs[Plan].interactive(userPrompt)
 
   // 2. Implement each task on its own branch and review locally.
   for task <- plan.tasks do
@@ -64,6 +64,12 @@ orca:
         lintCommand = Some("sbt scalafmtCheckAll test")
       )
 ```
+
+The `{*, given}` selector is load-bearing: plain `import orca.*` leaves
+Scala 3's given instances behind, and the flow DSL relies on them to bridge
+`derives JsonData` to the underlying Schema and codec during macro
+expansion. The rest is just Scala — if you need to override a tool, use
+`flowWith(git = Some(myGit)): ...` instead of bare `flow:`.
 
 ```bash
 scala-cli run ship.sc -- "Add a rate-limiter to the /login endpoint"
@@ -135,7 +141,7 @@ orca/
 ├── flow/       # FlowContext, stage/fail/fixLoop/reviewAndFixLoop/lint, review types
 ├── claude/     # Claude Code backend + DefaultClaudeTool + DefaultLlmCall
 ├── codex/      # Codex backend (skeleton, Epic 9)
-└── runner/     # orca() entry + DefaultFlowContext + terminal layer
+└── runner/     # flow() entry + DefaultFlowContext + terminal layer
 ```
 
 Dependency graph:
@@ -148,17 +154,19 @@ tools   (standalone)
   └── runner     → tools + flow + claude + codex
 ```
 
-The runner module owns the `orca()` entry point (`package orca`) and wires
+The runner module owns the `flow` entry point (`package orca`) and wires
 defaults via `DefaultFlowContext` (`package orca.runner`). Its terminal UI
 lives in its own sub-package, `orca.runner.terminal`, so swapping it for a
 Slack or HTTP equivalent is a matter of substituting one `Interaction` at the
 call site rather than rewiring modules.
 
-Only the user-facing surface lives in `package orca`. Implementation lives in
-focused subpackages: `orca.tools` (os-backed tool impls), `orca.subprocess`
-(subprocess shim), `orca.io` (structured-I/O plumbing), `orca.claude` /
-`orca.codex` (backends), `orca.runner` / `orca.runner.terminal` (wiring and
-terminal UI).
+Only the user-facing surface lives in `package orca` (the `flow`/`flowWith`
+entry points, the tool traits, the accessors, `JsonData`, `OrcaArgs`).
+Implementations live in focused subpackages: `orca.tools.fs` /
+`orca.tools.git` / `orca.tools.github` (os-backed tool impls),
+`orca.tools.claude` / `orca.tools.codex` (LLM backends), `orca.subprocess`
+(subprocess shim), `orca.io` (structured-I/O plumbing), `orca.runner` /
+`orca.runner.terminal` (wiring and terminal UI).
 
 ### Build and test
 
@@ -231,6 +239,21 @@ Installs `com.virtuslab::orca:0.1.0-SNAPSHOT` plus its transitive modules
 (`orca-tools`, `orca-flow`, `orca-claude`, `orca-codex`) into
 `~/.ivy2/local` so a flow script with `//> using repository ivy2Local` can
 resolve them.
+
+For an iteration loop while hacking on Orca itself, run sbt in one terminal
+with a `~` watch-and-publish:
+
+```bash
+sbt "~publishLocal"
+```
+
+Every save rebuilds the affected module and refreshes `~/.ivy2/local`. In a
+second terminal, re-run a flow script with Coursier's cache bypassed so the
+freshly-published snapshot is picked up:
+
+```bash
+scala-cli run --ttl 0 examples/spinner-demo.scala
+```
 
 ## License
 

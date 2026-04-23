@@ -1,9 +1,6 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import sttp.tapir.Schema
-
-/** An LLM adapter usable from flow scripts — the handle you call from `orca:`
+/** An LLM adapter usable from flow scripts — the handle you call from `flow:`
   * blocks (`claude`, `codex`, etc.) to run prompts, start or continue sessions,
   * and hand off interactive control. Parameterized by the concrete `Backend` so
   * session ids and results carry the backend identity at the type level.
@@ -13,18 +10,42 @@ trait LlmTool[B <: Backend]:
 
   /** Fix the output type of the call, then chain `.autonomous(...)` /
     * `.interactive(...)` / `.continueSession(...)` to actually invoke the
-    * model. `O` must carry a tapir `Schema` (for prompt generation) and a
-    * jsoniter-scala `ConfiguredJsonValueCodec` (for parsing the response) —
-    * `derives JsonData` on `O` provides both.
+    * model. `O` needs a `JsonData[O]` — `derives JsonData` on a case class
+    * is the normal way to provide one.
     */
-  def result[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
+  def resultAs[O: JsonData]: LlmCall[B, O]
 
   /** One-shot autonomous call that takes a string and returns a string —
-    * equivalent to `result[String].autonomous(prompt, config)` without the need
-    * for a schema or codec. Use when the response is free-form text rather than
-    * a structured value.
+    * equivalent to `resultAs[String].autonomous(prompt, config)` without the need
+    * for a JsonData instance. Use when the response is free-form text rather
+    * than a structured value.
     */
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String
+
+  /** Start a new session with a free-form text prompt and receive the
+    * backend-assigned session id alongside a free-form text reply. Pairs
+    * with `continueSession` below for pure-text multi-turn flows that
+    * don't need a structured `O` — routing those through
+    * `resultAs[O].startSession` would force the caller to invent an output
+    * type they immediately discard.
+    */
+  def startSession(
+      prompt: String,
+      config: LlmConfig = LlmConfig.default
+  ): (SessionId[B], String)
+
+  /** Continue an existing session with a free-form text prompt and receive a
+    * free-form text reply. The structured `resultAs[O].continueSession(...)`
+    * path is for when the next turn's response should parse into `O`; this
+    * one is for the more common "keep going, do X next" flow where the
+    * response is prose or code, not JSON.
+    */
+  def continueSession(
+      sessionId: SessionId[B],
+      prompt: String,
+      config: LlmConfig = LlmConfig.default
+  ): String
+
   def withConfig(config: LlmConfig): LlmTool[B]
   def withSystemPrompt(prompt: String): LlmTool[B]
 
@@ -41,7 +62,7 @@ trait CodexTool extends LlmTool[Backend.Codex.type]:
   def mini: CodexTool
 
 /** One configured LLM call of a given output type. Obtained via
-  * `tool.result[O]`; the returned value supports every invocation variant
+  * `tool.resultAs[O]`; the returned value supports every invocation variant
   * (`autonomous`, session-based `startSession` / `continueSession`, and
   * `interactive` / `continueInteractive`) so callers can switch execution mode
   * without restating `O`.

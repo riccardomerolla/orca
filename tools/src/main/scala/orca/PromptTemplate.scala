@@ -5,7 +5,7 @@ package orca
   * generated JSON Schema for the expected output, and the active
   * `LlmConfig`, and returns the final prompt text. Swap the default
   * (`DefaultPromptTemplate`) by passing `promptTemplate = ...` to
-  * `orca(...)` when you want to customise phrasing, add guardrails, or
+  * `flow(...)` when you want to customise phrasing, add guardrails, or
   * use a different structured-output convention.
   */
 trait PromptTemplate:

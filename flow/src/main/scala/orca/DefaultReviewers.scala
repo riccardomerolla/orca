@@ -1,8 +1,5 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import sttp.tapir.Schema
-
 /** Canonical system prompts for the reviewers the library ships with. Exposed
   * so callers can tune or extend the set without rewriting the defaults.
   */
@@ -41,12 +38,20 @@ private[orca] class NamedLlmTool[B <: Backend](
 ) extends LlmTool[B]:
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String =
     delegate.ask(prompt, config)
+  def startSession(
+      prompt: String,
+      config: LlmConfig = LlmConfig.default
+  ): (SessionId[B], String) = delegate.startSession(prompt, config)
+  def continueSession(
+      sessionId: SessionId[B],
+      prompt: String,
+      config: LlmConfig = LlmConfig.default
+  ): String = delegate.continueSession(sessionId, prompt, config)
   def withConfig(config: LlmConfig): LlmTool[B] =
     new NamedLlmTool(name, delegate.withConfig(config))
   def withSystemPrompt(prompt: String): LlmTool[B] =
     new NamedLlmTool(name, delegate.withSystemPrompt(prompt))
-  def result[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O] =
-    delegate.result[O]
+  def resultAs[O: JsonData]: LlmCall[B, O] = delegate.resultAs[O]
 
 /** Pre-configured reviewer agents built atop the supplied base tool. Each
   * reviewer has its own `name` and system prompt; callers pass them (or a

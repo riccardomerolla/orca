@@ -21,7 +21,7 @@ object Dependencies {
   val jsoniter =
     "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-core" % V.jsoniter
   val jsoniterMacros =
-    "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % V.jsoniter % "provided, test"
+    "com.github.plokhotnyuk.jsoniter-scala" %% "jsoniter-scala-macros" % V.jsoniter
 
   val tapirApispec =
     "com.softwaremill.sttp.tapir" %% "tapir-apispec-docs" % V.tapir

@@ -1,8 +1,5 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import sttp.tapir.Schema
-
 class DefaultReviewersTest extends munit.FunSuite:
 
   /** LlmTool that records every `withSystemPrompt` call and delegates the rest
@@ -16,8 +13,16 @@ class DefaultReviewersTest extends munit.FunSuite:
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] =
       systemPromptsSeen = p :: systemPromptsSeen
       this
-    def result[O: Schema: ConfiguredJsonValueCodec]
-        : LlmCall[Backend.ClaudeCode.type, O] = ???
+    def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] = ???
+    def startSession(
+        p: String,
+        c: LlmConfig = LlmConfig.default
+    ): (SessionId[Backend.ClaudeCode.type], String) = (SessionId("s"), "")
+    def continueSession(
+        s: SessionId[Backend.ClaudeCode.type],
+        p: String,
+        c: LlmConfig = LlmConfig.default
+    ): String = ""
 
   test(
     "defaultReviewers exposes performance, readability, and test-coverage names"

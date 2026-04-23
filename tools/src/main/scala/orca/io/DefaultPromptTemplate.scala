@@ -2,7 +2,7 @@ package orca.io
 
 import orca.{LlmConfig, PromptTemplate}
 
-/** The `PromptTemplate` Orca uses unless `orca(promptTemplate = ...)`
+/** The `PromptTemplate` Orca uses unless `flow(promptTemplate = ...)`
   * overrides it. Each method builds the final prompt string via Scala
   * string interpolation; the `DoneMarker` is exposed so the interactive
   * backend can watch for it in streamed output.

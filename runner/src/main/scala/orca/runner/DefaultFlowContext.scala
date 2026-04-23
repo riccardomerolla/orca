@@ -12,14 +12,16 @@ import orca.{
   OrcaEvent,
   PromptTemplate
 }
-import orca.claude.{ClaudeBackend, DefaultClaudeTool}
+import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.io.DefaultPromptTemplate
 import orca.subprocess.OsProcCliRunner
-import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
+import orca.tools.fs.OsFsTool
+import orca.tools.git.OsGitTool
+import orca.tools.github.OsGitHubTool
 
 /** Production FlowContext wiring. Callers typically construct one via
-  * `orca(...)`, which supplies defaults for all tools. Individual tools can be
-  * replaced by passing overrides to `orca`. `codex` remains stubbed pending
+  * `flow(...)`, which supplies defaults for all tools. Individual tools can be
+  * replaced by passing overrides to `flow`. `codex` remains stubbed pending
   * Epic 9.
   */
 class DefaultFlowContext(

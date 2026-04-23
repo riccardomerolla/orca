@@ -38,10 +38,9 @@ class ScalaCliSmokeTest extends munit.FunSuite:
         |//> using dep com.virtuslab::orca:0.1.0-SNAPSHOT
         |//> using jvm 21
         |
-        |import orca.*
-        |import orca.runner.terminal.OrcaArgs
+        |import orca.{*, given}
         |
-        |orca(args = OrcaArgs("smoke test")):
+        |flowWith(args = OrcaArgs("smoke test")):
         |  println(s"userPrompt=$userPrompt")
         |""".stripMargin
     )

@@ -1,7 +1,7 @@
 package orca.runner
 
-import _root_.orca.runner.terminal.{OrcaArgs, TerminalInteraction}
-import orca.{FlowContext, OrcaEvent, orca, userPrompt}
+import _root_.orca.runner.terminal.TerminalInteraction
+import orca.{FlowContext, OrcaArgs, OrcaEvent, flowWith, userPrompt}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 
@@ -15,15 +15,15 @@ class OrcaTest extends munit.FunSuite:
     )
 
   test(
-    "orca runs the body and userPrompt accessor resolves against FlowContext"
+    "flow runs the body and userPrompt accessor resolves against FlowContext"
   ):
     var seen: String = ""
-    orca(args = OrcaArgs("hello world"), interaction = silentInteraction) {
+    flowWith(args = OrcaArgs("hello world"), interaction = silentInteraction) {
       seen = userPrompt // top-level accessor resolves the ambient FlowContext
     }
     assertEquals(seen, "hello world")
 
-  test("orca wires the interaction's listeners so emit reaches them"):
+  test("flow wires the interaction's listeners so emit reaches them"):
     val buf = new ByteArrayOutputStream()
     val interaction =
       new TerminalInteraction(
@@ -31,7 +31,7 @@ class OrcaTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
-    orca(interaction = interaction) {
+    flowWith(interaction = interaction) {
       summon[FlowContext].emit(OrcaEvent.StageStarted("plan"))
     }
     assert(buf.toString.contains("plan"))

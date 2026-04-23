@@ -14,21 +14,6 @@ import orca.runner.terminal.OrcaSpinner
   * sbt publishLocal           # once, to install com.virtuslab::orca locally
   * scala-cli run examples/spinner-demo.scala
   * ```
-  *
-  * For an iteration loop while hacking on the spinner itself, run sbt in
-  * one terminal with a `~` watch-and-publish:
-  *
-  * ```bash
-  * sbt "~publishLocal"
-  * ```
-  *
-  * Every save rebuilds the affected module and refreshes
-  * `~/.ivy2/local`. In a second terminal, re-run the demo with Coursier's
-  * cache bypassed so the freshly-published snapshot is picked up:
-  *
-  * ```bash
-  * scala-cli run --ttl 0 examples/spinner-demo.scala
-  * ```
   */
 @main def spinnerDemo(): Unit =
   val spinner = new OrcaSpinner(System.err)

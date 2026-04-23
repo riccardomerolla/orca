@@ -9,15 +9,15 @@ Orca is a Scala library for defining and executing development workflows — pla
 ```scala
 //> using dep "com.virtuslab::orca:0.1"
 //> using jvm 21
-import orca.*
+import orca.{*, given}
 
-orca:
-  val (_, plan) = claude.result[TaskPlan].interactive(userPrompt)
+flow:
+  val (_, plan) = claude.resultAs[TaskPlan].interactive(userPrompt)
   git.createBranch(plan.branchName)
   // ...
 ```
 
-Flows use `.sc` (scala-cli script) files, where top-level expressions are allowed. For `.scala` files, wrap in `@main def run() = orca: ...`.
+Flows use `.sc` (scala-cli script) files, where top-level expressions are allowed. For `.scala` files, wrap in `@main def run() = flow { ... }`.
 
 ```bash
 scala-cli run my-flow.sc -- "implement feature X"
@@ -51,10 +51,10 @@ given AgentInput[String]                           // pass-through
 given [A: ConfiguredJsonValueCodec]: AgentInput[A] // serialize to JSON
 ```
 
-Only the **output** type needs a `Schema` (for JSON Schema generation) and a codec (for deserialization). The `.result[O]` builder captures the output type, then methods like `prompt`/`interactive` only need the input type:
+Only the **output** type needs a `Schema` (for JSON Schema generation) and a codec (for deserialization). The `.resultAs[O]` builder captures the output type, then methods like `prompt`/`interactive` only need the input type:
 
 ```scala
-claude.result[TaskPlan].prompt(input)   // I inferred from input, O = TaskPlan
+claude.resultAs[TaskPlan].prompt(input)   // I inferred from input, O = TaskPlan
 ```
 
 `ConfiguredJsonValueCodec` is jsoniter-scala's derives-compatible codec with default settings (camelCase keys). Standard collections like `List[String]` are handled automatically by jsoniter-scala.
@@ -73,7 +73,7 @@ A flow freely mixes both.
 Each tool is a trait (interface) implemented by the library. Custom implementations can be substituted:
 
 ```scala
-orca(git = MyGitImpl(), interaction = SlackInteraction("#dev")):
+flowWith(git = Some(MyGitImpl()), interaction = SlackInteraction("#dev")):
   // uses custom git implementation and Slack for interactive stages
 ```
 
@@ -119,14 +119,14 @@ Git and GitHub tools are thin wrappers around `git` and `gh` CLI commands, execu
 Backends are accessed as named instances — `claude` and `codex` — with method chaining for model and config selection:
 
 ```scala
-claude.result[TaskPlan].prompt(input)          // Claude Code, default model
-claude.sonnet.result[TaskPlan].prompt(input)   // Claude Code, Sonnet
+claude.resultAs[TaskPlan].prompt(input)          // Claude Code, default model
+claude.sonnet.resultAs[TaskPlan].prompt(input)   // Claude Code, Sonnet
 claude.haiku.ask("quick question")             // Haiku (untyped convenience)
-codex.result[TaskPlan].prompt(input)           // Codex, default model
+codex.resultAs[TaskPlan].prompt(input)           // Codex, default model
 
 claude.withConfig(LlmConfig(
   systemPrompt = Some("You are a performance reviewer...")
-)).result[ReviewResult].prompt(diff)
+)).resultAs[ReviewResult].prompt(diff)
 ```
 
 Session IDs are **type-safe** via opaque types parameterized by backend:
@@ -142,7 +142,7 @@ The full traits:
 
 ```scala
 trait LlmTool[B <: Backend]:
-  def result[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
+  def resultAs[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String
   def withConfig(config: LlmConfig): LlmTool[B]
   def withSystemPrompt(prompt: String): LlmTool[B]
@@ -279,7 +279,7 @@ trait PromptTemplate:
   def interactive(input: String, outputSchema: String, config: LlmConfig): String
 ```
 
-Custom templates can be provided via `orca(promptTemplate = ...)`. The `<<<ORCA_DONE>>>` marker signals task completion in interactive mode.
+Custom templates can be provided via `flowWith(promptTemplate = ...)`. The `<<<ORCA_DONE>>>` marker signals task completion in interactive mode.
 
 For **headless** calls, the backend returns JSON on stdout. For **interactive** calls, a backend-specific mechanism detects the marker (see backends below) and writes the JSON payload to a **sentinel file** at `/tmp/orca-<session-id>.json`.
 
@@ -315,7 +315,7 @@ trait Interaction:
 Built-in: `TerminalInteraction` (default, JLine 3 + fansi), `SlackInteraction(channel)`. Additional listeners for telemetry:
 
 ```scala
-orca(interaction = TerminalInteraction, listeners = List(CostTracker)):
+flowWith(interaction = TerminalInteraction, extraListeners = List(CostTracker)):
   // ...
 ```
 
@@ -414,16 +414,16 @@ Full development lifecycle — plan, code, lint, review, PR, CI fix loop, ignore
 ```scala
 //> using dep "com.virtuslab::orca:0.1"
 //> using jvm 21
-import orca.*
+import orca.{*, given}
 
-case class TaskPlan(tasks: List[Task], generalPrompt: String) derives Schema, ConfiguredJsonValueCodec
-case class Task(description: String, acceptanceCriteria: String) derives Schema, ConfiguredJsonValueCodec
-case class CodingResult(success: Boolean, message: String) derives Schema, ConfiguredJsonValueCodec
+case class TaskPlan(tasks: List[Task], generalPrompt: String) derives JsonData
+case class Task(description: String, acceptanceCriteria: String) derives JsonData
+case class CodingResult(success: Boolean, message: String) derives JsonData
 
-orca:
+flow:
   // 1. Plan interactively
   val (sessionId, taskPlan) = stage("Planning"):
-    claude.result[TaskPlan].interactive(userPrompt)
+    claude.resultAs[TaskPlan].interactive(userPrompt)
 
   git.createBranch(claude.haiku.ask(s"Branch name for: $userPrompt"))
 
@@ -432,7 +432,7 @@ orca:
 
   for task <- taskPlan.tasks do
     val result = stage(s"Coding: ${task.description}"):
-      claude.result[CodingResult].continueSession(
+      claude.resultAs[CodingResult].continueSession(
         sessionId, task.description,
         LlmConfig(autoApprove = AutoApprove.All)
       )
@@ -440,10 +440,10 @@ orca:
       fail(s"Coding failed: ${result.message}")
 
     // LLM selects relevant reviewers
-    val reviewContext = claude.result[ReviewContext].prompt(
+    val reviewContext = claude.resultAs[ReviewContext].prompt(
       s"Summarize changes for: ${task.description}\n${git.diff()}"
     )
-    val selected = claude.result[SelectedReviewers].prompt(
+    val selected = claude.resultAs[SelectedReviewers].prompt(
       s"Which reviewers are relevant?\n${defaultReviewers.map(_.name)}\n${reviewContext.summary}"
     )
 
@@ -469,9 +469,9 @@ orca:
     evaluate = () =>
       val status = gh.waitForBuild(pr, timeout = 30.minutes)
       if status.success then ReviewResult.empty
-      else claude.result[ReviewResult].prompt(s"Summarize build failures:\n${status.log}"),
+      else claude.resultAs[ReviewResult].prompt(s"Summarize build failures:\n${status.log}"),
     fix = issues =>
-      claude.result[IgnoredIssues].continueSession(sessionId, issues)
+      claude.resultAs[IgnoredIssues].continueSession(sessionId, issues)
   )
 
   if buildIgnored.nonEmpty then

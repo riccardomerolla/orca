@@ -1,8 +1,6 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-
-case class User(name: String, age: Int) derives ConfiguredJsonValueCodec
+case class User(name: String, age: Int) derives JsonData
 
 class AgentInputTest extends munit.FunSuite:
   test("string input is serialized as-is"):

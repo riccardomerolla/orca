@@ -5,7 +5,7 @@ package orca
   * output, token totals, and errors; `runInteractive` is invoked when a stage
   * hands control to the agent and blocks until the agent releases it.
   * `TerminalInteraction` is the default; a Slack or HTTP implementation can be
-  * substituted by passing `interaction = ...` to `orca(...)`.
+  * substituted by passing `interaction = ...` to `flow(...)`.
   */
 trait Interaction:
   def listeners: List[OrcaListener]

@@ -1,8 +1,5 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import sttp.tapir.Schema
-
 /** Fake LlmCall whose `prompt` returns a scripted list of outputs and whose
   * `continueSession` returns scripted IgnoredIssues — both cast through Any
   * because the trait is generic over output type.
@@ -41,11 +38,19 @@ class FakeLlmTool(
   private val promptIt = promptOutputs.iterator
   private val continueIt = continueSessionOutputs.iterator
 
-  def result[O: Schema: ConfiguredJsonValueCodec]
-      : LlmCall[Backend.ClaudeCode.type, O] =
+  def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
     new FakeLlmCall[O](promptIt, continueIt)
 
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String = ""
+  def startSession(
+      prompt: String,
+      config: LlmConfig = LlmConfig.default
+  ): (SessionId[Backend.ClaudeCode.type], String) = (SessionId("s"), "")
+  def continueSession(
+      sessionId: SessionId[Backend.ClaudeCode.type],
+      prompt: String,
+      config: LlmConfig = LlmConfig.default
+  ): String = ""
   def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
 

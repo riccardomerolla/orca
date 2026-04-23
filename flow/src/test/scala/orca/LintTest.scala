@@ -1,14 +1,11 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import sttp.tapir.Schema
-
 class LintTest extends munit.FunSuite:
 
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
-  /** LlmTool that records the serialized prompt passed to `result.prompt` and
+  /** LlmTool that records the serialized prompt passed to `resultAs.autonomous` and
     * returns a canned ReviewResult. Method-scope mutable var holds the captured
     * string.
     */
@@ -17,10 +14,18 @@ class LintTest extends munit.FunSuite:
     var captured: String = ""
     val name = "mock"
     def ask(p: String, c: LlmConfig = LlmConfig.default): String = ???
+    def startSession(
+        p: String,
+        c: LlmConfig = LlmConfig.default
+    ): (SessionId[Backend.ClaudeCode.type], String) = ???
+    def continueSession(
+        s: SessionId[Backend.ClaudeCode.type],
+        p: String,
+        c: LlmConfig = LlmConfig.default
+    ): String = ???
     def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
-    def result[O: Schema: ConfiguredJsonValueCodec]
-        : LlmCall[Backend.ClaudeCode.type, O] =
+    def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
       new LlmCall[Backend.ClaudeCode.type, O]:
         def autonomous[I](i: I, c: LlmConfig = LlmConfig.default)(using
             a: AgentInput[I]

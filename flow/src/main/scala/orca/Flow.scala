@@ -1,6 +1,5 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.{fork, supervised}
 
 import scala.util.control.NonFatal
@@ -81,8 +80,7 @@ private def capReason(
 ): IgnoredIssues =
   IgnoredIssues(issues.map(IgnoredIssue(_, reason)))
 
-private case class FixRequest(issues: List[ReviewIssue])
-    derives ConfiguredJsonValueCodec
+private case class FixRequest(issues: List[ReviewIssue]) derives JsonData
 
 /** Run the given reviewers in parallel against `task`, optionally include a
   * lint result, filter issues by `confidenceThreshold`, then hand the remaining
@@ -104,7 +102,7 @@ def reviewAndFixLoop[B <: Backend](
         () => gatherReviews(reviewers, task, lintCommand, confidenceThreshold),
       fix = issues =>
         coder
-          .result[IgnoredIssues]
+          .resultAs[IgnoredIssues]
           .continueSession(sessionId, FixRequest(issues), LlmConfig.default)
     )
 
@@ -122,7 +120,7 @@ private def gatherReviews(
   val reviewResults: List[ReviewResult] =
     supervised:
       reviewers
-        .map(r => fork(r.result[ReviewResult].autonomous(task)))
+        .map(r => fork(r.resultAs[ReviewResult].autonomous(task)))
         .map(_.join())
   val lintResults: List[ReviewResult] =
     lintCommand.toList.map(cmd => lint(cmd, claude.haiku))
@@ -150,7 +148,7 @@ def lint(
   if output.isEmpty then ReviewResult.empty
   else
     llm
-      .result[ReviewResult]
+      .resultAs[ReviewResult]
       .autonomous(
         s"""Summarize the following lint output into a ReviewResult. Each
            |distinct issue should produce a ReviewIssue; use reasonable
