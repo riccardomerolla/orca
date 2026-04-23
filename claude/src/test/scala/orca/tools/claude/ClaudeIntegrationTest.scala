@@ -1,6 +1,12 @@
 package orca.tools.claude
 
-import orca.{ConversationEvent, LlmConfig, SessionId}
+import orca.{
+  ApprovalDecision,
+  AutoApprove,
+  ConversationEvent,
+  LlmConfig,
+  SessionId
+}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against the real `claude` CLI. Gated on the
@@ -16,7 +22,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   override def munitTimeout: scala.concurrent.duration.Duration =
     import scala.concurrent.duration.DurationInt
-    5.minutes
+    2.minutes
 
   private val backend = new ClaudeBackend(OsProcCliRunner)
 
@@ -88,4 +94,37 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         events.exists(_ == ConversationEvent.AssistantTurnEnd),
         s"expected an AssistantTurnEnd; got: $events"
       )
+    finally conversation.cancel()
+
+  test(
+    "ApproveTool fires for a tool call when autoApprove is empty; denying shuts the session cleanly"
+  ):
+    // This test assumes claude CLI routes tool-approval through the
+    // control_request subchannel when the caller's permission mode
+    // doesn't pre-authorise. If the installed CLI doesn't expose this
+    // path, the driver simply won't see an ApproveTool event — the
+    // test will then fail with a clearer signal than a silent gap.
+    val conversation = backend.runInteractive(
+      prompt =
+        "Read the file at /etc/hostname and reply with its contents.",
+      config = LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
+      workDir = os.temp.dir(),
+      outputSchema = None
+    )
+    try
+      val firstFew = conversation.events.take(10).toList
+      val approval = firstFew.collectFirst {
+        case evt: ConversationEvent.ApproveTool => evt
+      }
+      approval match
+        case Some(ConversationEvent.ApproveTool(name, _, respond)) =>
+          assert(name.nonEmpty)
+          respond(ApprovalDecision.Deny(Some("test denies all tools")))
+          // Drain remaining events and confirm the session finishes.
+          conversation.events.foreach(_ => ())
+          val _ = conversation.awaitResult()
+        case None =>
+          fail(
+            s"no ApproveTool event in first 10 events — CLI may not route tool approvals through stdio: $firstFew"
+          )
     finally conversation.cancel()
