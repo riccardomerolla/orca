@@ -12,14 +12,23 @@ import orca.{
 }
 
 import java.io.{ByteArrayOutputStream, PrintStream}
+import java.util.concurrent.atomic.AtomicReference
 
 class TerminalConversationRendererTest extends munit.FunSuite:
 
-  private def renderer(out: ByteArrayOutputStream): TerminalConversationRenderer =
+  import TerminalConversationRenderer.{PromptOutcome, Prompter}
+
+  private def renderer(
+      out: ByteArrayOutputStream,
+      showThinking: Boolean = false,
+      prompter: Prompter = ScriptedPrompter(Nil)
+  ): TerminalConversationRenderer =
     new TerminalConversationRenderer(
       out = new PrintStream(out),
       useColor = false,
-      spinner = None
+      spinner = None,
+      showThinking = showThinking,
+      prompter = prompter
     )
 
   /** A fake Conversation that replays a scripted event list, then returns
@@ -29,12 +38,25 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       scripted: List[ConversationEvent],
       outcome: Either[Throwable, LlmResult[B]]
   ) extends Conversation[B]:
+    val cancelled = new AtomicReference[Boolean](false)
     def events: Iterator[ConversationEvent] = scripted.iterator
     def awaitResult(): LlmResult[B] = outcome match
       case Left(t)  => throw t
       case Right(r) => r
     def sendUserMessage(text: String): Unit = ()
-    def cancel(): Unit = ()
+    def cancel(): Unit = cancelled.set(true)
+
+  /** Test prompter that replays a scripted list of outcomes and records
+    * the prompt strings it was asked for.
+    */
+  private class ScriptedPrompter(outcomes: List[PromptOutcome]) extends Prompter:
+    private val remaining = new AtomicReference[List[PromptOutcome]](outcomes)
+    val asked = new AtomicReference[List[String]](Nil)
+    def ask(prompt: String): PromptOutcome =
+      val _ = asked.updateAndGet(prompt :: _)
+      val next = remaining.getAndUpdate(_.drop(1)).headOption
+      next.getOrElse(throw new IllegalStateException("prompter exhausted"))
+    def close(): Unit = ()
 
   private def sampleResult: LlmResult[Backend.ClaudeCode.type] =
     LlmResult(
@@ -50,8 +72,28 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       Right(sampleResult)
     )
     val _ = renderer(buf).render(conv)
-    // The banner + a final newline from the renderer surround the text.
     assert(buf.toString.contains("hello "))
+
+  test("AssistantThinkingDelta stays silent when showThinking is false"):
+    val buf = new ByteArrayOutputStream()
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.AssistantThinkingDelta("inner monologue")),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, showThinking = false).render(conv)
+    assert(
+      !buf.toString.contains("inner monologue"),
+      s"expected no output; got: ${buf.toString}"
+    )
+
+  test("AssistantThinkingDelta renders when showThinking is true"):
+    val buf = new ByteArrayOutputStream()
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.AssistantThinkingDelta("inner monologue")),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, showThinking = true).render(conv)
+    assert(buf.toString.contains("inner monologue"))
 
   test("AssistantToolCall renders the name and a summarised input"):
     val buf = new ByteArrayOutputStream()
@@ -96,7 +138,7 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     )
     intercept[OrcaInteractiveCancelled](renderer(buf).render(conv))
 
-  test("summariseInput truncates long inputs with an ellipsis"):
+  test("summarise truncates long inputs with an ellipsis"):
     val buf = new ByteArrayOutputStream()
     val long = "x" * (TerminalConversationRenderer.MaxInlineInputLength + 50)
     val conv = new ScriptedConversation(
@@ -106,5 +148,54 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     val _ = renderer(buf).render(conv)
     val out = buf.toString
     assert(out.contains("…"), s"expected ellipsis; got: $out")
-    // The rendered line must be shorter than the raw input.
     assert(out.length < long.length + 100)
+
+  test("promptApproval 'y' answer → Allow(None), prompt text asked"):
+    val buf = new ByteArrayOutputStream()
+    val answered = new AtomicReference[Option[ApprovalDecision]](None)
+    val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("yes")))
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.ApproveTool(
+          "Bash",
+          """{"cmd":"ls"}""",
+          d => answered.set(Some(d))
+        )
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, prompter = prompter).render(conv)
+    assertEquals(answered.get(), Some(ApprovalDecision.Allow(None)))
+    assert(prompter.asked.get().exists(_.contains("[y]es")))
+
+  test("promptApproval 'n' answer → Deny with reason"):
+    val buf = new ByteArrayOutputStream()
+    val answered = new AtomicReference[Option[ApprovalDecision]](None)
+    val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("no")))
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.ApproveTool(
+          "Bash",
+          """{"cmd":"rm"}""",
+          d => answered.set(Some(d))
+        )
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, prompter = prompter).render(conv)
+    answered.get() match
+      case Some(ApprovalDecision.Deny(Some(reason))) =>
+        assert(reason.contains("user denied"))
+      case other => fail(s"expected Deny(Some(...)), got $other")
+
+  test("promptApproval interrupted → conversation.cancel() called"):
+    val buf = new ByteArrayOutputStream()
+    val prompter = new ScriptedPrompter(List(PromptOutcome.Interrupted))
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.ApproveTool("Bash", "{}", _ => ())
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, prompter = prompter).render(conv)
+    assert(conv.cancelled.get(), "expected conversation.cancel() to fire")

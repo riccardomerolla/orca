@@ -7,10 +7,11 @@ import orca.{
   ConversationEvent,
   LlmResult
 }
-import org.jline.reader.{LineReaderBuilder, UserInterruptException}
+import org.jline.reader.{LineReader, LineReaderBuilder, UserInterruptException}
 import org.jline.terminal.TerminalBuilder
 
 import java.io.PrintStream
+import scala.util.control.NonFatal
 
 /** Renders a [[Conversation]] to the terminal: stream agent text/thinking
   * as it arrives, announce tool calls and results, and prompt the user
@@ -28,27 +29,22 @@ private[terminal] class TerminalConversationRenderer(
     out: PrintStream,
     useColor: Boolean,
     spinner: Option[OrcaSpinner],
-    showThinking: Boolean = true
+    showThinking: Boolean = false,
+    prompter: TerminalConversationRenderer.Prompter =
+      TerminalConversationRenderer.JLinePrompter
 ):
 
   import TerminalConversationRenderer.*
 
-  private val terminal =
-    TerminalBuilder.builder().system(true).dumb(true).build()
-  private val lineReader =
-    LineReaderBuilder.builder().terminal(terminal).build()
-
   def render[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
-    spinner.foreach(_.stop())
+    stopSpinner()
     out.println(paint(fansi.Color.Yellow, "[interactive session]"))
     try
-      conversation.events.foreach(evt => handle(evt, conversation))
+      conversation.events.foreach(dispatch(_, conversation))
       conversation.awaitResult()
-    finally
-      try terminal.close()
-      catch case _: Throwable => ()
+    finally closePrompter()
 
-  private def handle[B <: Backend](
+  private def dispatch[B <: Backend](
       event: ConversationEvent,
       conversation: Conversation[B]
   ): Unit = event match
@@ -66,28 +62,30 @@ private[terminal] class TerminalConversationRenderer(
   // --- Rendering ---
 
   private def renderText(text: String): Unit =
-    spinner.foreach(_.stop())
+    stopSpinner()
     out.print(paint(fansi.Color.Reset, text))
     out.flush()
 
   private def renderThinking(text: String): Unit =
     if showThinking then
-      spinner.foreach(_.stop())
+      stopSpinner()
       out.print(paint(fansi.Color.DarkGray, text))
       out.flush()
 
   private def renderToolCall(name: String, input: String): Unit =
-    spinner.foreach(_.stop())
+    stopSpinner()
     out.println()
     out.println(
-      paint(fansi.Color.DarkGray, s"  → $name${summariseInput(input)}")
+      paint(fansi.Color.DarkGray, s"  → $name: ${summarise(input, MaxInlineInputLength)}")
     )
 
   private def renderToolResult(ok: Boolean, content: String): Unit =
-    spinner.foreach(_.stop())
+    stopSpinner()
     val colour = if ok then fansi.Color.DarkGray else fansi.Color.Red
     val label = if ok then "←" else "✖"
-    out.println(paint(colour, s"  $label ${summariseContent(content)}"))
+    out.println(
+      paint(colour, s"  $label ${summarise(content, MaxInlineContentLength)}")
+    )
 
   private def renderTurnEnd(): Unit =
     out.println()
@@ -96,7 +94,7 @@ private[terminal] class TerminalConversationRenderer(
     spinner.foreach(_.start("thinking"))
 
   private def renderError(message: String): Unit =
-    spinner.foreach(_.stop())
+    stopSpinner()
     out.println(paint(fansi.Color.Red, s"  ✖ $message"))
 
   // --- Prompts ---
@@ -107,32 +105,38 @@ private[terminal] class TerminalConversationRenderer(
       respond: ApprovalDecision => Unit,
       conversation: Conversation[B]
   ): Unit =
-    spinner.foreach(_.stop())
+    stopSpinner()
     out.println()
     out.println(
-      paint(fansi.Color.Yellow, s"? $toolName requested: ${summariseInput(rawInput)}")
+      paint(
+        fansi.Color.Yellow,
+        s"? $toolName requested: ${summarise(rawInput, MaxInlineInputLength)}"
+      )
     )
-    val prompt = paint(fansi.Color.Yellow, "  [y]es / [n]o ? ")
-    try
-      val answer = lineReader.readLine(prompt).trim.toLowerCase
-      if answer.startsWith("y") then respond(ApprovalDecision.Allow())
-      else
-        respond(
-          ApprovalDecision.Deny(Some(s"user denied via terminal (answered '$answer')"))
-        )
-    catch case _: UserInterruptException => conversation.cancel()
+    prompter.ask(paint(fansi.Color.Yellow, "  [y]es / [n]o ? ")) match
+      case PromptOutcome.Answer(reply) =>
+        val normalised = reply.trim.toLowerCase
+        if normalised.startsWith("y") then respond(ApprovalDecision.Allow())
+        else
+          respond(
+            ApprovalDecision.Deny(
+              Some(s"user denied via terminal (answered '$normalised')")
+            )
+          )
+      case PromptOutcome.Interrupted => conversation.cancel()
 
   // --- Helpers ---
 
-  private def summariseInput(rawInput: String): String =
-    val trimmed = rawInput.replaceAll("\\s+", " ").trim
-    if trimmed.length <= MaxInlineInputLength then s": $trimmed"
-    else s": ${trimmed.take(MaxInlineInputLength)}…"
+  private def stopSpinner(): Unit = spinner.foreach(_.stop())
 
-  private def summariseContent(raw: String): String =
-    val trimmed = raw.replaceAll("\\s+", " ").trim
-    if trimmed.length <= MaxInlineContentLength then trimmed
-    else s"${trimmed.take(MaxInlineContentLength)}…"
+  private def closePrompter(): Unit =
+    try prompter.close()
+    catch case NonFatal(_) => ()
+
+  private def summarise(raw: String, maxLength: Int): String =
+    val collapsed = raw.replaceAll("\\s+", " ").trim
+    if collapsed.length <= maxLength then collapsed
+    else s"${collapsed.take(maxLength)}…"
 
   private def paint(attr: fansi.EscapeAttr, text: String): String =
     if useColor then attr(text).render else text
@@ -140,3 +144,32 @@ private[terminal] class TerminalConversationRenderer(
 private[terminal] object TerminalConversationRenderer:
   val MaxInlineInputLength: Int = 120
   val MaxInlineContentLength: Int = 160
+
+  /** Outcome of a readline-style prompt. */
+  enum PromptOutcome:
+    case Answer(reply: String)
+    case Interrupted
+
+  /** Seam for the approval prompt. Tests inject a stub so they can
+    * assert prompt text and feed scripted replies; production uses the
+    * JLine-backed implementation below.
+    */
+  trait Prompter:
+    def ask(prompt: String): PromptOutcome
+    def close(): Unit
+
+  /** Default production prompter: JLine line reader. Lazy so the
+    * terminal is only opened when an approval prompt actually fires —
+    * pure non-interactive sessions never allocate a terminal.
+    */
+  object JLinePrompter extends Prompter:
+    private lazy val terminal =
+      TerminalBuilder.builder().system(true).dumb(true).build()
+    private lazy val reader: LineReader =
+      LineReaderBuilder.builder().terminal(terminal).build()
+
+    def ask(prompt: String): PromptOutcome =
+      try PromptOutcome.Answer(reader.readLine(prompt))
+      catch case _: UserInterruptException => PromptOutcome.Interrupted
+
+    def close(): Unit = terminal.close()
