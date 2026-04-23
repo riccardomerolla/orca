@@ -9,8 +9,8 @@ case class LlmConfig(
     systemPrompt: Option[String] = None,
     autoApprove: AutoApprove = AutoApprove.All,
     /** What to do when the agent wants a tool that isn't covered by
-      * `autoApprove`. Only consulted in autonomous stages; in interactive
-      * stages the user is prompted directly by the backend.
+      * `autoApprove`. Only consulted in interactive stages where the user is
+      * present to answer; in autonomous stages the call is denied outright.
       */
     onUnapproved: UnapprovedPolicy = UnapprovedPolicy.Deny,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
