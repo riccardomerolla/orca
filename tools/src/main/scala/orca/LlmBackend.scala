@@ -28,7 +28,7 @@ trait LlmBackend[B <: Backend]:
       config: LlmConfig,
       workDir: os.Path
   ): LlmResult[B]
-  def launchInteractive(
+  def launchInteractive( // TODO: run or launch - stick to single terminology
       prompt: String,
       config: LlmConfig,
       workDir: os.Path

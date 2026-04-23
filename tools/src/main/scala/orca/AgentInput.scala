@@ -3,6 +3,7 @@ package orca
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
+// TODO: missing docs on what this is
 trait AgentInput[A]:
   def serialize(a: A): String
 

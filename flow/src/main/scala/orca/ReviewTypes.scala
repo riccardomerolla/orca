@@ -5,6 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   JsonCodecMaker
 }
+import sttp.tapir.Schema
 
 enum Severity:
   case Critical

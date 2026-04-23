@@ -1,5 +1,6 @@
 package orca
 
+// TODO: are these really templates (with "holes"), or simply prompts? If it's the latter, maybe pick a better name
 trait PromptTemplate:
   def autonomous(input: String, outputSchema: String, config: LlmConfig): String
   def interactive(

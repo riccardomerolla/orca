@@ -1,5 +1,6 @@
 package orca
 
+// TODO: move implementations to a sub-package
 object DefaultPromptTemplate extends PromptTemplate:
 
   val DoneMarker: String = "<<<ORCA_DONE>>>"
