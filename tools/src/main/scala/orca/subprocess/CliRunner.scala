@@ -9,19 +9,29 @@ trait CliProcess:
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes
   * the caller controls, rather than inherited from the parent TTY. The
-  * driver writes NDJSON to `writeLine` and consumes responses as they
-  * arrive from `stdoutLines`. `closeStdin` signals end-of-input — claude
-  * treats that as "no more user turns" and emits a final `result`.
+  * driver writes a line at a time to `writeLine` and consumes responses
+  * as they arrive from `stdoutLines`. `closeStdin` signals end-of-input
+  * — claude treats that as "no more user turns" and emits a final
+  * `result`.
   *
   * Reads on `stdoutLines` / `stderrLines` block until a line is available
-  * or the stream closes; they're safe to iterate from a dedicated thread
-  * (see `orca.tools.claude.ClaudeConversation`).
+  * or the stream closes. Each iterator must be consumed by a single
+  * thread (see `orca.tools.claude.ClaudeConversation`); internal
+  * buffering of pending lines is not thread-safe across readers.
+  * Implementations memoise the iterator so repeated property accesses
+  * return the same underlying stream.
   */
 trait PipedCliProcess extends CliProcess:
-  def writeLine(json: String): Unit
+  def writeLine(line: String): Unit
   def closeStdin(): Unit
   def stdoutLines: Iterator[String]
   def stderrLines: Iterator[String]
+
+  /** Non-blocking exit probe. `None` while still running; `Some(code)`
+    * once the process has exited. The reader fork uses this to tell a
+    * clean EOF from a crash.
+    */
+  def tryExitCode: Option[Int]
 
 trait CliRunner:
   def run(
@@ -126,12 +136,20 @@ private final class OsPipedSubProcess(sub: os.SubProcess)
     extends OsSubProcessBase(sub)
     with PipedCliProcess:
 
-  def writeLine(json: String): Unit =
-    sub.stdin.writeLine(json)
+  // Memoised so repeated calls return the same iterator, avoiding a
+  // second `BufferedReader` leak against the pipe.
+  private lazy val stdoutIterator: Iterator[String] = sub.stdout.lines().iterator
+  private lazy val stderrIterator: Iterator[String] = sub.stderr.lines().iterator
+
+  def writeLine(line: String): Unit =
+    sub.stdin.writeLine(line)
     sub.stdin.flush()
 
   def closeStdin(): Unit = sub.stdin.close()
 
-  def stdoutLines: Iterator[String] = sub.stdout.lines().iterator
+  def stdoutLines: Iterator[String] = stdoutIterator
 
-  def stderrLines: Iterator[String] = sub.stderr.lines().iterator
+  def stderrLines: Iterator[String] = stderrIterator
+
+  def tryExitCode: Option[Int] =
+    if sub.isAlive() then None else Some(sub.exitCode())

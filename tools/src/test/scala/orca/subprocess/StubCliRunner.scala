@@ -86,7 +86,8 @@ object NoopPipedCliProcess extends PipedCliProcess:
   def sendSigInt(): Unit = ()
   def isAlive: Boolean = false
   def waitForExit(): Int = 0
-  def writeLine(json: String): Unit = ()
+  def tryExitCode: Option[Int] = Some(0)
+  def writeLine(line: String): Unit = ()
   def closeStdin(): Unit = ()
   def stdoutLines: Iterator[String] = Iterator.empty
   def stderrLines: Iterator[String] = Iterator.empty

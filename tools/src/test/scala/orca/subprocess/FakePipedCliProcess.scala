@@ -35,8 +35,10 @@ class FakePipedCliProcess(
 
   def waitForExit(): Int = 0
 
-  def writeLine(json: String): Unit =
-    val _ = stdinLines.updateAndGet(ls => json :: ls)
+  def tryExitCode: Option[Int] = if alive.get() then None else Some(0)
+
+  def writeLine(line: String): Unit =
+    val _ = stdinLines.updateAndGet(ls => line :: ls)
 
   def closeStdin(): Unit = stdinClosed.set(true)
 
