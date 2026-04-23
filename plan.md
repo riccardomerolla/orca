@@ -216,3 +216,26 @@ Epic 10 (publishing)  ← needs everything
 ```
 
 Epics 3, 4, 5, 6 can proceed in parallel after Epic 2. Epic 9 (Codex) can start after Epic 3 and proceed in parallel with 4-8. This gives the fastest path to a working end-to-end: 1 → 2 → 3 → 4 → 5 → 7 (skip 6 for terminal, skip 9 for Codex) as a **minimum viable flow**.
+
+---
+
+## Epic 11: Stream-json rewrite of the interactive path ✅
+
+Follow-up to Epics 3 & 4. Replaces the `<<<ORCA_DONE>>>` marker + stop-hook + sentinel-file mechanism with a stream-json controlled subprocess and a typed `Conversation` API. See [`adr/0006-stream-json-conversation-driver.md`](adr/0006-stream-json-conversation-driver.md).
+
+| # | Item | Description | Status |
+|---|---|---|---|
+| 11.1 | Wire-protocol model | `orca.tools.claude.streamjson` package: InboundMessage, ContentBlock, StreamEventPayload, ControlRequestBody, OutboundMessage with jsoniter codecs. Unknown/Unhandled variants for forward-compat. | ✅ |
+| 11.2 | Bidirectional CliProcess | `PipedCliProcess` with `writeLine`, `stdoutLines` / `stderrLines` iterators, `tryExitCode`, `closeStdin`. `FakePipedCliProcess` for tests. | ✅ |
+| 11.3 | Conversation contract | `Conversation[B]` (events + awaitResult + sendUserMessage + cancel), `ConversationEvent` enum, `ApprovalDecision`, `OrcaInteractiveCancelled`. `Interaction.drive(conversation)` replaces `runInteractive(handle)`. | ✅ |
+| 11.4 | ClaudeConversation driver | Reader thread, event queue, autoapprove gating, per-message translation, cancel via SIGINT. | ✅ |
+| 11.5 | Backend rewrite | `ClaudeBackend.runInteractive` / `continueInteractive` return `Conversation[B]`. `ClaudeArgs.streamJson` replaces the old `interactive`. `DefaultLlmCall.interactive` delegates to `interaction.drive`. | ✅ |
+| 11.6 | Prompt template | Drop `<<<ORCA_DONE>>>` from `DefaultPromptTemplate.interactive`; thread `--json-schema` via `outputSchema: Option[String]`. | ✅ |
+| 11.7 | Stop-hook cleanup | Delete `ClaudeStopHook`, `ClaudeInteractiveHandle`, `DoneMarkerExtractor`, `InteractiveHandle` trait, the inherited-stdio `spawn` path, `prepareWorkspace` on the backend trait. | ✅ |
+| 11.8 | TerminalConversationRenderer | Per-event rendering (streaming text, tool calls, tool results, errors), spinner coordination, approval prompts via a `Prompter` seam. | ✅ |
+| 11.9 | Integration tests | Real-CLI tests: headless round-trips, streaming deltas + turn-end, tool-approval denial. Gated on `ORCA_INTEGRATION`. | ✅ |
+| 11.10 | Documentation | ADR 0006; design.md rewrite of the interactive section; ADR 0003 updated to reflect the new backend surface. | ✅ |
+
+**Exit criteria**: no in-band markers; `--json-schema` drives structured validation; the terminal renders live streaming turns and prompts for tool approvals; 175+ tests green.
+
+**Deferred** (noted in individual reviews): ConversationEvent.Usage for realtime accounting; ACP adapter for N-backend portability (post-Codex); Ctrl-C-during-streaming → graceful cancel.

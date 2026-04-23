@@ -63,7 +63,7 @@ claude.resultAs[TaskPlan].prompt(input)   // I inferred from input, O = TaskPlan
 
 Each stage in a flow is either **interactive** or **autonomous**:
 
-- **Interactive** (e.g., planning, design) — the user collaborates with the agent over multiple turns via a configured interaction channel (terminal by default, pluggable). When the agent completes the stage, it emits a `<<<ORCA_DONE>>>` marker followed by structured JSON output (see Prompt construction).
+- **Interactive** (e.g., planning, design) — the user collaborates with the agent over multiple turns via a configured interaction channel (terminal by default, pluggable). The backend drives a stream-json subprocess; `--json-schema` validates the final structured turn, and a typed `result` message on the subchannel signals completion (no in-band markers). See ADR 0006.
 - **Autonomous** (e.g., coding, review) — the agent runs without user prompts (headless: non-interactive, single-shot, structured output on stdout). Live progress is forwarded to registered event listeners.
 
 A flow freely mixes both.
@@ -279,11 +279,11 @@ trait PromptTemplate:
   def interactive(input: String, outputSchema: String, config: LlmConfig): String
 ```
 
-Custom templates can be provided via `flow(..., promptTemplate = ...)`. The `<<<ORCA_DONE>>>` marker signals task completion in interactive mode.
+Custom templates can be provided via `flow(..., promptTemplate = ...)`. Interactive completion is signalled by the stream-json `result` message with a validated `structured_output` payload (see ADR 0006).
 
-For **headless** calls, the backend returns JSON on stdout. For **interactive** calls, a backend-specific mechanism detects the marker (see backends below) and writes the JSON payload to a **sentinel file** at `/tmp/orca-<session-id>.json`.
+For **headless** calls, the backend returns JSON on stdout. For **interactive** calls, the backend runs a controlled stream-json subprocess and emits typed `ConversationEvent`s; completion is signalled by a `result` message that carries the validated `structured_output` (when `--json-schema` is used).
 
-If the response fails to parse, the library retries with a corrective prompt (counts against the retry budget).
+If a headless response fails to parse, the library retries with a corrective prompt (counts against the retry budget). Interactive parse failures surface to the caller without retry — the user is steering the session.
 
 ### Events and interaction
 
@@ -304,12 +304,12 @@ trait OrcaListener:
 
 Events are dispatched synchronously. The library emits events automatically for every LLM call and stage transition.
 
-**Interaction** is bidirectional — it displays output to the user and receives commands during interactive stages. The backend produces an `InteractiveHandle`; the `Interaction` consumes it to bridge agent I/O to the user:
+**Interaction** is bidirectional — it displays output to the user and receives commands during interactive stages. The backend produces a live `Conversation[B]`; the `Interaction` drives it by consuming `ConversationEvent`s and responding to `ApproveTool` prompts:
 
 ```scala
 trait Interaction:
   def listeners: List[OrcaListener]
-  def runInteractive(handle: InteractiveHandle[?]): Unit
+  def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B]
 ```
 
 Built-in: `TerminalInteraction` (default, JLine 3 + fansi), `SlackInteraction(channel)`. Additional listeners for telemetry:
@@ -330,17 +330,18 @@ def fail(message: String)(using FlowContext): Nothing  // emits Error, throws Or
 
 ```scala
 trait LlmBackend[B <: Backend]:
-  /** Write backend-specific config: .claude/settings.json (Claude) or AGENTS.md (Codex). */
-  def prepareWorkspace(config: LlmConfig, outputSchema: String, workDir: Path)(using Ox): Unit
   def runHeadless(prompt: String, config: LlmConfig, workDir: Path): LlmResult[B]
   def continueHeadless(sessionId: SessionId[B], prompt: String, config: LlmConfig, workDir: Path): LlmResult[B]
-  def launchInteractive(prompt: String, config: LlmConfig, workDir: Path): InteractiveHandle[B]
-  def resumeInteractive(sessionId: SessionId[B], prompt: String, config: LlmConfig, workDir: Path): InteractiveHandle[B]
+  def runInteractive(prompt: String, config: LlmConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
+  def continueInteractive(sessionId: SessionId[B], prompt: String, config: LlmConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
 
 case class LlmResult[B <: Backend](sessionId: SessionId[B], output: String, usage: Usage)
 
-trait InteractiveHandle[B <: Backend]:
-  def awaitTermination(): LlmResult[B]
+trait Conversation[B <: Backend]:
+  def events: Iterator[ConversationEvent]
+  def awaitResult(): LlmResult[B]
+  def sendUserMessage(text: String): Unit
+  def cancel(): Unit
 ```
 
 `(using Ox)` provides a structured concurrency scope from the Ox library for lifecycle management.
@@ -351,19 +352,15 @@ trait InteractiveHandle[B <: Backend]:
 
 **Headless**: `claude -p "<prompt>" --output-format json --append-system-prompt-file <path> --resume <session_id>`. Returns JSON with `session_id`, `result`, `usage`. Streaming via `--output-format stream-json` (NDJSON).
 
-**Interactive**: `claude "initial prompt..." --session-id <pre-assigned-uuid> --append-system-prompt-file <path>`. Positional arg (without `-p`) keeps the session interactive.
-
-**Stop hook**: Claude Code supports user-defined hooks in `.claude/settings.json` that run shell commands after each agent turn. The hook receives JSON on stdin with `session_id` and `transcript_path`, checks for `<<<ORCA_DONE>>>`, writes the sentinel file, and exits with code 2 (Claude Code interprets this as a hook failure that halts the turn). Orchestrator detects sentinel, sends SIGINT, reads result.
+**Interactive**: `claude --print --input-format stream-json --output-format stream-json --verbose --include-partial-messages --json-schema <inline>`. The backend writes the initial user turn as NDJSON on stdin, reads typed messages (`system init`, `assistant`, `user`, `result`, `control_request`, `stream_event`) from stdout, and translates them to `ConversationEvent`s for the channel. Completion is the `result` message; no in-band markers. See ADR 0006.
 
 ### Backend: Codex (OpenAI)
 
 **Headless**: `codex exec --json --full-auto` — JSONL event stream on stdout. Session ID from `thread.started` event.
 
-**Interactive**: app-server architecture (`codex app-server --listen ws://...`). JSON-RPC over WebSocket: `thread/start`, `turn/start`, `thread/resume`. User attaches TUI via `codex --remote`. Termination: orchestrator detects `<<<ORCA_DONE>>>` in streamed events and stops sending turns.
+**Interactive**: app-server architecture (`codex app-server --listen ws://...`). JSON-RPC over WebSocket: `thread/start`, `turn/start`, `thread/resume`. User attaches TUI via `codex --remote`. Completion is signalled by a terminal event on the RPC stream, translated to `ConversationEvent.Result` by the Codex backend.
 
 **App-server lifecycle**: lazily spawned on first call, reused across the flow (each call = separate thread), shut down via Ox `useInScope`. Auto-restart on crash.
-
-**Stop hook**: Codex uses JSON stdout `{"continue": false}` (not exit code 2). For app-server mode, hooks are unnecessary.
 
 **Key differences**:
 
@@ -373,8 +370,8 @@ trait InteractiveHandle[B <: Backend]:
 | Structured output | `--output-format json` | `--json` + `--output-schema` |
 | System prompt | `--append-system-prompt-file` | `AGENTS.md` or `--config developer_instructions` |
 | Session ID | `--session-id <UUID>` (pre-assigned) | `thread.started` event / `thread/start` RPC |
-| Interactive | Subprocess + stop hook | App-server (WebSocket) + TUI attachment |
-| Stop mechanism | Hook exit code 2 | Hook `{"continue": false}` / stop sending turns |
+| Interactive | Stream-json stdio subprocess (ADR 0006) | App-server (WebSocket) + TUI attachment |
+| Completion signal | `result` message on stream-json subchannel | Terminal RPC event |
 
 ### Dependency stack
 
@@ -393,7 +390,7 @@ trait InteractiveHandle[B <: Backend]:
 
 ### Concurrency
 
-Ox structured concurrency with virtual threads. Reviewer agents run concurrently via `ox.par`. Each reviewer's `prepareWorkspace` creates an isolated temp directory. For Codex, concurrent reviewers share the app-server but use separate threads.
+Ox structured concurrency with virtual threads. Reviewer agents run concurrently via `ox.par`. Each reviewer runs in an isolated temp workdir so concurrent claude subprocesses don't contend. For Codex, concurrent reviewers share the app-server but use separate threads.
 
 ### Local development
 
