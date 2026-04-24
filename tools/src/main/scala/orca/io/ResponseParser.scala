@@ -6,6 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString
 }
 
+import scala.annotation.tailrec
 import scala.util.matching.Regex
 
 /** Thrown when the agent returned output that doesn't parse as `O`. Carries
@@ -30,66 +31,86 @@ private[orca] object ResponseParser:
 
   /** Parse an LLM-returned JSON string into `O`, tolerating markdown code
     * fences (optionally with a language tag) and prose preamble/coda
-    * around the JSON body. On a parse failure, raises a
+    * around the JSON body. Tries candidates from the *right* first, so
+    * a final answer `{...}` at the end of the response wins over an
+    * incidental `{ ... }` in prose (e.g. a Java snippet quoted in the
+    * explanation). On a total parse failure, raises a
     * [[MalformedAgentOutputException]] carrying the raw output and a
     * short cause — never jsoniter's hex buffer dump.
     */
   def parse[O](raw: String)(using JsonValueCodec[O]): O =
     val trimmed = stripFences(raw)
-    val candidate = extractJsonObject(trimmed).getOrElse(trimmed)
-    try readFromString(candidate)
-    catch
-      case e: JsonReaderException =>
+    // `trimmed` is always in the candidate list so every failure has
+    // at least one recorded JsonReaderException to surface.
+    val candidates = (extractJsonObjects(trimmed).reverse :+ trimmed).distinct
+    val attempts = candidates.map(tryParse[O])
+    attempts.collectFirst { case Right(value) => value } match
+      case Some(value) => value
+      case None =>
+        val lastError = attempts.collect { case Left(e) => e }.last
         throw new MalformedAgentOutputException(
           rawOutput = raw,
-          shortCause = shortMessage(e),
-          cause = e
+          shortCause = shortMessage(lastError),
+          cause = lastError
         )
+
+  private def tryParse[O: JsonValueCodec](
+      candidate: String
+  ): Either[JsonReaderException, O] =
+    try Right(readFromString[O](candidate))
+    catch case e: JsonReaderException => Left(e)
 
   private def stripFences(raw: String): String =
     raw.trim match
       case FencePattern(inner) => inner.trim
       case unfenced            => unfenced
 
-  /** Agents occasionally wrap the JSON in prose ("Here is your plan:
-    * {...}" or "{...} — done"). If the trimmed string contains a `{`
-    * somewhere and the bracket-matched close ends before the end of the
-    * string, extract the object substring. Returns `None` if the whole
-    * string is already one object (start=0, end=last) — the caller then
-    * uses the input verbatim. Returns `None` if no balanced object is
-    * found — caller falls back so the original parse error surfaces.
+  /** Every balanced `{...}` substring in the input, in source order.
+    * The parser tries these right-to-left so an incidental code snippet
+    * in prose doesn't preempt the real final answer that agents tend to
+    * place at the end of a response.
     */
-  private def extractJsonObject(s: String): Option[String] =
-    val start = s.indexOf('{')
-    if start < 0 then None
-    else
-      matchingCloseBrace(s, start).flatMap { end =>
-        val alreadyClean = start == 0 && end == s.length - 1
-        if alreadyClean then None
-        else Some(s.substring(start, end + 1))
-      }
+  private def extractJsonObjects(s: String): List[String] =
+    @tailrec
+    def loop(i: Int, acc: List[String]): List[String] =
+      if i >= s.length then acc.reverse
+      else if s.charAt(i) != '{' then loop(i + 1, acc)
+      else
+        matchingCloseBrace(s, i) match
+          case Some(end) => loop(end + 1, s.substring(i, end + 1) :: acc)
+          case None      => loop(i + 1, acc)
+    loop(0, Nil)
+
+  /** Cursor over the in-string escape state while scanning for a
+    * matching `}`. Tracking it explicitly keeps the scan tail-recursive.
+    */
+  private enum ScanMode:
+    case Normal, InString, Escaped
 
   private def matchingCloseBrace(s: String, open: Int): Option[Int] =
-    var depth = 0
-    var i = open
-    var inString = false
-    var escape = false
-    while i < s.length do
-      val ch = s.charAt(i)
-      if inString then
-        if escape then escape = false
-        else if ch == '\\' then escape = true
-        else if ch == '"' then inString = false
+    @tailrec
+    def loop(i: Int, depth: Int, mode: ScanMode): Option[Int] =
+      if i >= s.length then None
       else
-        ch match
-          case '"' => inString = true
-          case '{' => depth += 1
-          case '}' =>
-            depth -= 1
-            if depth == 0 then return Some(i)
-          case _ => ()
-      i += 1
-    None
+        val ch = s.charAt(i)
+        mode match
+          case ScanMode.Escaped =>
+            loop(i + 1, depth, ScanMode.InString)
+          case ScanMode.InString =>
+            val next =
+              if ch == '\\' then ScanMode.Escaped
+              else if ch == '"' then ScanMode.Normal
+              else ScanMode.InString
+            loop(i + 1, depth, next)
+          case ScanMode.Normal =>
+            ch match
+              case '"' => loop(i + 1, depth, ScanMode.InString)
+              case '{' => loop(i + 1, depth + 1, ScanMode.Normal)
+              case '}' =>
+                if depth == 1 then Some(i)
+                else loop(i + 1, depth - 1, ScanMode.Normal)
+              case _ => loop(i + 1, depth, ScanMode.Normal)
+    loop(open, 0, ScanMode.Normal)
 
   /** jsoniter's default `getMessage` bundles the offset + a hex buffer
     * dump — useful in logs, intimidating in a user-facing error. Keep

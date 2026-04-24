@@ -1,6 +1,9 @@
 package orca
 
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
+import com.github.plokhotnyuk.jsoniter_scala.macros.{
+  CodecMakerConfig,
+  ConfiguredJsonValueCodec
+}
 import sttp.tapir.Schema
 
 import scala.deriving.Mirror
@@ -25,6 +28,20 @@ trait JsonData[A]:
 
 object JsonData:
 
+  /** Stricter-than-default jsoniter config. `requireCollectionFields`
+    * makes missing `List` / `Set` / `Map` fields a parse error instead
+    * of silently defaulting to empty; without this an agent reply that
+    * has the right overall `{...}` structure but the wrong fields (an
+    * API error body, a partial document) decodes as a valid case class
+    * with every collection empty — and downstream code sees a
+    * "success" with no content. `transientEmpty = false` is required
+    * because the two flags are mutually exclusive in jsoniter.
+    */
+  inline def strictCodecConfig: CodecMakerConfig =
+    CodecMakerConfig
+      .withRequireCollectionFields(true)
+      .withTransientEmpty(false)
+
   def apply[A](
       schemaInstance: Schema[A],
       codecInstance: ConfiguredJsonValueCodec[A]
@@ -34,7 +51,10 @@ object JsonData:
       val codec: ConfiguredJsonValueCodec[A] = codecInstance
 
   inline def derived[A](using Mirror.Of[A]): JsonData[A] =
-    apply(Schema.derived[A], ConfiguredJsonValueCodec.derived[A])
+    apply(
+      Schema.derived[A],
+      ConfiguredJsonValueCodec.derived[A](using strictCodecConfig)
+    )
 
 given schemaFromJsonData[A](using jd: JsonData[A]): Schema[A] = jd.schema
 
