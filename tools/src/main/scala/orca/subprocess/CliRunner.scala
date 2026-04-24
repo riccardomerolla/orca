@@ -84,7 +84,12 @@ object OsProcCliRunner extends CliRunner:
         env = env,
         stdin = os.Pipe,
         stdout = os.Pipe,
-        stderr = os.Pipe
+        // stderr inherits the parent's — piping it risks a buffer-fill
+        // hang when the child emits more stderr than we drain in time
+        // (claude with --verbose is chatty). The child's diagnostics
+        // show up directly in the user's terminal, which is fine; we
+        // surface structured errors via the stdout `result` message.
+        stderr = os.Inherit
       )
     new OsPipedSubProcess(sub)
 
@@ -94,7 +99,10 @@ private final class OsPipedSubProcess(sub: os.SubProcess)
   // Memoised so repeated calls return the same iterator, avoiding a
   // second `BufferedReader` leak against the pipe.
   private lazy val stdoutIterator: Iterator[String] = sub.stdout.lines().iterator
-  private lazy val stderrIterator: Iterator[String] = sub.stderr.lines().iterator
+  // stderr is inherited to the parent; expose an empty iterator so the
+  // `PipedCliProcess` contract still holds without us reading from a
+  // nonexistent pipe.
+  private lazy val stderrIterator: Iterator[String] = Iterator.empty
 
   def sendSigInt(): Unit =
     val _ = os
