@@ -148,10 +148,11 @@ private[claude] class ClaudeConversation(
         deltasSinceTurnBoundary.set(true)
         eventQueue.enqueue(evt)
       }
-    case InboundMessage.Unknown(rawType) =>
-      eventQueue.enqueue(
-        ConversationEvent.Error(s"Unknown stream-json message type: $rawType")
-      )
+    case InboundMessage.Unknown(_) =>
+      // Unknown top-level message types are protocol drift (new
+      // message kinds in newer CLI versions, etc.) — nothing the user
+      // can act on, so drop silently rather than rendering ✖.
+      ()
 
   /** Full assistant turn arrives after partials have streamed. Tool-use
     * blocks only reach us here (deltas don't reconstruct them), so we
