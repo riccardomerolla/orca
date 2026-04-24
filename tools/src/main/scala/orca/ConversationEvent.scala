@@ -14,6 +14,13 @@ package orca
   * `respond` closure the channel invokes exactly once with its decision.
   */
 enum ConversationEvent:
+  /** A user turn — either the opening prompt (emitted by the driver
+    * when the session starts) or a mid-session reply. Letting the
+    * channel render these alongside agent output gives the user
+    * visible context about their own input; a long agent response
+    * to an unseen prompt feels unmoored.
+    */
+  case UserMessage(text: String)
   case AssistantTextDelta(text: String)
   case AssistantThinkingDelta(text: String)
   case AssistantToolCall(toolName: String, rawInput: String)

@@ -13,17 +13,21 @@ import org.jline.terminal.TerminalBuilder
 import java.io.PrintStream
 import scala.util.control.NonFatal
 
-/** Renders a [[Conversation]] to the terminal: stream agent text/thinking
-  * as it arrives, announce tool calls and results, and prompt the user
-  * for approval decisions and free-form input. Designed to be single-use
-  * per conversation; construct, call [[render]], then the underlying
-  * JLine terminal is closed on the way out.
+/** Renders a [[Conversation]] to the terminal. The layout aims for a
+  * Claude-Code-like aesthetic: the user's opening prompt sits on its
+  * own section, the agent's prose streams as plain text, and each tool
+  * call/result gets a compact one-line summary tagged with a glyph.
   *
-  * The renderer intentionally does no global signal handling — a Ctrl-C
-  * hit while streaming still kills the JVM today. Approval prompts,
-  * which is where users most often want a graceful escape, handle
-  * `UserInterruptException` from JLine and call `conversation.cancel()`
-  * so the enclosing `flow` can recover.
+  * Spacing is controlled by a tiny section state machine — consecutive
+  * tool events don't grow blank lines between them, but a transition
+  * from prose to a tool block (or back) gets exactly one separator.
+  * This keeps tool-heavy turns tight while leaving prose visually
+  * detached from mechanical actions.
+  *
+  * The renderer is single-use per conversation; the JLine terminal is
+  * closed on the way out. No global signal handling — Ctrl-C during
+  * streaming still kills the JVM today. Approval prompts catch
+  * `UserInterruptException` and cancel the conversation instead.
   */
 private[terminal] class TerminalConversationRenderer(
     out: PrintStream,
@@ -36,11 +40,14 @@ private[terminal] class TerminalConversationRenderer(
 
   import TerminalConversationRenderer.*
 
+  /** Section + midText together form the renderer's only state: they
+    * drive spacing decisions between events. Held in a single var so
+    * the invariant (`midText => section == Prose`) stays visible and
+    * the two fields can't drift apart.
+    */
+  private var state: RenderState = RenderState.empty
+
   def render[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
-    out.println(paint(fansi.Color.Yellow, "[interactive session]"))
-    // Claude's time-to-first-byte can be 10s+; spin immediately so
-    // the user sees the session is alive while the agent is thinking.
-    spinner.foreach(_.start("thinking"))
     try
       conversation.events.foreach(dispatch(_, conversation))
       conversation.awaitResult()
@@ -50,6 +57,7 @@ private[terminal] class TerminalConversationRenderer(
       event: ConversationEvent,
       conversation: Conversation[B]
   ): Unit = event match
+    case ConversationEvent.UserMessage(text)            => renderUserMessage(text)
     case ConversationEvent.AssistantTextDelta(text)     => renderText(text)
     case ConversationEvent.AssistantThinkingDelta(text) => renderThinking(text)
     case ConversationEvent.AssistantToolCall(name, input) =>
@@ -63,41 +71,77 @@ private[terminal] class TerminalConversationRenderer(
 
   // --- Rendering ---
 
-  private def renderText(text: String): Unit =
+  private def renderUserMessage(text: String): Unit =
     stopSpinner()
-    out.print(paint(fansi.Color.Reset, text))
+    beginSection(Section.Prose)
+    out.println(paint(UserHeaderStyle, s"$UserGlyph you"))
+    out.println(paint(UserBodyStyle, indent(text)))
+    // Explicit blank after the user block so the first agent event
+    // lands detached; reset the section so the next `beginSection`
+    // doesn't insert a second one.
+    out.println()
+    state = RenderState.empty
     out.flush()
+    spinner.foreach(_.start("thinking"))
+
+  private def renderText(text: String): Unit =
+    streamInProse(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
 
   private def renderThinking(text: String): Unit =
     if showThinking then
-      stopSpinner()
-      out.print(paint(fansi.Color.DarkGray, text))
-      out.flush()
+      streamInProse(text, ThinkingGlyph, ThinkingStyle, ThinkingStyle)
+
+  private def streamInProse(
+      text: String,
+      glyph: String,
+      glyphStyle: fansi.Attrs,
+      textStyle: fansi.Attrs
+  ): Unit =
+    stopSpinner()
+    if !state.midText then
+      beginSection(Section.Prose)
+      out.print(paint(glyphStyle, s"$glyph "))
+      state = state.copy(midText = true)
+    out.print(paint(textStyle, text))
+    out.flush()
 
   private def renderToolCall(name: String, input: String): Unit =
     stopSpinner()
-    out.println()
-    out.println(
-      paint(fansi.Color.DarkGray, s"  → $name: ${summarise(input, MaxInlineInputLength)}")
-    )
+    beginSection(Section.Tool)
+    val args = ToolInputSummary.summarise(input, MaxInlineInputLength)
+    val head = paint(ToolNameStyle, s"$ToolCallGlyph $name")
+    val tail = if args.isEmpty then "" else " " + paint(ToolArgsStyle, args)
+    out.println(head + tail)
 
   private def renderToolResult(ok: Boolean, content: String): Unit =
     stopSpinner()
-    val colour = if ok then fansi.Color.DarkGray else fansi.Color.Red
-    val label = if ok then "←" else "✖"
-    out.println(
-      paint(colour, s"  $label ${summarise(content, MaxInlineContentLength)}")
-    )
+    beginSection(Section.Tool)
+    val glyph = if ok then ToolResultGlyph else ToolErrorGlyph
+    val style = if ok then ToolResultStyle else ErrorStyle
+    out.println(paint(style, s"  $glyph ${truncate(content, MaxInlineContentLength)}"))
 
   private def renderTurnEnd(): Unit =
-    out.println()
-    // Agent may continue (tool roundtrip, follow-up turn) — restart the
-    // spinner to signal "working"; the first content event will stop it.
+    closeTextRun()
     spinner.foreach(_.start("thinking"))
 
   private def renderError(message: String): Unit =
     stopSpinner()
-    out.println(paint(fansi.Color.Red, s"  ✖ $message"))
+    beginSection(Section.Prose)
+    out.println(paint(ErrorStyle, s"$ErrorGlyph $message"))
+
+  /** Close any pending streaming text and insert a single blank line
+    * when transitioning between different section kinds; tight inside
+    * the same section. Every "discrete" renderer calls this first.
+    */
+  private def beginSection(next: Section): Unit =
+    closeTextRun()
+    if state.section != Section.None && state.section != next then out.println()
+    state = RenderState(next, midText = false)
+
+  private def closeTextRun(): Unit =
+    if state.midText then
+      out.println()
+      state = state.copy(midText = false)
 
   // --- Prompts ---
 
@@ -108,24 +152,19 @@ private[terminal] class TerminalConversationRenderer(
       conversation: Conversation[B]
   ): Unit =
     stopSpinner()
-    out.println()
-    out.println(
-      paint(
-        fansi.Color.Yellow,
-        s"? $toolName requested: ${summarise(rawInput, MaxInlineInputLength)}"
-      )
+    beginSection(Section.Prose)
+    val summary = ToolInputSummary.summarise(rawInput, MaxInlineInputLength)
+    out.println(paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary"))
+    prompter.ask(paint(ApprovalStyle, "  [y]es / [n]o ? ")) match
+      case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
+      case PromptOutcome.Interrupted   => conversation.cancel()
+
+  private def decisionFor(reply: String): ApprovalDecision =
+    val normalised = reply.trim.toLowerCase
+    if normalised.startsWith("y") then ApprovalDecision.Allow()
+    else ApprovalDecision.Deny(
+      Some(s"user denied via terminal (answered '$normalised')")
     )
-    prompter.ask(paint(fansi.Color.Yellow, "  [y]es / [n]o ? ")) match
-      case PromptOutcome.Answer(reply) =>
-        val normalised = reply.trim.toLowerCase
-        if normalised.startsWith("y") then respond(ApprovalDecision.Allow())
-        else
-          respond(
-            ApprovalDecision.Deny(
-              Some(s"user denied via terminal (answered '$normalised')")
-            )
-          )
-      case PromptOutcome.Interrupted => conversation.cancel()
 
   // --- Helpers ---
 
@@ -135,17 +174,55 @@ private[terminal] class TerminalConversationRenderer(
     try prompter.close()
     catch case NonFatal(_) => ()
 
-  private def summarise(raw: String, maxLength: Int): String =
+  private def indent(text: String): String =
+    text.linesIterator.map(line => s"  $line").mkString("\n")
+
+  private def truncate(raw: String, maxLength: Int): String =
     val collapsed = raw.replaceAll("\\s+", " ").trim
     if collapsed.length <= maxLength then collapsed
     else s"${collapsed.take(maxLength)}…"
 
-  private def paint(attr: fansi.EscapeAttr, text: String): String =
+  private def paint(attr: fansi.Attrs, text: String): String =
     if useColor then attr(text).render else text
 
 private[terminal] object TerminalConversationRenderer:
   val MaxInlineInputLength: Int = 120
-  val MaxInlineContentLength: Int = 160
+  // Tool results are large file reads or command output; show just
+  // enough for "something happened" without wrapping past one line.
+  val MaxInlineContentLength: Int = 100
+
+  val UserGlyph: String       = "▸"
+  val AssistantGlyph: String  = "●"
+  val ThinkingGlyph: String   = "·"
+  val ToolCallGlyph: String   = "⏺"
+  val ToolResultGlyph: String = "⎿"
+  val ToolErrorGlyph: String  = "✖"
+  val ErrorGlyph: String      = "✖"
+  val ApprovalGlyph: String   = "?"
+
+  val UserHeaderStyle: fansi.Attrs     = fansi.Color.Cyan ++ fansi.Bold.On
+  val UserBodyStyle: fansi.Attrs       = fansi.Color.Cyan
+  val AssistantGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
+  val AssistantTextStyle: fansi.Attrs  = fansi.Attrs.Empty
+  val ThinkingStyle: fansi.Attrs       = fansi.Color.DarkGray
+  val ToolNameStyle: fansi.Attrs       = fansi.Color.Blue ++ fansi.Bold.On
+  val ToolArgsStyle: fansi.Attrs       = fansi.Color.DarkGray
+  val ToolResultStyle: fansi.Attrs     = fansi.Color.DarkGray
+  val ErrorStyle: fansi.Attrs          = fansi.Color.Red
+  val ApprovalStyle: fansi.Attrs       = fansi.Color.Yellow
+
+  private[terminal] enum Section:
+    case None, Prose, Tool
+
+  /** `midText` is only meaningful inside a Prose section — the
+    * constructor keeps that invariant loose so tests can build edge
+    * cases, but [[TerminalConversationRenderer.beginSection]] always
+    * normalises it when opening a non-Prose section.
+    */
+  private[terminal] case class RenderState(section: Section, midText: Boolean)
+
+  private[terminal] object RenderState:
+    val empty: RenderState = RenderState(Section.None, midText = false)
 
   /** Outcome of a readline-style prompt. */
   enum PromptOutcome:

@@ -25,6 +25,12 @@ trait LlmBackend[B <: Backend]:
     * steering. The backend owns the subprocess and NDJSON parsing; the
     * channel owns UX.
     *
+    * `prompt` is the full wire-level message sent to the agent (with
+    * template scaffolding, schema, rules). `displayPrompt` is what the
+    * channel shows the user to anchor the session — typically just the
+    * user's raw input. Keeping them separate prevents the renderer from
+    * dumping the whole templated system prompt into the terminal.
+    *
     * `outputSchema` is the JSON Schema the agent's final reply must
     * conform to, or `None` for free-form text. Backends that support
     * structured-output validation (claude's `--json-schema`) enforce
@@ -33,6 +39,7 @@ trait LlmBackend[B <: Backend]:
     */
   def runInteractive(
       prompt: String,
+      displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
@@ -41,6 +48,7 @@ trait LlmBackend[B <: Backend]:
   def continueInteractive(
       sessionId: SessionId[B],
       prompt: String,
+      displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]

@@ -39,21 +39,31 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
 
   def runInteractive(
       prompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      outputSchema: Option[String]
-  ): Conversation[Backend.ClaudeCode.type] =
-    openConversation(prompt, config, workDir, resume = None, outputSchema)
-
-  def continueInteractive(
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      prompt: String,
+      displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[Backend.ClaudeCode.type] =
     openConversation(
       prompt,
+      displayPrompt,
+      config,
+      workDir,
+      resume = None,
+      outputSchema
+    )
+
+  def continueInteractive(
+      sessionId: SessionId[Backend.ClaudeCode.type],
+      prompt: String,
+      displayPrompt: String,
+      config: LlmConfig,
+      workDir: os.Path,
+      outputSchema: Option[String]
+  ): Conversation[Backend.ClaudeCode.type] =
+    openConversation(
+      prompt,
+      displayPrompt,
       config,
       workDir,
       resume = Some(sessionId),
@@ -82,6 +92,7 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     */
   private def openConversation(
       prompt: String,
+      displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       resume: Option[SessionId[Backend.ClaudeCode.type]],
@@ -94,7 +105,7 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     try
       process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))
       process.closeStdin()
-      new ClaudeConversation(process, config)
+      new ClaudeConversation(process, config, initialPrompt = displayPrompt)
     catch
       case e: Exception =>
         process.sendSigInt()

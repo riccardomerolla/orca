@@ -50,6 +50,7 @@ class SequencedBackend(outputs: List[String])
 
   def runInteractive(
       prompt: String,
+      displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
@@ -57,6 +58,7 @@ class SequencedBackend(outputs: List[String])
   def continueInteractive(
       sessionId: SessionId[Backend.ClaudeCode.type],
       prompt: String,
+      displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]

@@ -59,6 +59,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
   test("stream-json interactive session reaches a Result with a session id"):
     val conversation = backend.runInteractive(
       prompt = "Reply with just the number 7. Nothing else.",
+      displayPrompt = "reply with 7",
       config = LlmConfig.default,
       workDir = os.temp.dir(),
       outputSchema = None
@@ -79,6 +80,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     val conversation = backend.runInteractive(
       prompt =
         "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
+      displayPrompt = "count 1..5",
       config = LlmConfig.default,
       workDir = os.temp.dir(),
       outputSchema = None
@@ -107,6 +109,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     val conversation = backend.runInteractive(
       prompt =
         "Read the file at /etc/hostname and reply with its contents.",
+      displayPrompt = "read /etc/hostname",
       config = LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
       workDir = os.temp.dir(),
       outputSchema = None

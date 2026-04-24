@@ -51,7 +51,8 @@ import scala.util.control.NonFatal
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
-    config: LlmConfig
+    config: LlmConfig,
+    initialPrompt: String = ""
 ) extends Conversation[Backend.ClaudeCode.type]:
 
   import ClaudeConversation.*
@@ -65,6 +66,12 @@ private[claude] class ClaudeConversation(
     * already streamed" from "partials disabled upstream".
     */
   private val deltasSinceTurnBoundary = new AtomicBoolean(false)
+
+  // Surface the opening prompt to the channel before any agent output.
+  // Without this, the channel sits silent while claude warms up — giving
+  // the user nothing to anchor the eventual agent response against.
+  if initialPrompt.nonEmpty then
+    eventQueue.enqueue(ConversationEvent.UserMessage(initialPrompt))
 
   private val readerThread: Thread =
     val t = new Thread(() => readLoop(), "claude-conversation-reader")
@@ -154,8 +161,9 @@ private[claude] class ClaudeConversation(
     case InboundMessage.SystemInit(sid)          => sessionIdRef.set(sid)
     case InboundMessage.AssistantTurn(content)   => handleAssistantTurn(content)
     case InboundMessage.UserTurn(content)        => handleUserTurn(content)
-    case InboundMessage.Result(_, sid, output, structured, usage, _) =>
-      handleResult(sid, output, structured, usage)
+    case InboundMessage.Result(_, sid, output, structured, usage, isError) =>
+      if isError then handleResultError(output)
+      else handleResult(sid, output, structured, usage)
     case InboundMessage.ControlRequest(reqId, body) =>
       handleControlRequest(reqId, body)
     case InboundMessage.StreamEvent(payload) =>
@@ -215,6 +223,21 @@ private[claude] class ClaudeConversation(
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
+  /** Claude sets `is_error: true` for out-of-band failures (API errors,
+    * rate limits, auth problems) that happen at the CLI boundary rather
+    * than inside a turn. Treat these as session-ending failures rather
+    * than feeding the error body into the downstream response parser,
+    * which might otherwise accept a `{"type":"error",...}` payload as
+    * a structurally valid agent output.
+    */
+  private def handleResultError(output: Option[String]): Unit =
+    val message = output.filter(_.nonEmpty).getOrElse("claude reported is_error")
+    eventQueue.enqueue(ConversationEvent.Error(message))
+    val _ = outcomeRef.compareAndSet(
+      None,
+      Some(Outcome.Failed(new OrcaFlowException(s"claude session failed: $message")))
+    )
+
   private def handleControlRequest(
       requestId: String,
       body: ControlRequestBody
@@ -258,24 +281,23 @@ private[claude] class ClaudeConversation(
     process.writeLine(OutboundMessage.toJson(msg))
 
   private def finalizeLoop(): Unit =
-    val finalOutcome =
-      if outcomeRef.get().isDefined then outcomeRef.get().get
-      else if cancelled.get() then Outcome.Cancelled
-      else
-        process.tryExitCode match
-          case Some(0) =>
-            Outcome.Failed(
-              new OrcaFlowException(
-                "claude exited cleanly but never sent a result message"
-              )
-            )
-          case Some(code) =>
-            Outcome.Failed(
-              new OrcaFlowException(s"claude exited with code $code")
-            )
-          case None => Outcome.Cancelled
+    val finalOutcome = outcomeRef.get() match
+      case Some(existing) => existing
+      case None if cancelled.get() => Outcome.Cancelled
+      case None => outcomeFromExit(process.tryExitCode)
     val _ = outcomeRef.compareAndSet(None, Some(finalOutcome))
     eventQueue.close()
+
+  private def outcomeFromExit(exitCode: Option[Int]): Outcome = exitCode match
+    case Some(0) =>
+      Outcome.Failed(
+        new OrcaFlowException(
+          "claude exited cleanly but never sent a result message"
+        )
+      )
+    case Some(code) =>
+      Outcome.Failed(new OrcaFlowException(s"claude exited with code $code"))
+    case None => Outcome.Cancelled
 
 private[claude] object ClaudeConversation:
 

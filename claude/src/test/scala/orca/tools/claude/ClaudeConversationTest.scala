@@ -6,6 +6,7 @@ import orca.{
   Backend,
   ConversationEvent,
   LlmConfig,
+  OrcaFlowException,
   OrcaInteractiveCancelled,
   Usage
 }
@@ -42,6 +43,26 @@ class ClaudeConversationTest extends munit.FunSuite:
     val result = conv.awaitResult()
     assertEquals(result.output, "done")
     assertEquals(result.usage, Usage(5L, 7L, None))
+
+  test("result message with is_error=true fails the session and surfaces the message"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, LlmConfig.default)
+
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error","session_id":"sid-err","result":"API Error: 400 rate limited","is_error":true}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(msg) => msg.contains("rate limited")
+        case _                             => false
+      },
+      s"expected an Error event carrying the result body; got: $events"
+    )
+    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    assert(failure.getMessage.contains("rate limited"))
 
   test("cancel throws OrcaInteractiveCancelled from awaitResult"):
     val process = new FakePipedCliProcess()

@@ -13,17 +13,23 @@ import java.io.PrintStream
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
   * streaming LLM output, and errors to a `PrintStream` (defaults to
-  * stderr so the structured output on stdout stays clean). `drive` is a
-  * stub until Task 65 wires the stream-json conversation renderer.
+  * stderr so the structured output on stdout stays clean).
+  *
+  * `useColor` and `animated` default to auto-detect: when the JVM has
+  * no controlling console (e.g. the caller redirected stderr to a file
+  * or we're running under a CI runner) we suppress both ANSI escapes
+  * and the spinner animation. This prevents the spinner's rapid
+  * cursor-up redraws from piling up as literal ANSI noise in logs.
+  * `NO_COLOR`, `CI`, and `ORCA_NO_ANIMATION` all force both off.
   *
   * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8
-  * default charset the caller should pass a PrintStream constructed with
-  * `new PrintStream(out, true, "UTF-8")`.
+  * default charset the caller should pass a PrintStream constructed
+  * with `new PrintStream(out, true, "UTF-8")`.
   */
 class TerminalInteraction(
     out: PrintStream = System.err,
-    useColor: Boolean = true,
-    animated: Boolean = true
+    useColor: Boolean = TerminalInteraction.defaultUseColor,
+    animated: Boolean = TerminalInteraction.defaultAnimated
 ) extends Interaction:
 
   private val listener = new TerminalListener
@@ -73,3 +79,22 @@ object TerminalInteraction:
   val StageStartGlyph: String = "▶"
   val StageDoneGlyph: String = "✔"
   val ErrorGlyph: String = "✖"
+
+  /** ANSI colors default off when stderr isn't attached to a terminal
+    * (no controlling console), the `NO_COLOR` convention is honoured,
+    * or we detect a CI runner.
+    */
+  def defaultUseColor: Boolean =
+    !sys.env.contains("NO_COLOR") && consolePresent && !ciDetected
+
+  /** Animation is strictly a subset of colour — it additionally
+    * writes cursor-control escapes in a tight loop, so suppressing it
+    * when we suspect the output is being captured is doubly important.
+    */
+  def defaultAnimated: Boolean =
+    defaultUseColor && !sys.env.contains("ORCA_NO_ANIMATION")
+
+  private def consolePresent: Boolean = System.console() != null
+
+  private def ciDetected: Boolean =
+    sys.env.get("CI").exists(_.nonEmpty)

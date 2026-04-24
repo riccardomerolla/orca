@@ -138,6 +138,7 @@ class DefaultLlmCall[O](
         backend.continueInteractive(
           sid,
           prompt,
+          displayPrompt = serialized,
           effective,
           workDir,
           Some(outputSchema)
@@ -145,6 +146,7 @@ class DefaultLlmCall[O](
       case None =>
         backend.runInteractive(
           prompt,
+          displayPrompt = serialized,
           effective,
           workDir,
           Some(outputSchema)
