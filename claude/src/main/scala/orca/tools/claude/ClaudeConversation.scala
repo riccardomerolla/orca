@@ -109,18 +109,33 @@ private[claude] class ClaudeConversation(
 
   // --- Reader thread ---
 
+  /** Debug switch: set `ORCA_DEBUG_STREAM=1` to dump every inbound
+    * stdout / stderr line from claude verbatim to the parent's stderr,
+    * before parsing. Lets you confirm whether the subprocess is emitting
+    * anything at all.
+    */
+  private val debugStream: Boolean =
+    sys.env.get("ORCA_DEBUG_STREAM").contains("1")
+
+  private def debugLog(channel: String, line: String): Unit =
+    if debugStream then
+      System.err.println(s"[orca-debug $channel] $line")
+
   private def readLoop(): Unit =
     try
       for line <- process.stdoutLines do
+        debugLog("stdout", line)
         if !cancelled.get() then handleLine(line)
     catch
       case NonFatal(e) =>
+        debugLog("stdout-error", e.toString)
         val _ = outcomeRef.compareAndSet(None, Some(Outcome.Failed(e)))
     finally finalizeLoop()
 
   private def stderrLoop(): Unit =
     try
       for line <- process.stderrLines do
+        debugLog("stderr", line)
         if line.trim.nonEmpty then
           eventQueue.enqueue(ConversationEvent.Error(s"claude: $line"))
     catch case NonFatal(_) => () // stderr draining is best-effort
