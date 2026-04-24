@@ -12,14 +12,14 @@ orca/
 │   └── Dependencies.scala
 ├── core/       # types, traits, structured I/O, events
 ├── claude/     # Claude Code subprocess backend
-├── codex/      # Codex WebSocket backend (sttp)
+├── codex/      # Codex subprocess backend (WebSocket only if 9.1 probe requires it)
 ├── cli/        # orca entry point, mainargs, JLine, fansi — depends on all
 ├── examples/   # .sc scripts for testing and documentation
 ```
 
-`cli dependsOn (core, claude, codex)`. Backends each `dependsOn core`. This keeps dependency trees clean — users who only need Claude don't pull in sttp.
+`cli dependsOn (core, claude, codex)`. Backends each `dependsOn core`. The original plan assumed Codex would need sttp for a WebSocket app-server; Epic 9.1 re-evaluates whether `codex exec --json` can drive interactive sessions over stdio the way Claude's stream-json mode does, in which case sttp is not needed.
 
-**Testing**: munit. Subprocess-wrapping code tested via a `CliRunner` trait (stubbed in unit tests, real in integration tests). WebSocket code tested via sttp's `WebSocketStub`. Integration tests gated behind `ORCA_INTEGRATION` env var. JSON Schema round-trips tested with `networknt/json-schema-validator`.
+**Testing**: munit. Subprocess-wrapping code tested via a `CliRunner` trait (stubbed in unit tests, real in integration tests) and the stream-json driver via `FakePipedCliProcess`. If the Codex probe forces a WebSocket fallback, that code is tested via sttp's `WebSocketStub`. Integration tests gated behind `ORCA_INTEGRATION` env var. JSON Schema round-trips tested with `networknt/json-schema-validator`.
 
 **Metals MCP**: Configure `metals.startMcpServer = true` for AI-assisted development with real type info.
 
@@ -162,17 +162,71 @@ Higher-level flow combinators, built on all previous epics.
 
 ## Epic 9: Codex Backend
 
-Second backend. WebSocket-based, independent of Claude.
+Second backend. Mirrors the Claude architecture established in Epics 4
+and 11 — `PipedCliProcess` subprocess, daemon reader thread producing
+`ConversationEvent`s, `DefaultLlmCall` driving retries unchanged. The
+plan's original WebSocket/app-server path may no longer be necessary:
+if `codex exec --json` streams per-turn events and tool calls, we get
+interactive support over the same stdio shape Claude uses, for free.
+Task 9.1 decides.
 
 | # | Task | Description | Status |
 |---|---|---|---|
-| 9.1 | Codex headless | Spawn `codex exec --json --full-auto`. Parse JSONL events. Extract `thread_id` from `thread.started`, output from `item.completed`, usage from `turn.completed`. Unit test with canned JSONL. | |
-| 9.2 | App-server lifecycle | Lazy spawn of `codex app-server`. Port management. Health check (wait for ready). Shutdown via Ox `useInScope`. Auto-restart on crash. Unit test with a mock server process. | |
-| 9.3 | WebSocket JSON-RPC client | sttp WebSocket client. Implement `thread/start`, `turn/start`, `thread/resume`, `thread/list`. Unit test with `WebSocketStub`. | |
-| 9.4 | Interactive mode | `runInteractive` via app-server: create thread, start turn, stream events. Translate each turn event into `ConversationEvent` (AssistantTextDelta / AssistantTurnEnd / ApproveTool / etc.); return a `Conversation[Backend.Codex.type]` the channel drives via `Interaction.drive`. The Codex-side terminal event maps to the driver's outcome. Unit test with stubbed WebSocket. | |
-| 9.5 | Integration tests | Real `codex exec` calls (gated). App-server start/stop. | |
+| 9.1 | Capability probe | Drive `codex exec --json --full-auto` with a tool-using, multi-turn prompt and inspect the JSONL stream. Does it emit partial text deltas, tool calls, and a mid-turn tool-approval channel — or only a batched final result? Answer determines whether 9.2 follows the Claude stdio pattern or falls back to app-server + WebSocket. Document findings in a short ADR. | |
+| 9.2 | Conversation driver | `CodexConversation` built on the same skeleton as `ClaudeConversation`: `PipedCliProcess`, daemon reader thread, `LinkedBlockingQueue[Option[ConversationEvent]]`, stderr drain thread, `outcomeRef` + `cancelled` gates, SIGINT on `cancel()`, `finalizeLoop` resolving the terminal outcome. Translate Codex's JSONL events (`thread.started`, `item.completed`, `turn.completed`, tool events) into `ConversationEvent.*`. Unit tests via `FakePipedCliProcess`. Only add a WebSocket + app-server path if 9.1 rules stdio out. | |
+| 9.3 | Headless + interactive surface | `CodexBackend.runHeadless` / `continueHeadless` parse the final result out of the same JSONL stream (or use `--resume` for continuation). `runInteractive` / `continueInteractive` return `Conversation[Backend.Codex.type]` and accept both `prompt` (wire) and `displayPrompt` (renderer-facing), enqueuing a `ConversationEvent.UserMessage(displayPrompt)` at startup — contract established for Claude and already wired into `LlmBackend`. Tool approvals route through `ConversationEvent.ApproveTool(name, input, respond)` when the CLI exposes mid-turn approvals; otherwise `LlmConfig.autoApprove` is pre-baked into the spawn args. | |
+| 9.4 | Config mapping | `LlmConfig.autoApprove` / `model` / `systemPrompt` → Codex CLI flags. Reuse `LlmConfig.defaultRetrySchedule` and `DefaultLlmCall`'s retry-with-corrective-prompt loop — no backend-specific retry logic. | |
+| 9.5 | Prompt template | Verify `DefaultPromptTemplate` applies as-is. It now tells the agent to "deliver the final answer as a JSON-only message" and relies on `ResponseParser.parse` (fence-stripping + right-to-left balanced-`{...}` extraction + `MalformedAgentOutputException`). If Codex enforces a different structured-output convention, write a Codex-specific `PromptTemplate` rather than bending the shared one. | |
+| 9.6 | Integration tests | Real `codex` calls gated on `ORCA_INTEGRATION`. Headless round-trip, `continueHeadless` resume, streaming deltas + `AssistantTurnEnd`, tool-approval denial (if supported). Mirror `ClaudeIntegrationTest`. | |
 
-**Exit criteria**: Codex backend passes unit tests. Integration tests pass against real `codex`.
+**Lessons from the Claude backend that apply verbatim:**
+
+- **Don't pipe stderr for verbose-mode CLIs.** Route through `os.Inherit`
+  or drain on its own thread — the 64KB pipe buffer fills silently and
+  hangs the subprocess otherwise. `stderrLoop` in `ClaudeConversation`
+  shows the drain-as-`ConversationEvent.Error` pattern when you *do*
+  need stderr contents.
+- **Close stdin after the opening turn** if `codex exec` batches stdin
+  until EOF the way `claude -p --input-format stream-json` does. A
+  lingering open stdin makes the subprocess wait forever for more input.
+- **Never tell the agent to invoke a tool that isn't in its tool list.**
+  Early Claude prompts instructed the model to use a fictional
+  `structured-output` tool; it burned turns searching for it. The fix is
+  post-hoc JSON extraction via `ResponseParser`, not a tool call.
+- **Tolerate protocol drift.** Unknown top-level events → `Unknown(rawType)`
+  (see `InboundMessage`). Tool-result content comes in multiple shapes
+  (string literal / array of nested blocks) — capture as `RawJson` and
+  decode at the display boundary rather than in the wire model.
+- **Cancellation is SIGINT.** The reader thread sees EOF, `finalizeLoop`
+  compare-and-sets `outcomeRef` to `Outcome.Cancelled`, the event queue
+  closes. Don't force-close the queue from another thread.
+- **`LlmConfig` val order.** `default` reads `defaultRetrySchedule`; Scala
+  evaluates object vals in source order, so the schedule must appear
+  first or the case-class default latches on null and downstream `retry`
+  calls NPE. Already fixed in the shared `LlmConfig` but worth knowing
+  when touching that file.
+
+**UX parity checklist** (so swapping `claude` for `codex` in a flow
+requires zero script changes):
+
+- `ConversationEvent.UserMessage(displayPrompt)` enqueued at session start.
+- `AssistantTextDelta` for every partial text chunk; `AssistantTurnEnd`
+  at each assistant-message boundary so the terminal renderer can reset
+  its prose-streaming state.
+- `AssistantToolCall(name, rawInput)` for each tool invocation, with the
+  input kept as raw JSON — `ToolInputSummary` pulls out the headline
+  field at render time.
+- `ToolResult(toolName, ok, content)` for each tool's return, matching
+  Claude's shape (content is a single display string; the backend
+  flattens nested-block content before enqueuing).
+- `Error(message)` for non-fatal mid-session errors surfaced from stderr
+  or protocol issues; fatal session-ending failures surface as
+  `awaitResult()` exceptions.
+
+**Exit criteria**: Codex backend passes unit tests with stubbed CLI.
+Integration tests pass against a real `codex`. Swapping `claude` for
+`codex` in `DefaultLlmCall.autonomous` / `continueSession` / `interactive`
+paths requires no flow-script changes.
 
 ---
 
@@ -201,7 +255,10 @@ Epic 2 (core API)
   ├── Epic 3 (structured I/O)
   │     ↓
   │     ├── Epic 4 (Claude backend)
-  │     └── Epic 9 (Codex backend)  ← can start after Epic 3
+  │     │     ↓
+  │     │     └── Epic 11 (stream-json rewrite)
+  │     │           ↓
+  │     │           └── Epic 9 (Codex backend)  ← reuses stream-json infra
   │
   ├── Epic 5 (tool implementations)  ← parallel with 3/4
   │
@@ -214,7 +271,7 @@ Epic 8 (library functions)  ← needs 7
 Epic 10 (publishing)  ← needs everything
 ```
 
-Epics 3, 4, 5, 6 can proceed in parallel after Epic 2. Epic 9 (Codex) can start after Epic 3 and proceed in parallel with 4-8. This gives the fastest path to a working end-to-end: 1 → 2 → 3 → 4 → 5 → 7 (skip 6 for terminal, skip 9 for Codex) as a **minimum viable flow**.
+Epics 3, 4, 5, 6 can proceed in parallel after Epic 2. The original plan had Epic 9 (Codex) starting after Epic 3 in parallel with 4–8; after Epic 11 finished we chose to let Codex reuse the stream-json `PipedCliProcess` + `Conversation` + driver infrastructure instead of rebuilding it on sttp WebSockets, so Epic 9 now sequences after Epic 11. The minimum viable flow — 1 → 2 → 3 → 4 → 5 → 7, skipping 6 for terminal and 9 for Codex — is unchanged.
 
 ---
 
