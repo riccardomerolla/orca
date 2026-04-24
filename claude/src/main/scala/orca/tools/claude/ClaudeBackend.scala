@@ -61,7 +61,20 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     )
 
   /** Spawn `claude` in stream-json mode, write the opening user turn,
-    * and wrap the process in a live [[ClaudeConversation]].
+    * close stdin, and wrap the process in a live [[ClaudeConversation]].
+    *
+    * claude's `--print --input-format stream-json` mode batches all
+    * stdin user turns until EOF, then processes and emits the
+    * assistant response(s). Keeping stdin open after the initial turn
+    * makes claude sit waiting for more user input forever. For Orca's
+    * current single-structured-result contract, that's never what we
+    * want — close stdin immediately so claude starts producing output.
+    *
+    * Consequence: `conversation.sendUserMessage(...)` is a no-op on
+    * this backend (write-to-closed-pipe). Multi-turn interactive —
+    * where the user answers clarifying questions mid-session — needs
+    * a different spawn path (stdin left open, renderer that prompts
+    * on `AskUserQuestion` tool calls). Future work.
     *
     * If the initial write fails (claude exec'd then died, broken
     * pipe, etc.) we SIGINT the process before surfacing the error so
@@ -80,6 +93,7 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     val process = cli.spawnPiped(args, cwd = workDir)
     try
       process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))
+      process.closeStdin()
       new ClaudeConversation(process, config)
     catch
       case e: Exception =>
