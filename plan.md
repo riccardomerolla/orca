@@ -237,4 +237,22 @@ Follow-up to Epics 3 & 4. Replaces the `<<<ORCA_DONE>>>` marker + stop-hook + se
 
 **Exit criteria**: no in-band markers; `--json-schema` drives structured validation; the terminal renders live streaming turns and prompts for tool approvals; 175+ tests green.
 
-**Deferred** (noted in individual reviews): ConversationEvent.Usage for realtime accounting; ACP adapter for N-backend portability (post-Codex); Ctrl-C-during-streaming → graceful cancel.
+---
+
+## Epic 12: Stream-json follow-ups
+
+Items deferred during the Epic 11 reviews. Independent, order-agnostic, each ~half-a-day or less unless noted.
+
+| # | Item | Description | Status |
+|---|---|---|---|
+| 12.1 | `ConversationEvent.Usage` | Emit an event as `result.usage` arrives (and, if upstream ever adds it, mid-session usage deltas) so Slack/HTTP channels can show live cost/token readouts. `DefaultLlmCall` keeps translating to `OrcaEvent.TokensUsed` for `CostTracker`. | |
+| 12.2 | Ctrl-C-during-streaming → graceful cancel | Today Ctrl-C kills the JVM when no readline prompt is active; only approval prompts cancel gracefully (via `UserInterruptException`). Install a `Signal("INT")` handler around `TerminalConversationRenderer.render` that calls `conversation.cancel()` instead of exiting, then removes itself on return. | |
+| 12.3 | Real-subprocess cancel integration test | `ClaudeConversation.cancel()` is unit-tested against `FakePipedCliProcess` only. Add a gated integration case that spawns real `claude` with a long-running prompt, calls `cancel`, asserts `awaitResult` throws `OrcaInteractiveCancelled` within a timeout, and the subprocess exits. | |
+| 12.4 | Interactive-path schema-threading test | `DefaultLlmCall.interactive` generates `JsonSchemaGen[O]` and forwards it as `Some(schema)` to `backend.runInteractive`. No unit test pins this; add one that captures `outputSchema` on a stub `LlmBackend.runInteractive` and asserts the schema is present + shaped for the case-class `O`. | |
+| 12.5 | `writeOutbound` I/O failures fail the session | `ClaudeConversation.handleControlRequest`'s stdin writes can throw `IOException` if the child died; today that surfaces as a `ConversationEvent.Error` and the reader keeps polling. Let the exception propagate so the reader's `NonFatal` catch records `Outcome.Failed` and `awaitResult` rethrows. | |
+| 12.6 | `ClaudeConversation` safe-publication factory | The reader thread starts in the constructor — safe in practice given final-field + `Thread.start` happens-before, not structurally enforced. Split into a private constructor + `object ClaudeConversation.open(process, config)` that constructs then starts the thread. | |
+| 12.7 | Reader-thread join timeout on `awaitResult` | If the child ignores SIGINT (hung GC, attached debugger), the reader leaks forever. `readerThread.join(timeout)` with a sensible default (30s?) + a `Failed(OrcaFlowException("reader did not terminate"))` path. | |
+| 12.8 | ACP client adapter | N-backend portability play. Once Codex work (Epic 9) lands, wrap `LlmBackend` dispatch behind an Agent Client Protocol JSON-RPC client: one Scala client covers Claude/Codex/Gemini/Copilot CLIs (native or via sidecar adapters). See the tradeoffs discussion in ADR 0006's "Alternatives" section. Bigger task — budget 3–5 days. | |
+| 12.9 | `ConversationEvent.Error` at WARN, not ERROR | Unknown `InboundMessage` types currently surface as `Error` events; semantically they're "protocol drift, not actionable". Add a `Warning` variant (or a severity field) so the channel can render them at a lower level. | |
+
+**Exit criteria**: none as a gate — each item stands alone. 12.2 and 12.8 are the highest-user-facing impact; 12.5 and 12.7 are the highest-reliability impact.
