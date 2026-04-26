@@ -68,7 +68,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       // Drain events so the driver can process them; we don't render
       // anything in the integration test — awaitResult gives the outcome.
       conversation.events.foreach(_ => ())
-      val result = conversation.awaitResult()
+      val Right(result) = conversation.awaitResult(): @unchecked
       assert(
         result.output.contains("7"),
         s"expected a reply containing '7', got: ${result.output}"

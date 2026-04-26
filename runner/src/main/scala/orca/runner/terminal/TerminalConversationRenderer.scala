@@ -47,10 +47,18 @@ private[terminal] class TerminalConversationRenderer(
     */
   private var state: RenderState = RenderState.empty
 
+  /** Explicit Either→exception boundary. The flow's stage machinery
+    * propagates failures via exceptions, so a user cancel is rethrown
+    * as [[OrcaInteractiveCancelled]] for the enclosing `stage(...)` to
+    * handle. The conversation API stays honest (Either) at its layer;
+    * the renderer is the converter.
+    */
   def render[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
     try
       conversation.events.foreach(dispatch(_, conversation))
-      conversation.awaitResult()
+      conversation.awaitResult() match
+        case Right(result)    => result
+        case Left(cancelled) => throw cancelled
     finally closePrompter()
 
   private def dispatch[B <: Backend](

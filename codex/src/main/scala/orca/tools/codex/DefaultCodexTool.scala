@@ -1,8 +1,8 @@
-package orca.tools.claude
+package orca.tools.codex
 
 import orca.{
   Backend,
-  ClaudeTool,
+  CodexTool,
   Interaction,
   JsonData,
   LlmBackend,
@@ -14,35 +14,34 @@ import orca.{
 }
 import orca.io.DefaultLlmCall
 
-/** Default ClaudeTool implementation that routes calls through a
-  * `LlmBackend[Backend.ClaudeCode.type]`. The tool is immutable; `withConfig`,
-  * `withSystemPrompt`, and the model accessors return new instances so flow
-  * scripts can chain without side effects.
-  *
-  * Headless calls (`ask`, `startSession`, `continueSession`, and the full
-  * `resultAs[O]` shape) go straight through the backend. Interactive calls
-  * spawn claude in stream-json mode and wrap the subprocess in a
-  * `Conversation` that the supplied `interaction` drives to completion.
+/** Default [[CodexTool]] implementation that routes calls through a
+  * [[LlmBackend]][Backend.Codex.type]]. Mirrors `DefaultClaudeTool` —
+  * the tool is immutable; `withConfig`, `withSystemPrompt`, and
+  * `mini` return new instances so flow scripts can chain without
+  * side effects.
   */
-class DefaultClaudeTool(
-    backend: LlmBackend[Backend.ClaudeCode.type],
+class DefaultCodexTool(
+    backend: LlmBackend[Backend.Codex.type],
     config: LlmConfig,
     prompts: Prompts,
     workDir: os.Path,
     emit: OrcaEvent => Unit,
     interaction: Interaction
-) extends ClaudeTool:
+) extends CodexTool:
 
-  val name: String = "claude"
+  val name: String = "codex"
 
-  def haiku: ClaudeTool = withModel("claude-haiku-4-5")
-  def sonnet: ClaudeTool = withModel("claude-sonnet-4-6")
-  def opus: ClaudeTool = withModel("claude-opus-4-7")
+  /** Pin the cheap-and-fast model variant. The literal model id matches
+    * what's available in the installed `codex-cli` (gpt-5.4-mini in
+    * 0.125.0); newer codex versions may rename, in which case callers
+    * override via `withConfig(LlmConfig(model = Some("..."))`.
+    */
+  def mini: CodexTool = withModel("gpt-5.4-mini")
 
-  def withConfig(newConfig: LlmConfig): ClaudeTool =
+  def withConfig(newConfig: LlmConfig): CodexTool =
     copy(config = newConfig)
 
-  def withSystemPrompt(prompt: String): ClaudeTool =
+  def withSystemPrompt(prompt: String): CodexTool =
     copy(config = config.copy(systemPrompt = Some(prompt)))
 
   def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
@@ -54,14 +53,14 @@ class DefaultClaudeTool(
   def startSession(
       prompt: String,
       callConfig: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.ClaudeCode.type], String) =
+  ): (SessionId[Backend.Codex.type], String) =
     val effective = effectiveConfig(callConfig)
     val result = backend.runHeadless(prompt, effective, workDir)
     emitTokens(effective, result.usage)
     (result.sessionId, result.output)
 
   def continueSession(
-      sessionId: SessionId[Backend.ClaudeCode.type],
+      sessionId: SessionId[Backend.Codex.type],
       prompt: String,
       callConfig: LlmConfig = LlmConfig.default
   ): String =
@@ -70,8 +69,8 @@ class DefaultClaudeTool(
     emitTokens(effective, result.usage)
     result.output
 
-  def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
-    new DefaultLlmCall[Backend.ClaudeCode.type, O](
+  def resultAs[O: JsonData]: LlmCall[Backend.Codex.type, O] =
+    new DefaultLlmCall[Backend.Codex.type, O](
       backend,
       effectiveConfig,
       prompts,
@@ -81,23 +80,20 @@ class DefaultClaudeTool(
       defaultModel = name
     )
 
-  private def withModel(model: String): ClaudeTool =
+  private def withModel(model: String): CodexTool =
     copy(config = config.copy(model = Some(model)))
 
   private def copy(
-      backend: LlmBackend[Backend.ClaudeCode.type] = backend,
+      backend: LlmBackend[Backend.Codex.type] = backend,
       config: LlmConfig = config,
       prompts: Prompts = prompts,
       workDir: os.Path = workDir,
       emit: OrcaEvent => Unit = emit,
       interaction: Interaction = interaction
-  ): DefaultClaudeTool =
-    new DefaultClaudeTool(backend, config, prompts, workDir, emit, interaction)
+  ): DefaultCodexTool =
+    new DefaultCodexTool(backend, config, prompts, workDir, emit, interaction)
 
   private def effectiveConfig(callConfig: LlmConfig): LlmConfig =
-    // Call-level config overrides tool-level values where the call explicitly
-    // set them. Detection is reference-based: a caller who omitted the arg
-    // receives the shared LlmConfig.default singleton.
     if callConfig eq LlmConfig.default then config else callConfig
 
   private def emitTokens(effective: LlmConfig, usage: orca.Usage): Unit =

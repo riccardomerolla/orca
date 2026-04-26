@@ -2,9 +2,10 @@ package orca
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Integration-style test for the Epic 8 flow helpers wired together inside a
-  * FlowContext that records every OrcaEvent. Uses in-memory fakes for the LLM —
-  * no backend, no sbt, no network.
+/** Integration-style test for the higher-level flow helpers
+  * (`reviewAndFixLoop` / `fixLoop`) wired together inside a FlowContext
+  * that records every OrcaEvent. Uses in-memory fakes for the LLM — no
+  * backend, no sbt, no network.
   */
 class ReviewFixFlowTest extends munit.FunSuite:
 

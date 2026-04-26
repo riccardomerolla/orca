@@ -70,11 +70,14 @@ Key shifts vs. the previous TTY path:
   exactly once. The driver auto-approves tools that match
   `LlmConfig.autoApprove` before the event would fire; only
   channel-level decisions surface as events.
-- **Cancellation is exception-based and local**: a user cancel throws
-  `OrcaInteractiveCancelled` (a subclass of `OrcaFlowException`) from
-  `Conversation.awaitResult`. The enclosing `stage(...)` catches or
-  propagates it; the flow keeps running by default, or fails the
-  stage if the body does nothing with the exception.
+- **Cancellation surfaces as `Either`**: `Conversation.awaitResult`
+  returns `Either[OrcaInteractiveCancelled, LlmResult[B]]`. Genuine
+  subprocess failures still throw, since they aren't recoverable, but
+  user cancels are now in the type — direct callers can't accidentally
+  ignore them. The `Interaction.drive` boundary is where the Either
+  becomes an exception (`throw cancelled`) for stage-level propagation,
+  so flow scripts continue to see exception-shaped cancellation that
+  the existing `stage(...)` machinery handles.
 
 ## Why
 
@@ -106,7 +109,7 @@ Key shifts vs. the previous TTY path:
 - `CliRunner.spawn` (inherited-TTY) is gone; only `spawnPiped`
   remains.
 - The default prompt for interactive calls changed — no marker, no
-  "emit `<<<ORCA_DONE>>>`" sentinel. Custom `PromptTemplate`s that
+  "emit `<<<ORCA_DONE>>>`" sentinel. Custom `Prompts` impls that
   relied on that convention need updating.
 - `LlmBackend.runInteractive` / `continueInteractive` require an
   explicit `outputSchema: Option[String]` argument. Callers pass the

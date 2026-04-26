@@ -1,0 +1,329 @@
+package orca.tools.codex
+
+import orca.{ConversationEvent, OrcaFlowException, OrcaInteractiveCancelled, SessionId, Usage}
+import orca.subprocess.FakePipedCliProcess
+
+class CodexConversationTest extends munit.FunSuite:
+
+  test("agent_message item completes a turn with TextDelta + TurnEnd"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-1"}"""
+    )
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"hello"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantTextDelta("hello"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(SessionId.value(result.sessionId), "thr-1")
+    assertEquals(result.output, "hello")
+    assertEquals(result.usage, Usage(10L, 3L, None))
+
+  test("initialPrompt becomes a UserMessage event before agent output"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process, initialPrompt = "do the thing")
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-2"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"done"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assertEquals(
+      events.head,
+      ConversationEvent.UserMessage("do the thing")
+    )
+    val _ = conv.awaitResult()
+
+  test("the LAST agent_message wins when a turn produces several"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-3"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"thinking..."}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"final answer"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(result.output, "final answer")
+
+  test(
+    "command_execution items become AssistantToolCall + ToolResult events"
+  ):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-4"}""")
+    process.enqueueStdout(
+      """{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc ls","aggregated_output":"hello.txt\n","exit_code":0,"status":"completed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assertEquals(events.size, 2)
+    events(0) match
+      case ConversationEvent.AssistantToolCall(name, rawInput) =>
+        assertEquals(name, "bash")
+        assert(rawInput.contains("/bin/bash -lc ls"))
+      case other => fail(s"expected AssistantToolCall, got $other")
+    events(1) match
+      case ConversationEvent.ToolResult(name, ok, content) =>
+        assertEquals(name, "bash")
+        assertEquals(ok, true)
+        assertEquals(content, "hello.txt\n")
+      case other => fail(s"expected ToolResult, got $other")
+    val _ = conv.awaitResult()
+
+  test("command_execution with non-zero exit yields ok=false"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-fail"}""")
+    process.enqueueStdout(
+      """{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"false","exit_code":null,"status":"in_progress"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"false","aggregated_output":"","exit_code":1,"status":"failed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    val toolResult = events.collectFirst {
+      case r: ConversationEvent.ToolResult => r
+    }.getOrElse(fail("expected a ToolResult"))
+    assertEquals(toolResult.ok, false)
+    val _ = conv.awaitResult()
+
+  test("file_change items become file_change tool calls and results"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-5"}""")
+    process.enqueueStdout(
+      """{"type":"item.started","item":{"id":"item_4","type":"file_change","changes":[{"path":"/x/y.txt","kind":"update"}],"status":"in_progress"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_4","type":"file_change","changes":[{"path":"/x/y.txt","kind":"update"}],"status":"completed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    val toolCall = events.collectFirst {
+      case c: ConversationEvent.AssistantToolCall if c.toolName == "file_change" => c
+    }.getOrElse(fail("expected file_change AssistantToolCall"))
+    assert(toolCall.rawInput.contains("/x/y.txt"))
+    assert(toolCall.rawInput.contains("update"))
+    val toolResult = events.collectFirst {
+      case r: ConversationEvent.ToolResult if r.toolName == "file_change" => r
+    }.getOrElse(fail("expected file_change ToolResult"))
+    assertEquals(toolResult.ok, true)
+    val _ = conv.awaitResult()
+
+  test("reasoning items emit AssistantThinkingDelta when non-empty"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-r"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"checking inputs"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"done"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":4}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assertEquals(
+      events.head,
+      ConversationEvent.AssistantThinkingDelta("checking inputs")
+    )
+    val _ = conv.awaitResult()
+
+  test("cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+    conv.cancel()
+    conv.awaitResult() match
+      case Left(_: OrcaInteractiveCancelled) => ()
+      case other => fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
+    assertEquals(process.sigIntCount, 1)
+
+  test("clean process exit without turn.completed surfaces as OrcaFlowException"):
+    val process = new FakePipedCliProcess(initiallyAlive = false)
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-x"}""")
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val ex = intercept[OrcaFlowException](conv.awaitResult())
+    assert(
+      ex.getMessage.contains("turn.completed"),
+      s"expected the missing-turn.completed message; got: ${ex.getMessage}"
+    )
+
+  test("malformed JSONL line surfaces as ConversationEvent.Error and the loop continues"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-bad"}""")
+    process.enqueueStdout("not json at all")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(msg) => msg.contains("Failed to parse")
+        case _                            => false
+      },
+      s"expected a parse-error event; got: $events"
+    )
+    val _ = conv.awaitResult()
+
+  test("stderr noise about reading stdin is filtered out"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStderr("Reading additional input from stdin...")
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-q"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      !events.exists {
+        case ConversationEvent.Error(_) => true
+        case _                          => false
+      },
+      s"benign stderr noise must not surface as Error events: $events"
+    )
+    val _ = conv.awaitResult()
+
+  test("real stderr lines surface as ConversationEvent.Error"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStderr("Error: thread/resume failed: not found")
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e"}""")
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(msg) => msg.contains("thread/resume failed")
+        case _                            => false
+      },
+      s"expected a stderr-derived Error event; got: $events"
+    )
+    val _ = conv.awaitResult()
+
+  test("sendUserMessage is a documented no-op (no stdin write)"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+    conv.sendUserMessage("ignored")
+    assertEquals(process.writes, Nil)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-noop"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+    val _ = conv.events.toList
+    val _ = conv.awaitResult()
+    assertEquals(process.writes, Nil)
+
+  test("unknown top-level events are ignored without surfacing"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-u"}""")
+    process.enqueueStdout("""{"type":"some.future.event","data":42}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      !events.exists {
+        case ConversationEvent.Error(_) => true
+        case _                          => false
+      },
+      s"unknown top-level events must drop silently; got: $events"
+    )
+    val _ = conv.awaitResult()

@@ -32,7 +32,12 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     )
 
   /** A fake Conversation that replays a scripted event list, then returns
-    * a scripted outcome from `awaitResult`.
+    * a scripted outcome from `awaitResult`. The shorthand `outcome`
+    * encoding mirrors what real conversations produce:
+    *   - `Right(result)` — successful result, returned as `Right(result)`.
+    *   - `Left(cancelled: OrcaInteractiveCancelled)` — returned as
+    *     `Left(cancelled)` so the caller pattern-matches.
+    *   - `Left(other)` — thrown, simulating a fatal subprocess failure.
     */
   private class ScriptedConversation[B <: Backend](
       scripted: List[ConversationEvent],
@@ -40,9 +45,11 @@ class TerminalConversationRendererTest extends munit.FunSuite:
   ) extends Conversation[B]:
     val cancelled = new AtomicReference[Boolean](false)
     def events: Iterator[ConversationEvent] = scripted.iterator
-    def awaitResult(): LlmResult[B] = outcome match
-      case Left(t)  => throw t
-      case Right(r) => r
+    def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]] =
+      outcome match
+        case Right(r)                          => Right(r)
+        case Left(c: OrcaInteractiveCancelled) => Left(c)
+        case Left(t)                           => throw t
     def sendUserMessage(text: String): Unit = ()
     def cancel(): Unit = cancelled.set(true)
 

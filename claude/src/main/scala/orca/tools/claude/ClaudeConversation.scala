@@ -94,11 +94,11 @@ private[claude] class ClaudeConversation(
 
   def events: Iterator[ConversationEvent] = eventQueue.iterator
 
-  def awaitResult(): LlmResult[Backend.ClaudeCode.type] =
+  def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[Backend.ClaudeCode.type]] =
     readerThread.join()
     outcomeRef.get() match
-      case Some(Outcome.Success(r)) => r
-      case Some(Outcome.Cancelled)  => throw new OrcaInteractiveCancelled()
+      case Some(Outcome.Success(r)) => Right(r)
+      case Some(Outcome.Cancelled)  => Left(new OrcaInteractiveCancelled())
       case Some(Outcome.Failed(e))  => throw e
       case None =>
         throw new OrcaFlowException(

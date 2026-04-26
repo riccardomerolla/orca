@@ -11,10 +11,11 @@ import orca.{
   Interaction,
   LlmConfig,
   OrcaEvent,
-  PromptTemplate
+  Prompts
 }
 import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
-import orca.io.DefaultPromptTemplate
+import orca.tools.codex.{CodexBackend, DefaultCodexTool}
+import orca.io.DefaultPrompts
 import orca.subprocess.OsProcCliRunner
 import orca.tools.fs.OsFsTool
 import orca.tools.git.OsGitTool
@@ -23,19 +24,17 @@ import orca.tools.github.OsGitHubTool
 /** Production FlowContext wiring. Callers typically construct one via
   * `flow(args, ...)`, which supplies defaults for all tools. Individual
   * tools can be replaced by passing overrides as named arguments to
-  * `flow`. `codex` remains stubbed pending Epic 9.
+  * `flow`.
   */
 class DefaultFlowContext(
     val userPrompt: String,
     dispatcher: EventDispatcher,
     val claude: ClaudeTool,
+    val codex: CodexTool,
     val git: GitTool,
     val gh: GitHubTool,
     val fs: FsTool
 ) extends FlowContext:
-
-  def codex: CodexTool =
-    throw new NotImplementedError("CodexTool lands with Epic 9")
 
   def emit(event: OrcaEvent): Unit = dispatcher.dispatch(event)
 
@@ -50,10 +49,11 @@ object DefaultFlowContext:
       workDir: os.Path,
       interaction: Interaction,
       claude: Option[ClaudeTool] = None,
+      codex: Option[CodexTool] = None,
       git: Option[GitTool] = None,
       gh: Option[GitHubTool] = None,
       fs: Option[FsTool] = None,
-      template: PromptTemplate = DefaultPromptTemplate
+      prompts: Prompts = DefaultPrompts
   ): DefaultFlowContext =
     new DefaultFlowContext(
       userPrompt = userPrompt,
@@ -62,7 +62,17 @@ object DefaultFlowContext:
         new DefaultClaudeTool(
           backend = new ClaudeBackend(OsProcCliRunner),
           config = LlmConfig.default,
-          template = template,
+          prompts = prompts,
+          workDir = workDir,
+          emit = dispatcher.dispatch,
+          interaction = interaction
+        )
+      ),
+      codex = codex.getOrElse(
+        new DefaultCodexTool(
+          backend = new CodexBackend(OsProcCliRunner),
+          config = LlmConfig.default,
+          prompts = prompts,
           workDir = workDir,
           emit = dispatcher.dispatch,
           interaction = interaction

@@ -11,7 +11,7 @@ import orca.{
   SessionId,
   Usage
 }
-import orca.io.DefaultPromptTemplate
+import orca.io.{DefaultLlmCall, DefaultPrompts}
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicReference
@@ -92,14 +92,17 @@ class DefaultLlmCallTest extends munit.FunSuite:
         conversation: orca.Conversation[B]
     ): LlmResult[B] = throw new UnsupportedOperationException("test stub")
 
-  private def makeCall(backend: SequencedBackend): DefaultLlmCall[Answer] =
-    new DefaultLlmCall[Answer](
+  private def makeCall(
+      backend: SequencedBackend
+  ): DefaultLlmCall[Backend.ClaudeCode.type, Answer] =
+    new DefaultLlmCall[Backend.ClaudeCode.type, Answer](
       backend = backend,
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
-      template = DefaultPromptTemplate,
+      prompts = DefaultPrompts,
       workDir = os.pwd,
       emit = _ => (),
-      interaction = stubInteraction
+      interaction = stubInteraction,
+      defaultModel = "claude"
     )
 
   test(

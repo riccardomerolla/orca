@@ -2,7 +2,7 @@
 
 **Describe what you want, ship it.** Orca turns a one-line prompt into a
 sequence of concrete coding tasks, implements each one through an LLM coding
-agent (Claude Code today, Codex on the way), reviews the changes with a pod of
+agent (Claude Code or Codex), reviews the changes with a pod of
 specialist reviewers, and opens a PR — all driven by a small, explicit script
 you control.
 
@@ -100,7 +100,7 @@ each flow run is one `scala-cli` process.
 ## Authenticating the coding agents
 
 Orca shells out to a per-backend CLI for every LLM call — Claude Code for
-the `claude` tool, and (soon) the OpenAI Codex CLI for the `codex` tool.
+the `claude` tool, and the OpenAI Codex CLI for the `codex` tool.
 Each CLI handles its own auth; Orca itself stores no secrets.
 
 ### Claude
@@ -153,11 +153,16 @@ Each CLI handles its own auth; Orca itself stores no secrets.
    If `auth status` reports the source you intended and the second
    command prints a short greeting, Orca will reach Claude the same way.
 
-### Codex (preview — not wired up yet)
+### Codex
 
-The `codex` module is a placeholder; Epic 9 will wire it to the
-[OpenAI Codex CLI](https://github.com/openai/codex). Once it lands, setup
-will mirror Claude's:
+The `codex` module wraps the [OpenAI Codex CLI](https://github.com/openai/codex)
+behind the same `LlmTool` trait Claude uses, so flow scripts can swap
+`claude` for `codex` without other changes. The driver speaks the
+`codex exec --json` JSONL stream over stdio — see
+[ADR 0007](adr/0007-codex-exec-jsonl-driver.md) for the protocol shape
+and the parity gaps vs. Claude (no per-token streaming, no mid-turn
+tool approvals; `LlmConfig.autoApprove` is pre-baked into the spawn
+flags).
 
 1. Install the Codex CLI per
    [OpenAI's docs](https://github.com/openai/codex#installation).
@@ -168,10 +173,6 @@ will mirror Claude's:
    - `export OPENAI_API_KEY=sk-...` for headless use.
 
 3. Verify with `codex --version` and a trivial prompt.
-
-Flow scripts that currently invoke `claude` will run unchanged once a
-`codex` handle is available — backends satisfy the same `LlmTool` trait,
-so only the handle you reach for changes.
 
 ## Getting set up
 
@@ -193,8 +194,8 @@ scala-cli run ship.sc -- "your task here"
 ## Status
 
 Under active development. The planning, coding, review-and-fix loop, Claude
-backend, and terminal UI are all working end-to-end. Codex support and Maven
-Central publishing are the remaining pieces — see [`plan.md`](plan.md) for
+and Codex backends, and terminal UI are all working end-to-end. Maven
+Central publishing is the remaining piece — see [`plan.md`](plan.md) for
 the epic-level breakdown.
 
 ## Documentation
@@ -220,7 +221,7 @@ orca/
 ├── tools/      # tool interfaces + os-backed impls + structured I/O + event bus
 ├── flow/       # FlowContext, stage/fail/fixLoop/reviewAndFixLoop/lint, review types
 ├── claude/     # Claude Code backend + DefaultClaudeTool + DefaultLlmCall
-├── codex/      # Codex backend (skeleton, Epic 9)
+├── codex/      # Codex backend (codex exec --json over stdio)
 └── runner/     # flow() entry + DefaultFlowContext + terminal layer
 ```
 

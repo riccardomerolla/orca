@@ -5,9 +5,8 @@ package orca
   *
   * `events` is a single-consumer blocking iterator that yields every
   * [[ConversationEvent]] produced by the subprocess in order. The iterator
-  * terminates when the session ends — either cleanly (call `awaitResult`
-  * to retrieve the outcome) or via cancellation (`awaitResult` then
-  * throws [[OrcaInteractiveCancelled]]).
+  * terminates when the session ends; the final outcome is read via
+  * `awaitResult`.
   *
   * Tool-approval decisions are delivered via the closure carried on
   * [[ConversationEvent.ApproveTool]] — the channel does not track
@@ -22,18 +21,27 @@ trait Conversation[B <: Backend]:
     */
   def events: Iterator[ConversationEvent]
 
-  /** Block until the session finishes, then return its final outcome.
-    * Throws [[OrcaInteractiveCancelled]] if the session was cancelled
-    * (either via `cancel()` or because the subprocess died abnormally).
-    * Other failures propagate as [[OrcaFlowException]].
+  /** Block until the session finishes, then return its outcome.
+    *
+    *   - `Right(result)` — the session produced an [[LlmResult]] cleanly.
+    *   - `Left(cancelled)` — the user (or some peer) called [[cancel]],
+    *     or the subprocess died in a way the driver classified as a
+    *     cancellation. Recoverable: the caller can render a "cancelled"
+    *     message, fail the stage, or propagate.
+    *
+    * Genuine subprocess failures (parse errors, the agent reporting
+    * `is_error`, abnormal exit codes) keep throwing [[OrcaFlowException]]
+    * — those aren't recoverable signals; they're "the backend is broken,
+    * panic" cases.
     */
-  def awaitResult(): LlmResult[B]
+  def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]]
 
   /** Inject a user turn mid-conversation. */
   def sendUserMessage(text: String): Unit
 
-  /** Cancel the current session. The driver tears down the subprocess,
-    * closes the events iterator, and `awaitResult()` then throws
-    * [[OrcaInteractiveCancelled]]. Calling `cancel` twice is a no-op.
+  /** Cancel the current session. The driver tears down the subprocess
+    * and closes the events iterator; `awaitResult()` then returns a
+    * `Left(OrcaInteractiveCancelled)`. Calling `cancel` twice is a
+    * no-op.
     */
   def cancel(): Unit

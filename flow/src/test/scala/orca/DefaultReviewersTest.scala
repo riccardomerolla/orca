@@ -25,11 +25,20 @@ class DefaultReviewersTest extends munit.FunSuite:
     ): String = ""
 
   test(
-    "defaultReviewers exposes performance, readability, and test-coverage names"
+    "defaultReviewers exposes the full canonical reviewer set"
   ):
     val base = new RecordingTool
     val names = defaultReviewers(base).map(_.name)
-    assertEquals(names, List("performance", "readability", "test-coverage"))
+    assertEquals(
+      names,
+      List(
+        "performance",
+        "readability",
+        "test-coverage",
+        "code-functionality",
+        "abstraction"
+      )
+    )
 
   test("each reviewer layers its canonical system prompt onto the base tool"):
     val base = new RecordingTool
@@ -40,7 +49,9 @@ class DefaultReviewersTest extends munit.FunSuite:
       List(
         ReviewerPrompts.Performance,
         ReviewerPrompts.Readability,
-        ReviewerPrompts.TestCoverage
+        ReviewerPrompts.TestCoverage,
+        ReviewerPrompts.CodeFunctionality,
+        ReviewerPrompts.Abstraction
       )
     )
 

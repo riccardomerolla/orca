@@ -43,11 +43,19 @@ trait CliRunner:
   /** Spawn the command with pipes on stdin / stdout / stderr for
     * programmatic orchestration (stream-json, tool-approval, etc.).
     * See [[PipedCliProcess]] for the I/O surface.
+    *
+    * `pipeStderr = false` (default) inherits the child's stderr to the
+    * parent's terminal — appropriate for chatty CLIs whose stderr can
+    * fill the pipe buffer faster than the driver drains it (claude with
+    * `--verbose`). Set to `true` when the driver wants to see stderr
+    * lines as `ConversationEvent.Error`s and the child's stderr volume
+    * is bounded enough that a 64KB pipe is safe.
     */
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String] = Map.empty,
-      cwd: os.Path = os.pwd
+      cwd: os.Path = os.pwd,
+      pipeStderr: Boolean = false
   ): PipedCliProcess
 
 /** Runs external commands via os-lib. `check = false` is intentional — callers
@@ -75,7 +83,8 @@ object OsProcCliRunner extends CliRunner:
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String],
-      cwd: os.Path
+      cwd: os.Path,
+      pipeStderr: Boolean
   ): PipedCliProcess =
     val sub = os
       .proc(args)
@@ -84,25 +93,28 @@ object OsProcCliRunner extends CliRunner:
         env = env,
         stdin = os.Pipe,
         stdout = os.Pipe,
-        // stderr inherits the parent's — piping it risks a buffer-fill
-        // hang when the child emits more stderr than we drain in time
-        // (claude with --verbose is chatty). The child's diagnostics
-        // show up directly in the user's terminal, which is fine; we
-        // surface structured errors via the stdout `result` message.
-        stderr = os.Inherit
+        // Defaults to Inherit — piping risks a buffer-fill hang when the
+        // child emits more stderr than the driver drains in time (claude
+        // with --verbose is chatty). Bounded-stderr backends (codex)
+        // opt into piping so the driver can surface stderr lines as
+        // ConversationEvent.Errors.
+        stderr = if pipeStderr then os.Pipe else os.Inherit
       )
-    new OsPipedSubProcess(sub)
+    new OsPipedSubProcess(sub, pipeStderr)
 
-private final class OsPipedSubProcess(sub: os.SubProcess)
-    extends PipedCliProcess:
+private final class OsPipedSubProcess(
+    sub: os.SubProcess,
+    stderrPiped: Boolean
+) extends PipedCliProcess:
 
   // Memoised so repeated calls return the same iterator, avoiding a
   // second `BufferedReader` leak against the pipe.
   private lazy val stdoutIterator: Iterator[String] = sub.stdout.lines().iterator
-  // stderr is inherited to the parent; expose an empty iterator so the
-  // `PipedCliProcess` contract still holds without us reading from a
-  // nonexistent pipe.
-  private lazy val stderrIterator: Iterator[String] = Iterator.empty
+  // When stderr is inherited to the parent, expose an empty iterator so
+  // the `PipedCliProcess` contract still holds without reading from a
+  // nonexistent pipe; when piped, expose the actual stream.
+  private lazy val stderrIterator: Iterator[String] =
+    if stderrPiped then sub.stderr.lines().iterator else Iterator.empty
 
   def sendSigInt(): Unit =
     val _ = os

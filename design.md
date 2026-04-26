@@ -223,7 +223,7 @@ case class SelectedReviewers(names: List[String]) derives Schema, ConfiguredJson
 case class Usage(inputTokens: Long, outputTokens: Long, cost: Option[BigDecimal])
 
 /** Pre-configured reviewer agents provided by the library. */
-val defaultReviewers: List[LlmTool[?]]  // performance, readability, test coverage, etc.
+val defaultReviewers: List[LlmTool[?]]  // performance, readability, test-coverage, code-functionality, abstraction
 ```
 
 #### Library functions
@@ -271,15 +271,15 @@ trait FlowContext:
 
 #### Prompt construction
 
-The prompt sent to the backend is assembled from a pluggable `PromptTemplate`:
+The prompt sent to the backend is assembled from a pluggable `Prompts`:
 
 ```scala
-trait PromptTemplate:
+trait Prompts:
   def autonomous(input: String, outputSchema: String, config: LlmConfig): String
   def interactive(input: String, outputSchema: String, config: LlmConfig): String
 ```
 
-Custom templates can be provided via `flow(..., promptTemplate = ...)`. For **headless** calls, the backend returns JSON on stdout; a parse failure triggers a corrective-retry prompt (counts against the retry budget). For **interactive** calls, the backend runs a stream-json subprocess (ADR 0006) and emits typed `ConversationEvent`s; the final `result` message carries the validated `structured_output` when `--json-schema` is supplied. Interactive parse failures surface to the caller without retry — the user is steering the session.
+Custom prompt builders can be provided via `flow(..., prompts = ...)`. For **headless** calls, the backend returns JSON on stdout; a parse failure triggers a corrective-retry prompt (counts against the retry budget). For **interactive** calls, the backend runs a stream-json subprocess (ADR 0006) and emits typed `ConversationEvent`s; the final `result` message carries the validated `structured_output` when `--json-schema` is supplied. Interactive parse failures surface to the caller without retry — the user is steering the session.
 
 ### Events and interaction
 

@@ -40,7 +40,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
 
     val _ = conv.events.toList
-    val result = conv.awaitResult()
+    val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "done")
     assertEquals(result.usage, Usage(5L, 7L, None))
 
@@ -64,12 +64,14 @@ class ClaudeConversationTest extends munit.FunSuite:
     val failure = intercept[OrcaFlowException](conv.awaitResult())
     assert(failure.getMessage.contains("rate limited"))
 
-  test("cancel throws OrcaInteractiveCancelled from awaitResult"):
+  test("cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, LlmConfig.default)
 
     conv.cancel()
-    intercept[OrcaInteractiveCancelled](conv.awaitResult())
+    conv.awaitResult() match
+      case Left(_: OrcaInteractiveCancelled) => ()
+      case other => fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
   test(

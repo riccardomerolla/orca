@@ -1,6 +1,6 @@
 package orca
 
-import _root_.orca.io.DefaultPromptTemplate
+import _root_.orca.io.DefaultPrompts
 import _root_.orca.runner.DefaultFlowContext
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -38,7 +38,7 @@ def flow(
     git: Option[GitTool] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
-    promptTemplate: PromptTemplate = DefaultPromptTemplate
+    prompts: Prompts = DefaultPrompts
 )(body: FlowContext ?=> Unit): Unit =
   val debug = sys.env.get("ORCA_DEBUG").contains("1") || args.verbose.value
   try
@@ -54,7 +54,7 @@ def flow(
         git = git,
         gh = gh,
         fs = fs,
-        template = promptTemplate
+        prompts = prompts
       )
       body(using ctx)
   catch

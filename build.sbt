@@ -48,11 +48,11 @@ lazy val claude = (project in file("claude"))
   )
 
 lazy val codex = (project in file("codex"))
-  .dependsOn(tools)
+  .dependsOn(tools, tools % "test->test")
   .settings(commonSettings)
   .settings(
     name := "orca-codex",
-    libraryDependencies ++= Seq(osLib, sttpClient, sttpClientOx)
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
   )
 
 lazy val flow = (project in file("flow"))

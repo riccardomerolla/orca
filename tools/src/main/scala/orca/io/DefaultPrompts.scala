@@ -1,10 +1,9 @@
 package orca.io
 
-import orca.{LlmConfig, PromptTemplate}
+import orca.{LlmConfig, Prompts}
 
-/** The `PromptTemplate` Orca uses unless `flow(..., promptTemplate = ...)`
-  * overrides it. Each method builds the final prompt string via Scala
-  * string interpolation.
+/** Default [[Prompts]] implementation. Each method builds the final
+  * prompt string via Scala string interpolation.
   *
   * Autonomous calls ship the JSON Schema inline in the prompt — they
   * route through `claude -p --output-format json` with no structured
@@ -14,7 +13,7 @@ import orca.{LlmConfig, PromptTemplate}
   * the prompt so the model knows the target shape, but no magic marker
   * is required.
   */
-object DefaultPromptTemplate extends PromptTemplate:
+object DefaultPrompts extends Prompts:
 
   private val RawJsonRules: String =
     """- no surrounding prose or commentary

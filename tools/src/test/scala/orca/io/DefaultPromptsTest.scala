@@ -2,13 +2,13 @@ package orca.io
 
 import orca.LlmConfig
 
-class DefaultPromptTemplateTest extends munit.FunSuite:
+class DefaultPromptsTest extends munit.FunSuite:
   private val input = """{"task":"refactor"}"""
   private val schema = """{"type":"object"}"""
   private val config = LlmConfig.default
 
   test("autonomous prompt embeds input and schema and forbids code fences"):
-    val prompt = DefaultPromptTemplate.autonomous(input, schema, config)
+    val prompt = DefaultPrompts.autonomous(input, schema, config)
     assert(prompt.contains(input))
     assert(prompt.contains(schema))
     assert(prompt.contains("no markdown code fences"))
@@ -16,13 +16,13 @@ class DefaultPromptTemplateTest extends munit.FunSuite:
   test("retry prompt includes the failed response, error, and raw-JSON rules"):
     val failed = """{"name":"widget"""
     val error = "expected '}' at offset 15"
-    val prompt = DefaultPromptTemplate.retry(failed, error)
+    val prompt = DefaultPrompts.retry(failed, error)
     assert(prompt.contains(failed))
     assert(prompt.contains(error))
     assert(prompt.contains("no markdown code fences"))
 
   test("interactive prompt embeds input and schema and does not ask for a marker"):
-    val prompt = DefaultPromptTemplate.interactive(input, schema, config)
+    val prompt = DefaultPrompts.interactive(input, schema, config)
     assert(prompt.contains(input))
     assert(prompt.contains(schema))
     // Explicit negative checks: the stream-json path uses --json-schema for
