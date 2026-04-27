@@ -72,6 +72,47 @@ class FixLoopTest extends munit.FunSuite:
       s"expected the iteration stage event; got: $starts"
     )
 
+  test("each remaining issue surfaces as a Step in the iteration stage"):
+    val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit =
+        val _ = seen.updateAndGet(event :: _)
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    val real = ReviewIssue(
+      severity = Severity.Warning,
+      confidence = 0.9,
+      description = "Unbounded growth in `processBatch`",
+      file = Some("src/main/Foo.scala"),
+      line = Some(42),
+      suggestion = Some("stream batches instead of buffering")
+    )
+    val _ = fixLoop(
+      evaluate = scripted(
+        List(
+          ReviewResult(issues = List(real), summary = "1 finding"),
+          ReviewResult.empty
+        )
+      ),
+      fix = found => IgnoredIssues(found.map(IgnoredIssue(_, "won't fix")))
+    )
+    val steps = seen.get().reverse.collect {
+      case OrcaEvent.Step(msg) => msg
+    }
+    val issueStep = steps.find(_.contains("Unbounded growth"))
+      .getOrElse(fail(s"expected an issue Step; got: $steps"))
+    assert(
+      issueStep.contains("[Warning]"),
+      s"expected severity prefix; got: $issueStep"
+    )
+    assert(
+      issueStep.contains("at src/main/Foo.scala:42"),
+      s"expected location line; got: $issueStep"
+    )
+    assert(
+      issueStep.contains("suggestion: stream batches"),
+      s"expected suggestion line; got: $issueStep"
+    )
+
   test("loop emits a 'Discarded' Step when fix only ignores issues"):
     val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener = new OrcaListener:

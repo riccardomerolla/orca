@@ -30,6 +30,28 @@ class TerminalInteractionTest extends munit.FunSuite:
       s"StageCompleted must not render to the event log; got: $output"
     )
 
+  test("multi-line Step body re-indents continuation lines under the stage depth"):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StageStarted("review"),
+        OrcaEvent.Step("[Warning] Issue summary\n  at src/Foo.scala:10"),
+        OrcaEvent.StageCompleted("review", "")
+      )
+    )
+    val lines = output.split('\n').toList
+    val headerLine = lines.find(_.contains("Issue summary"))
+      .getOrElse(fail(s"missing Step header line; got: $lines"))
+    val locationLine = lines.find(_.contains("at src/Foo.scala:10"))
+      .getOrElse(fail(s"missing location line; got: $lines"))
+    // At depth 1 the indent is 2 spaces. The Step header has those 2
+    // spaces plus the glyph; the location line also gets the 2-space
+    // depth indent (so it sits at col 2 of the rendered line, plus
+    // its own internal "  " hanging indent = col 4).
+    assert(
+      locationLine.startsWith("    "),
+      s"continuation line should be re-indented under the stage; got: '$locationLine'"
+    )
+
   test("Step events render as a single ▶ line, no closing ✔"):
     val output = renderEvents(
       List(

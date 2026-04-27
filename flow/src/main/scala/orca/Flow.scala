@@ -1,5 +1,6 @@
 package orca
 
+import orca.io.TextWrap
 import ox.{fork, supervised}
 
 import scala.util.control.NonFatal
@@ -92,6 +93,12 @@ def fixLoop(
       val newlyIgnored = stage(
         s"In iteration ${iteration + 1}, found ${remaining.size} review comment${if remaining.size == 1 then "" else "s"}"
       ):
+        // Surface each comment in the event log before handing them
+        // to `fix`. Without this the user only sees the count and
+        // has to dig into the agent transcript to learn what was
+        // actually flagged.
+        remaining.foreach: issue =>
+          ctx.emit(OrcaEvent.Step(formatIssue(issue)))
         fix(remaining)
       if newlyIgnored.issues.isEmpty then
         // Fix neither addressed nor ignored anything: evaluate will return
@@ -116,6 +123,29 @@ def fixLoop(
   //     domain-meaningful reasons; the loop chose to ignore them.
   ctx.emit(OrcaEvent.Step(closingMessage(result)))
   result
+
+/** Format a single review comment as a multi-line `Step` body.
+  *
+  * Shape: `[Severity] description ...wrapped to ~76 cols...`,
+  * optionally followed by `at file:line` and a `suggestion: …` line,
+  * each on their own line indented two spaces (under the description's
+  * first character once the renderer prepends the `▶ ` glyph). The
+  * description wraps at 74 cols with the same 2-space hanging indent
+  * so wrapped lines align with location/suggestion lines.
+  */
+private[orca] def formatIssue(issue: ReviewIssue): String =
+  val header = TextWrap.wrap(
+    s"[${issue.severity}] ${issue.description}",
+    maxWidth = 74,
+    continuation = "  "
+  )
+  val location = (issue.file, issue.line) match
+    case (Some(f), Some(l)) => Some(s"  at $f:$l")
+    case (Some(f), None)    => Some(s"  at $f")
+    case _                  => None
+  val suggestion = issue.suggestion.map: s =>
+    TextWrap.wrap(s"  suggestion: $s", maxWidth = 74, continuation = "    ")
+  List(Some(header), location, suggestion).flatten.mkString("\n")
 
 private def closingMessage(result: IgnoredIssues): String =
   // Empty `result.issues` means the loop never entered an iteration —

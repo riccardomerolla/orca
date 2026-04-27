@@ -69,10 +69,7 @@ class TerminalInteraction(
   private class TerminalListener extends OrcaListener:
     def onEvent(event: OrcaEvent): Unit = event match
       case OrcaEvent.StageStarted(name) =>
-        statusBar.appendLog(
-          depthCounter.contentIndent +
-            paint(fansi.Color.Cyan, s"$StageStartGlyph $name")
-        )
+        appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $name"))
         depthCounter.push()
         activeStages = name :: activeStages
         statusBar.startStatus(name)
@@ -87,21 +84,27 @@ class TerminalInteraction(
           case Some(parent) => statusBar.startStatus(parent)
           case None         => statusBar.stopStatus()
       case OrcaEvent.ToolUse(tool, args) =>
-        statusBar.appendLog(
-          depthCounter.contentIndent + paint(fansi.Color.DarkGray, s"  → $tool: $args")
-        )
+        appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
       case OrcaEvent.TokensUsed(_, _) =>
         () // Token accounting is owned by CostTracker.
       case OrcaEvent.Step(message) =>
         // Same glyph as a stage start, but no completion ✔ ever
         // follows — Step is a single instantaneous note in the log.
-        statusBar.appendLog(
-          depthCounter.contentIndent + paint(fansi.Color.Cyan, s"$StageStartGlyph $message")
-        )
+        // Multi-line `message` (e.g. a wrapped review comment with
+        // hanging-indented continuation lines) re-indents on each
+        // newline so the body stays aligned under the glyph.
+        appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $message"))
       case OrcaEvent.Error(message) =>
-        statusBar.appendLog(
-          depthCounter.contentIndent + paint(fansi.Color.Red, s"$ErrorGlyph $message")
-        )
+        appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
+
+  /** Append a (possibly multi-line) block to the event log, prefixing
+    * the current stage indent on the first line and on every embedded
+    * `\n`. Mirrors `TerminalConversationRenderer.appendBlock` so all
+    * event-log writes share the same indent discipline.
+    */
+  private def appendIndented(text: String): Unit =
+    val indent = depthCounter.contentIndent
+    statusBar.appendLog(indent + text.replace("\n", "\n" + indent))
 
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
