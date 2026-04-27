@@ -70,12 +70,20 @@ object OsProcCliRunner extends CliRunner:
       env: Map[String, String],
       cwd: os.Path
   ): CliResult =
+    // os-lib 0.11.x defaults `stderr = Inherit` for `call(...)`. We
+    // explicitly capture both pipes so subprocess output never
+    // bypasses the renderer's StatusBar — see [[QuietProc]] for the
+    // full rationale. `mergeErrIntoOut` would also work but losing the
+    // stdout/stderr distinction would weaken the diagnostic in
+    // OrcaFlowException messages.
     val result = os
       .proc(args)
       .call(
         cwd = cwd,
         env = env,
         stdin = stdin,
+        stdout = os.Pipe,
+        stderr = os.Pipe,
         check = false
       )
     CliResult(result.exitCode, result.out.text(), result.err.text())
@@ -117,9 +125,7 @@ private final class OsPipedSubProcess(
     if stderrPiped then sub.stderr.lines().iterator else Iterator.empty
 
   def sendSigInt(): Unit =
-    val _ = os
-      .proc("kill", "-INT", sub.wrapped.pid.toString)
-      .call(check = false)
+    val _ = QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString))
 
   def isAlive: Boolean = sub.isAlive()
 

@@ -98,9 +98,41 @@ scala-cli run ship.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
 While Orca runs, the terminal shows the active stage and an animated
-orca-and-wave indicator while the agent is thinking. Interactive stages (like
-planning) hand the tty to Claude directly so you can steer; autonomous stages
-stream progress back through the event bus.
+braille spinner pinned to the bottom row. Interactive stages (like
+planning) hand the conversation to Claude through Orca's renderer so you can
+steer; autonomous stages stream progress back through the event bus.
+
+### Reading the output
+
+The terminal output is two zones. The **event log** at the top grows
+line-by-line as stages start and tools fire; the **status line** at the
+bottom shows the deepest active stage with a braille spinner glyph and is
+erased when nothing is running. Stage completions are not printed — the next
+event implicitly tells you the previous one finished. Indentation tracks
+stage nesting (two spaces per level).
+
+Glyphs and colours, in the order you'll see them:
+
+| Glyph | Style | Meaning |
+| ----- | ----- | ------- |
+| `▶`   | cyan  | A stage starting, or a [`Step`](flow/src/main/scala/orca/Flow.scala) — a single instantaneous note in the log (branch switch, "discarded N issues", etc.). Steps never get a closing `✔`; stages don't either. |
+| `▸`   | cyan, bold | The user's prompt at the start of an interactive session. |
+| `●`   | magenta | An assistant prose message. JSON-only payloads (the structured-output the flow asked for) are suppressed; the flow script renders parsed plans / results in its own form. |
+| `·`   | grey | Assistant "thinking" prose. Hidden by default; pass `showThinking = true` if you want it. |
+| `⏺`   | blue, bold | A tool call the agent is making. The headline argument (file path, command, query) follows in grey; paths under `workDir` render relative, others stay absolute so out-of-project access is visible. |
+| `⎿`   | grey | The result of the preceding tool call, truncated to one line. |
+| `✖`   | red | An error. Either an `OrcaEvent.Error` from a stage that threw, or a non-fatal mid-session error from the agent. |
+| `?`   | yellow | An approval request — the agent wants to invoke a tool that isn't auto-approved. The renderer prompts for `[y]es / [n]o`. |
+
+In the status line:
+
+| Glyph | Meaning |
+| ----- | ------- |
+| `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | Spinner — agent is working. The label next to it is the current (innermost) stage name, truncated to fit one terminal row. |
+
+Colours and animation are auto-disabled when stderr isn't attached to a
+terminal (CI runners, redirected output). `NO_COLOR=1` and
+`ORCA_NO_ANIMATION=1` force them off explicitly.
 
 ## What you need
 
@@ -324,6 +356,11 @@ of `os.temp.dir()`.
 - Ox for structured concurrency; `.handle*` (not `.serverLogic*`) for Tapir
   endpoints.
 - Tests target exactly one scenario each.
+- Subprocesses launched from a tool **must** capture stderr — go through
+  [`subprocess.QuietProc.call`](tools/src/main/scala/orca/subprocess/QuietProc.scala)
+  or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
+  `Inherit`, which lets subprocess output bypass the renderer's StatusBar
+  and tear the spinner row.
 
 The `direct-style-scala` plugin codifies these; re-reading its chapters
 before a non-trivial change is recommended.

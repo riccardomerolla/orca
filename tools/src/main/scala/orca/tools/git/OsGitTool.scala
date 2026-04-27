@@ -1,6 +1,7 @@
 package orca.tools.git
 
 import orca.{CommitInfo, GitTool, OrcaEvent, OrcaFlowException, Worktree}
+import orca.subprocess.QuietProc
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
   * Contract semantics (commit auto-staging, push upstream setup, diff vs
@@ -77,9 +78,13 @@ class OsGitTool(
     OsGitTool.parseWorktreeList(git("worktree", "list", "--porcelain"))
 
   private def git(args: String*): String =
-    val result = os
-      .proc("git" +: args)
-      .call(cwd = workDir, check = false)
+    // Route through QuietProc so git's stderr ("Switched to a new
+    // branch", "Already on 'main'", etc.) is captured rather than
+    // leaked to the parent terminal where it would tear the renderer's
+    // status row. The branch-state changes themselves still surface in
+    // the event log via the OrcaEvent.Step calls in the public methods
+    // above; we don't need git's verbose stderr for that.
+    val result = QuietProc.call("git" +: args, cwd = workDir)
     if result.exitCode != 0 then
       throw OrcaFlowException(
         s"git ${args.mkString(" ")} failed (exit ${result.exitCode}): ${result.err.text()}"
