@@ -229,10 +229,18 @@ private[claude] class ClaudeConversation(
     * than feeding the error body into the downstream response parser,
     * which might otherwise accept a `{"type":"error",...}` payload as
     * a structurally valid agent output.
+    *
+    * If text deltas have already streamed in this turn, the user has
+    * already seen the body — emit a short marker rather than repeating
+    * the full text. The `Outcome.Failed` always carries the full
+    * message for `awaitResult` to surface.
     */
   private def handleResultError(output: Option[String]): Unit =
     val message = output.filter(_.nonEmpty).getOrElse("claude reported is_error")
-    eventQueue.enqueue(ConversationEvent.Error(message))
+    val displayed =
+      if deltasSinceTurnBoundary.get() then "session failed (see message above)"
+      else message
+    eventQueue.enqueue(ConversationEvent.Error(displayed))
     val _ = outcomeRef.compareAndSet(
       None,
       Some(Outcome.Failed(new OrcaFlowException(s"claude session failed: $message")))

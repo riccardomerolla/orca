@@ -78,7 +78,7 @@ object DefaultFlowContext:
           interaction = interaction
         )
       ),
-      git = git.getOrElse(new OsGitTool(workDir)),
+      git = git.getOrElse(new OsGitTool(workDir, dispatcher.dispatch)),
       gh = gh.getOrElse(new OsGitHubTool(OsProcCliRunner, workDir)),
       fs = fs.getOrElse(new OsFsTool(workDir))
     )

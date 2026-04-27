@@ -23,10 +23,13 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       showThinking: Boolean = false,
       prompter: Prompter = ScriptedPrompter(Nil)
   ): TerminalConversationRenderer =
+    val ps = new PrintStream(out)
     new TerminalConversationRenderer(
-      out = new PrintStream(out),
+      out = ps,
       useColor = false,
-      spinner = None,
+      // `animated = false` makes the bar plain inline writes — no
+      // ANSI escapes leak into the captured buffer.
+      statusBar = new StatusBar(ps, useColor = false, animated = false),
       showThinking = showThinking,
       prompter = prompter
     )
@@ -80,6 +83,53 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     )
     val _ = renderer(buf).render(conv)
     assert(buf.toString.contains("hello "))
+
+  test("a JSON-only delta + TurnEnd is suppressed (structured payload)"):
+    val buf = new ByteArrayOutputStream()
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("""{"tasks":[{"id":1}]}"""),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf).render(conv)
+    assert(
+      !buf.toString.contains("tasks"),
+      s"JSON-only payload should not be rendered; got: ${buf.toString}"
+    )
+
+  test("prose followed by a JSON-only delta still gets rendered as prose"):
+    // Buffer + flush is per-turn, so multiple deltas concatenate into
+    // one buffer; the JSON wrapper around prose isn't pure JSON, so
+    // it flushes.
+    val buf = new ByteArrayOutputStream()
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("Here is the plan: "),
+        ConversationEvent.AssistantTextDelta("""{"tasks":[]}"""),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf).render(conv)
+    val out = buf.toString
+    assert(
+      out.contains("Here is the plan"),
+      s"prose-prefixed turn should still flush; got: $out"
+    )
+
+  test("plain prose flushes on TurnEnd"):
+    val buf = new ByteArrayOutputStream()
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("just thinking out loud"),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf).render(conv)
+    assert(buf.toString.contains("just thinking out loud"))
 
   test("AssistantThinkingDelta stays silent when showThinking is false"):
     val buf = new ByteArrayOutputStream()

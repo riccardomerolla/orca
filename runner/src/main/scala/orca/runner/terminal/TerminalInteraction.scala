@@ -15,12 +15,16 @@ import java.io.PrintStream
   * streaming LLM output, and errors to a `PrintStream` (defaults to
   * stderr so the structured output on stdout stays clean).
   *
-  * `useColor` and `animated` default to auto-detect: when the JVM has
-  * no controlling console (e.g. the caller redirected stderr to a file
-  * or we're running under a CI runner) we suppress both ANSI escapes
-  * and the spinner animation. This prevents the spinner's rapid
-  * cursor-up redraws from piling up as literal ANSI noise in logs.
-  * `NO_COLOR`, `CI`, and `ORCA_NO_ANIMATION` all force both off.
+  * The output is split in two zones:
+  *   - The **event log** at the top, growing line-by-line as stages
+  *     start and tools fire.
+  *   - A **status line** pinned at the bottom, showing the current
+  *     activity with an animated spinner glyph.
+  *
+  * Both are owned by [[StatusBar]]: each event-log write transparently
+  * scrolls the status row down by one. When the renderer doesn't own
+  * a TTY (CI, redirected stderr, `NO_COLOR`/`ORCA_NO_ANIMATION`), the
+  * `StatusBar` degrades to plain inline output without ANSI escapes.
   *
   * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8
   * default charset the caller should pass a PrintStream constructed
@@ -29,48 +33,84 @@ import java.io.PrintStream
 class TerminalInteraction(
     out: PrintStream = System.err,
     useColor: Boolean = TerminalInteraction.defaultUseColor,
-    animated: Boolean = TerminalInteraction.defaultAnimated
+    animated: Boolean = TerminalInteraction.defaultAnimated,
+    workDir: Option[os.Path] = None
 ) extends Interaction:
 
+  import TerminalInteraction.*
+
+  private val depthCounter = new StageDepth
+  private val statusBar = new StatusBar(out, useColor = useColor, animated = animated)
   private val listener = new TerminalListener
   private val listenersList: List[OrcaListener] = List(listener)
-  private val spinner: Option[OrcaSpinner] =
-    if animated then Some(new OrcaSpinner(out, useColor = useColor)) else None
+  /** Stack of active stage names, head = most-recently-started. The
+    * status line always shows the head; on StageCompleted we pop and
+    * restore the parent (or hide the bar if the stack is empty).
+    * Touched only from the listener thread; no synchronisation needed.
+    */
+  private var activeStages: List[String] = Nil
 
   def listeners: List[OrcaListener] = listenersList
 
   /** Drive a live conversation to completion. Delegates to
     * [[TerminalConversationRenderer]] for the per-event rendering +
     * approval-prompt machinery; this class retains responsibility for
-    * the ambient spinner and the `OrcaListener` surface.
+    * the ambient status bar and the `OrcaListener` surface.
     */
   def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
     new TerminalConversationRenderer(
       out = out,
       useColor = useColor,
-      spinner = spinner
+      statusBar = statusBar,
+      depth = depthCounter,
+      workDir = workDir
     ).render(conversation)
 
   private class TerminalListener extends OrcaListener:
-    import TerminalInteraction.*
     def onEvent(event: OrcaEvent): Unit = event match
       case OrcaEvent.StageStarted(name) =>
-        out.println(paint(fansi.Color.Cyan, s"$StageStartGlyph $name"))
-        spinner.foreach(_.start(name))
-      case OrcaEvent.StageCompleted(name, _) =>
-        spinner.foreach(_.stop())
-        out.println(paint(fansi.Color.Green, s"$StageDoneGlyph $name"))
+        statusBar.appendLog(
+          depthCounter.contentIndent +
+            paint(fansi.Color.Cyan, s"$StageStartGlyph $name")
+        )
+        depthCounter.push()
+        activeStages = name :: activeStages
+        statusBar.startStatus(name)
+      case OrcaEvent.StageCompleted(_, _) =>
+        // Stage completions don't print to the event log — starting
+        // the next event implicitly tells the user the previous one
+        // finished. The status bar pops back to the parent stage's
+        // label, or hides entirely if no stage is active.
+        depthCounter.pop()
+        activeStages = activeStages.drop(1)
+        activeStages.headOption match
+          case Some(parent) => statusBar.startStatus(parent)
+          case None         => statusBar.stopStatus()
       case OrcaEvent.LlmOutput(text) =>
-        spinner.foreach(_.stop())
+        // LlmOutput is the legacy token-by-token streaming variant.
+        // It bypasses statusBar (which is line-oriented) and writes
+        // directly to `out` so partial deltas don't each become their
+        // own log line. Real backends use ConversationEvent streaming
+        // through TerminalConversationRenderer; LlmOutput is kept
+        // around for tests and any custom emitters.
         out.print(text)
+        out.flush()
       case OrcaEvent.ToolUse(tool, args) =>
-        spinner.foreach(_.stop())
-        out.println(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
+        statusBar.appendLog(
+          depthCounter.contentIndent + paint(fansi.Color.DarkGray, s"  → $tool: $args")
+        )
       case OrcaEvent.TokensUsed(_, _) =>
         () // Token accounting is owned by CostTracker.
+      case OrcaEvent.Step(message) =>
+        // Same glyph as a stage start, but no completion ✔ ever
+        // follows — Step is a single instantaneous note in the log.
+        statusBar.appendLog(
+          depthCounter.contentIndent + paint(fansi.Color.Cyan, s"$StageStartGlyph $message")
+        )
       case OrcaEvent.Error(message) =>
-        spinner.foreach(_.stop())
-        out.println(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
+        statusBar.appendLog(
+          depthCounter.contentIndent + paint(fansi.Color.Red, s"$ErrorGlyph $message")
+        )
 
   private def paint(attr: fansi.EscapeAttr, text: String): String =
     if useColor then attr(text).render else text

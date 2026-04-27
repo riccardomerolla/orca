@@ -1,6 +1,7 @@
 package orca.tools.git
 
-import orca.OrcaFlowException
+import orca.{OrcaEvent, OrcaFlowException}
+import java.util.concurrent.atomic.AtomicReference
 
 class OsGitToolTest extends munit.FunSuite:
 
@@ -11,6 +12,20 @@ class OsGitToolTest extends munit.FunSuite:
       os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
     val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
     body(new OsGitTool(dir), dir)
+
+  /** Variant that captures the events the tool emits. */
+  private def withRepoCapturingEvents(
+      body: (OsGitTool, os.Path, AtomicReference[List[OrcaEvent]]) => Unit
+  ): Unit =
+    val dir = os.temp.dir()
+    val _ = os.proc("git", "init", "-b", "main").call(cwd = dir)
+    val _ =
+      os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
+    val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
+    val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    val emit: OrcaEvent => Unit = e =>
+      val _ = seen.updateAndGet(e :: _)
+    body(new OsGitTool(dir, emit), dir, seen)
 
   test("createBranch switches to the new branch"):
     withRepo: (git, dir) =>
@@ -102,3 +117,26 @@ class OsGitToolTest extends munit.FunSuite:
       assert(!os.exists(wtPath))
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(!branches.contains("feature/gone"))
+
+  test("createBranch / commit / checkout each emit a Step event"):
+    withRepoCapturingEvents: (git, dir, seen) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("initial seed")
+      git.createBranch("feature/emit")
+      git.checkout("main")
+
+      val steps = seen.get().reverse.collect {
+        case OrcaEvent.Step(msg) => msg
+      }
+      assert(
+        steps.exists(_.contains("Committed: initial seed")),
+        s"expected commit step; got: $steps"
+      )
+      assert(
+        steps.exists(_.contains("Switched to a new branch 'feature/emit'")),
+        s"expected createBranch step; got: $steps"
+      )
+      assert(
+        steps.exists(_ == "Switched to branch 'main'"),
+        s"expected checkout step; got: $steps"
+      )

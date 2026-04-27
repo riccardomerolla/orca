@@ -9,6 +9,11 @@ import scala.annotation.tailrec
   * time for what is purely a display heuristic. If the input doesn't
   * match one of the known "headline" fields, we fall back to the
   * truncated JSON so nothing is lost.
+  *
+  * `workDir`, when supplied, is used to relativise paths that fall
+  * inside the flow's working directory — `/tmp/orca-AbC/src/Main.scala`
+  * becomes `src/Main.scala`. Paths outside `workDir` stay absolute, so
+  * external file access remains visually obvious in the output.
   */
 private[terminal] object ToolInputSummary:
 
@@ -19,18 +24,46 @@ private[terminal] object ToolInputSummary:
   private val HeadlineFields: List[String] =
     List("file_path", "path", "command", "pattern", "query", "url", "description")
 
+  /** Field names whose values are paths the renderer should try to
+    * relativise against `workDir` (when provided). Subset of
+    * [[HeadlineFields]] — `command`/`pattern`/`query`/`url`/
+    * `description` are free-form strings that may contain any number
+    * of paths interleaved with other text, so we leave those alone.
+    */
+  private val PathFields: Set[String] = Set("file_path", "path")
+
   /** Returns an already-truncated headline suitable for rendering
     * after the tool name. Empty string means "no args to show".
     */
-  def summarise(rawJson: String, maxLength: Int): String =
+  def summarise(
+      rawJson: String,
+      maxLength: Int,
+      workDir: Option[os.Path] = None
+  ): String =
     val collapsed = collapseWhitespace(rawJson)
     if collapsed.isEmpty || collapsed == "{}" then ""
     else
       HeadlineFields.iterator
-        .flatMap(extractStringField(collapsed, _))
+        .flatMap(field => extractStringField(collapsed, field).map(field -> _))
         .nextOption() match
-        case Some(value) => s"(${truncate(value, maxLength)})"
-        case None        => truncate(collapsed, maxLength)
+        case Some((field, value)) =>
+          val displayed =
+            if PathFields.contains(field) then relativise(value, workDir)
+            else value
+          s"(${truncate(displayed, maxLength)})"
+        case None => truncate(collapsed, maxLength)
+
+  /** Convert an absolute path under `workDir` into a relative one;
+    * leave anything else (relative paths, paths outside `workDir`,
+    * or when `workDir` is None) alone.
+    */
+  private def relativise(value: String, workDir: Option[os.Path]): String =
+    workDir.flatMap: wd =>
+      val abs = wd.toString
+      if value == abs then Some(".")
+      else if value.startsWith(s"$abs/") then Some(value.drop(abs.length + 1))
+      else None
+    .getOrElse(value)
 
   private def collapseWhitespace(raw: String): String =
     raw.replaceAll("\\s+", " ").trim

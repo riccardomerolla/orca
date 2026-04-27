@@ -44,6 +44,31 @@ class ClaudeConversationTest extends munit.FunSuite:
     assertEquals(result.output, "done")
     assertEquals(result.usage, Usage(5L, 7L, None))
 
+  test("is_error after streaming deltas emits a short marker, not a duplicate"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, LlmConfig.default)
+
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"API Error: 400 quota exceeded"}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error","session_id":"sid-x","result":"API Error: 400 quota exceeded","is_error":true}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    val errors = events.collect { case ConversationEvent.Error(msg) => msg }
+    assertEquals(errors.size, 1, s"expected exactly one Error event; got: $errors")
+    assert(
+      !errors.head.contains("400 quota exceeded"),
+      s"the error event should not duplicate the streamed body; got: ${errors.head}"
+    )
+    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    assert(
+      failure.getMessage.contains("400 quota exceeded"),
+      s"awaitResult should still carry the full body; got: ${failure.getMessage}"
+    )
+
   test("result message with is_error=true fails the session and surfaces the message"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, LlmConfig.default)

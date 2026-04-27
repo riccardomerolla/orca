@@ -65,7 +65,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     assertEquals(result.issues.map(_.reason), List("accepted as trade-off"))
 
     val events = listener.events
-    val stageName = "Review & fix: optimize cache"
+    val stageName = "Review & fix"
     assert(
       events.collectFirst {
         case OrcaEvent.StageStarted(n) if n == stageName => n

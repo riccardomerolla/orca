@@ -1,27 +1,39 @@
 package orca.tools.git
 
-import orca.{CommitInfo, GitTool, OrcaFlowException, Worktree}
+import orca.{CommitInfo, GitTool, OrcaEvent, OrcaFlowException, Worktree}
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
   * Contract semantics (commit auto-staging, push upstream setup, diff vs
   * HEAD, worktree branch-exists handling) are specified on the trait; this
   * class handles the subprocess plumbing and the worktree-list parser.
+  *
+  * `emit` lets the tool publish [[OrcaEvent.Step]]s for the operations the
+  * user cares to see in the event log (branch switches, commits, pushes).
+  * It's optional — defaults to a no-op so callers that don't yet wire a
+  * dispatcher still work.
   */
-class OsGitTool(workDir: os.Path = os.pwd) extends GitTool:
+class OsGitTool(
+    workDir: os.Path = os.pwd,
+    emit: OrcaEvent => Unit = _ => ()
+) extends GitTool:
 
   def createBranch(name: String): Unit =
     val _ = git("checkout", "-b", name)
+    emit(OrcaEvent.Step(s"Switched to a new branch '$name'"))
 
   def checkout(name: String): Unit =
     val _ = git("checkout", name)
+    emit(OrcaEvent.Step(s"Switched to branch '$name'"))
 
   def commit(message: String): Unit =
     val _ = git("add", "-A")
     val _ = git("commit", "-m", message)
+    emit(OrcaEvent.Step(s"Committed: $message"))
 
   def push(): Unit =
     // `-u origin HEAD` sets upstream on first push and is a no-op afterwards.
     val _ = git("push", "-u", "origin", "HEAD")
+    emit(OrcaEvent.Step("Pushed to origin"))
 
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
@@ -54,10 +66,12 @@ class OsGitTool(workDir: os.Path = os.pwd) extends GitTool:
       if branchExists then Seq("worktree", "add", path.toString, branch)
       else Seq("worktree", "add", "-b", branch, path.toString)
     val _ = git(cmd*)
+    emit(OrcaEvent.Step(s"Added worktree at $path on branch '$branch'"))
     Worktree(path, branch)
 
   def removeWorktree(path: os.Path): Unit =
     val _ = git("worktree", "remove", path.toString)
+    emit(OrcaEvent.Step(s"Removed worktree at $path"))
 
   def listWorktrees(): List[Worktree] =
     OsGitTool.parseWorktreeList(git("worktree", "list", "--porcelain"))

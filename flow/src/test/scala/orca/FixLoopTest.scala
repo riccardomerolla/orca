@@ -48,6 +48,92 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(result.issues.head.reason, "by design")
 
+  test("each iteration emits its own stage event with the issue count"):
+    val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit =
+        val _ = seen.updateAndGet(event :: _)
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    val i = issue("nit")
+    val _ = fixLoop(
+      evaluate = scripted(
+        List(
+          ReviewResult(issues = List(i), summary = "one nit"),
+          ReviewResult.empty
+        )
+      ),
+      fix = found => IgnoredIssues(found.map(IgnoredIssue(_, "by design")))
+    )
+    val starts = seen.get().reverse.collect {
+      case OrcaEvent.StageStarted(name) => name
+    }
+    assert(
+      starts.exists(_.contains("In iteration 1, found 1 review comment")),
+      s"expected the iteration stage event; got: $starts"
+    )
+
+  test("loop emits a 'Discarded' Step when fix only ignores issues"):
+    val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit =
+        val _ = seen.updateAndGet(event :: _)
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    val i = issue("nit")
+    val _ = fixLoop(
+      evaluate = scripted(
+        List(
+          ReviewResult(issues = List(i), summary = "one nit"),
+          ReviewResult.empty
+        )
+      ),
+      fix = found => IgnoredIssues(found.map(IgnoredIssue(_, "by design")))
+    )
+    val steps = seen.get().reverse.collect {
+      case OrcaEvent.Step(msg) => msg
+    }
+    assert(
+      steps.exists(_.startsWith("Discarded 1 review comment")),
+      s"expected a 'Discarded' Step; got: $steps"
+    )
+
+  test("loop emits a 'Bailed out' Step when fix makes no progress"):
+    val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit =
+        val _ = seen.updateAndGet(event :: _)
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    val i = issue("stuck")
+    val _ = fixLoop(
+      evaluate = scripted(List(ReviewResult(issues = List(i), summary = "stuck"))),
+      // Returning empty IgnoredIssues triggers the "fix made no progress" bail.
+      fix = _ => IgnoredIssues(Nil)
+    )
+    val steps = seen.get().reverse.collect {
+      case OrcaEvent.Step(msg) => msg
+    }
+    assert(
+      steps.exists(_.startsWith("Bailed out")),
+      s"expected a 'Bailed out' Step; got: $steps"
+    )
+
+  test("loop emits 'No review comments' when first eval is already clean"):
+    val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit =
+        val _ = seen.updateAndGet(event :: _)
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    val _ = fixLoop(
+      evaluate = scripted(List(ReviewResult.empty)),
+      fix = _ => throw new AssertionError("fix must not be called")
+    )
+    val steps = seen.get().reverse.collect {
+      case OrcaEvent.Step(msg) => msg
+    }
+    assert(
+      steps.contains("No review comments"),
+      s"expected the 'no comments' Step; got: $steps"
+    )
+
   test(
     "stops at maxIterations and records remaining issues as 'max iterations reached'"
   ):

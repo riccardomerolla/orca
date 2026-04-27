@@ -15,24 +15,30 @@ import scala.util.control.NonFatal
 
 /** Renders a [[Conversation]] to the terminal. The layout aims for a
   * Claude-Code-like aesthetic: the user's opening prompt sits on its
-  * own section, the agent's prose streams as plain text, and each tool
-  * call/result gets a compact one-line summary tagged with a glyph.
+  * own section, the agent's prose flushes as a single block at each
+  * turn boundary, and each tool call/result gets a compact one-line
+  * summary tagged with a glyph.
   *
-  * Spacing is controlled by a tiny section state machine — consecutive
+  * All event-log writes flow through the shared [[StatusBar]] so the
+  * persistent status row at the bottom doesn't get torn by ad-hoc
+  * `print` calls. The renderer accepts a `StatusBar` directly (rather
+  * than constructing one) so it shares the bar with [[TerminalInteraction]]'s
+  * stage listener — a single bar, one set of cursor escapes.
+  *
+  * Spacing is controlled by a small section state machine — consecutive
   * tool events don't grow blank lines between them, but a transition
   * from prose to a tool block (or back) gets exactly one separator.
-  * This keeps tool-heavy turns tight while leaving prose visually
-  * detached from mechanical actions.
   *
   * The renderer is single-use per conversation; the JLine terminal is
-  * closed on the way out. No global signal handling — Ctrl-C during
-  * streaming still kills the JVM today. Approval prompts catch
-  * `UserInterruptException` and cancel the conversation instead.
+  * closed on the way out. Approval prompts catch `UserInterruptException`
+  * and cancel the conversation instead of killing the JVM.
   */
 private[terminal] class TerminalConversationRenderer(
     out: PrintStream,
     useColor: Boolean,
-    spinner: Option[OrcaSpinner],
+    statusBar: StatusBar,
+    depth: StageDepth = new StageDepth,
+    workDir: Option[os.Path] = None,
     showThinking: Boolean = false,
     prompter: TerminalConversationRenderer.Prompter =
       TerminalConversationRenderer.JLinePrompter
@@ -40,12 +46,26 @@ private[terminal] class TerminalConversationRenderer(
 
   import TerminalConversationRenderer.*
 
-  /** Section + midText together form the renderer's only state: they
-    * drive spacing decisions between events. Held in a single var so
-    * the invariant (`midText => section == Prose`) stays visible and
-    * the two fields can't drift apart.
+  /** Section-spacing state. Consecutive `Tool` events stay tight; a
+    * `Tool → Prose` (or vice versa) transition inserts a blank line.
     */
-  private var state: RenderState = RenderState.empty
+  private var currentSection: Section = Section.None
+
+  /** Buffer for assistant text in the current turn. Held until
+    * `AssistantTurnEnd`, at which point we decide whether to flush it
+    * (prose) or drop it (a JSON-only structured-output payload that
+    * the flow script will print in human-readable form). Streaming
+    * mid-turn would mean printing the raw JSON before we knew it was
+    * the final structured payload — the buffer lets us defer that
+    * call until the turn boundary.
+    */
+  private val textBuffer = new StringBuilder
+
+  /** Per-turn glyph + style we'll prepend to the buffered text when
+    * we flush. Captured at the first delta so we don't lose the
+    * styling between buffering and flush.
+    */
+  private var pendingProseStyling: Option[ProseStyling] = None
 
   /** Explicit Either→exception boundary. The flow's stage machinery
     * propagates failures via exceptions, so a user cancel is rethrown
@@ -56,8 +76,12 @@ private[terminal] class TerminalConversationRenderer(
   def render[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
     try
       conversation.events.foreach(dispatch(_, conversation))
+      // A well-behaved backend ends each turn with AssistantTurnEnd,
+      // which already flushes; this is a safety net for sessions that
+      // close without one (e.g. cancellation mid-turn).
+      flushBufferedText()
       conversation.awaitResult() match
-        case Right(result)    => result
+        case Right(result)   => result
         case Left(cancelled) => throw cancelled
     finally closePrompter()
 
@@ -66,13 +90,15 @@ private[terminal] class TerminalConversationRenderer(
       conversation: Conversation[B]
   ): Unit = event match
     case ConversationEvent.UserMessage(text)            => renderUserMessage(text)
-    case ConversationEvent.AssistantTextDelta(text)     => renderText(text)
-    case ConversationEvent.AssistantThinkingDelta(text) => renderThinking(text)
+    case ConversationEvent.AssistantTextDelta(text)     => bufferText(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
+    case ConversationEvent.AssistantThinkingDelta(text) =>
+      if showThinking then
+        bufferText(text, ThinkingGlyph, ThinkingStyle, ThinkingStyle)
     case ConversationEvent.AssistantToolCall(name, input) =>
       renderToolCall(name, input)
     case ConversationEvent.ToolResult(_, ok, content) =>
       renderToolResult(ok, content)
-    case ConversationEvent.AssistantTurnEnd => renderTurnEnd()
+    case ConversationEvent.AssistantTurnEnd => flushBufferedText()
     case ConversationEvent.Error(message)   => renderError(message)
     case ConversationEvent.ApproveTool(name, input, respond) =>
       promptApproval(name, input, respond, conversation)
@@ -80,76 +106,85 @@ private[terminal] class TerminalConversationRenderer(
   // --- Rendering ---
 
   private def renderUserMessage(text: String): Unit =
-    stopSpinner()
-    beginSection(Section.Prose)
-    out.println(paint(UserHeaderStyle, s"$UserGlyph you"))
-    out.println(paint(UserBodyStyle, indent(text)))
-    // Explicit blank after the user block so the first agent event
-    // lands detached; reset the section so the next `beginSection`
-    // doesn't insert a second one.
-    out.println()
-    state = RenderState.empty
-    out.flush()
-    spinner.foreach(_.start("thinking"))
+    enterSection(Section.Prose)
+    val header = paint(UserHeaderStyle, s"$UserGlyph you")
+    val body = paint(UserBodyStyle, bulletIndent(text))
+    appendBlock(s"$header\n$body")
+    // After a user block we want a blank line before the next event;
+    // resetting the section to None means the next `enterSection` will
+    // skip its own separator.
+    appendBlock("")
+    currentSection = Section.None
 
-  private def renderText(text: String): Unit =
-    streamInProse(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
-
-  private def renderThinking(text: String): Unit =
-    if showThinking then
-      streamInProse(text, ThinkingGlyph, ThinkingStyle, ThinkingStyle)
-
-  private def streamInProse(
+  private def bufferText(
       text: String,
       glyph: String,
       glyphStyle: fansi.Attrs,
       textStyle: fansi.Attrs
   ): Unit =
-    stopSpinner()
-    if !state.midText then
-      beginSection(Section.Prose)
-      out.print(paint(glyphStyle, s"$glyph "))
-      state = state.copy(midText = true)
-    out.print(paint(textStyle, text))
-    out.flush()
+    if pendingProseStyling.isEmpty then
+      pendingProseStyling = Some(ProseStyling(glyph, glyphStyle, textStyle))
+    val _ = textBuffer.append(text)
 
   private def renderToolCall(name: String, input: String): Unit =
-    stopSpinner()
-    beginSection(Section.Tool)
-    val args = ToolInputSummary.summarise(input, MaxInlineInputLength)
+    enterSection(Section.Tool)
+    val args = ToolInputSummary.summarise(input, MaxInlineInputLength, workDir)
     val head = paint(ToolNameStyle, s"$ToolCallGlyph $name")
     val tail = if args.isEmpty then "" else " " + paint(ToolArgsStyle, args)
-    out.println(head + tail)
+    appendBlock(head + tail)
 
   private def renderToolResult(ok: Boolean, content: String): Unit =
-    stopSpinner()
-    beginSection(Section.Tool)
+    enterSection(Section.Tool)
     val glyph = if ok then ToolResultGlyph else ToolErrorGlyph
     val style = if ok then ToolResultStyle else ErrorStyle
-    out.println(paint(style, s"  $glyph ${truncate(content, MaxInlineContentLength)}"))
-
-  private def renderTurnEnd(): Unit =
-    closeTextRun()
-    spinner.foreach(_.start("thinking"))
+    appendBlock(paint(style, s"  $glyph ${truncate(content, MaxInlineContentLength)}"))
 
   private def renderError(message: String): Unit =
-    stopSpinner()
-    beginSection(Section.Prose)
-    out.println(paint(ErrorStyle, s"$ErrorGlyph $message"))
+    enterSection(Section.Prose)
+    appendBlock(paint(ErrorStyle, s"$ErrorGlyph $message"))
 
-  /** Close any pending streaming text and insert a single blank line
-    * when transitioning between different section kinds; tight inside
-    * the same section. Every "discrete" renderer calls this first.
+  /** Decide whether to render the buffered text or drop it. JSON-only
+    * payloads (the structured output the flow asked for) are dropped:
+    * the flow script will pretty-print the parsed value, and the raw
+    * JSON would just flash and confuse the user. Prose, status
+    * updates, and questions all flush as a single block.
+    *
+    * Always clears `pendingProseStyling`, so an empty-buffer turn
+    * doesn't leak captured styling into the next turn.
     */
-  private def beginSection(next: Section): Unit =
-    closeTextRun()
-    if state.section != Section.None && state.section != next then out.println()
-    state = RenderState(next, midText = false)
+  private def flushBufferedText(): Unit =
+    val styling = pendingProseStyling.getOrElse(
+      ProseStyling(AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
+    )
+    pendingProseStyling = None
+    if textBuffer.isEmpty then ()
+    else
+      val text = textBuffer.toString
+      textBuffer.clear()
+      if !looksLikeStructuredJson(text) then
+        enterSection(Section.Prose)
+        val rendered = paint(styling.glyphStyle, s"${styling.glyph} ") +
+          paint(styling.textStyle, text)
+        appendBlock(rendered)
 
-  private def closeTextRun(): Unit =
-    if state.midText then
-      out.println()
-      state = state.copy(midText = false)
+  /** Insert a blank-line separator when crossing a section boundary,
+    * then update the section. No-op when staying in the same kind of
+    * section or when nothing has been emitted yet.
+    */
+  private def enterSection(next: Section): Unit =
+    if currentSection != Section.None && currentSection != next then
+      appendBlock("")
+    currentSection = next
+
+  // --- Indented log writes ---
+
+  /** Append a self-contained block (one or more lines) to the event
+    * log under the current stage indent. Embedded `\n`s are re-indented
+    * so multi-line content stays aligned with the leading glyph.
+    */
+  private def appendBlock(s: String): Unit =
+    val indented = depth.contentIndent + s.replace("\n", "\n" + depth.contentIndent)
+    statusBar.appendLog(indented)
 
   // --- Prompts ---
 
@@ -159,11 +194,13 @@ private[terminal] class TerminalConversationRenderer(
       respond: ApprovalDecision => Unit,
       conversation: Conversation[B]
   ): Unit =
-    stopSpinner()
-    beginSection(Section.Prose)
-    val summary = ToolInputSummary.summarise(rawInput, MaxInlineInputLength)
-    out.println(paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary"))
-    prompter.ask(paint(ApprovalStyle, "  [y]es / [n]o ? ")) match
+    enterSection(Section.Prose)
+    val summary = ToolInputSummary.summarise(rawInput, MaxInlineInputLength, workDir)
+    appendBlock(paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary"))
+    // Clear the status bar before the readline so the question and
+    // answer aren't visually competing with the spinner.
+    statusBar.stopStatus()
+    prompter.ask(depth.contentIndent + paint(ApprovalStyle, "  [y]es / [n]o ? ")) match
       case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
       case PromptOutcome.Interrupted   => conversation.cancel()
 
@@ -176,14 +213,48 @@ private[terminal] class TerminalConversationRenderer(
 
   // --- Helpers ---
 
-  private def stopSpinner(): Unit = spinner.foreach(_.stop())
-
   private def closePrompter(): Unit =
     try prompter.close()
     catch case NonFatal(_) => ()
 
-  private def indent(text: String): String =
-    text.linesIterator.map(line => s"  $line").mkString("\n")
+  /** Inset prose under a header glyph by 2 spaces. Operates on the
+    * raw text — the outer stage-depth indent is added later by
+    * [[appendBlock]].
+    */
+  private def bulletIndent(text: String): String =
+    text.linesIterator.map(l => s"  $l").mkString("\n")
+
+  /** Cheap heuristic for "this is the agent's final structured-output
+    * payload" — true when the text (after fence-strip + trim) starts
+    * with `{`/`[` and ends with the matching close. Deliberately
+    * sloppy: a malformed `{not even json}` would also be dropped.
+    * Accepted because non-JSON prose effectively never starts and
+    * ends that way; the precise alternative would require a real
+    * parser, which costs more than the false-positive risk.
+    *
+    * The flow script renders the parsed structured output in human
+    * form; the renderer suppresses the raw JSON so the user doesn't
+    * see both.
+    */
+  private def looksLikeStructuredJson(raw: String): Boolean =
+    val stripped = stripMarkdownFences(raw.trim)
+    val s = stripped.trim
+    if s.isEmpty then false
+    else
+      val first = s.head
+      val last = s.last
+      (first == '{' && last == '}') || (first == '[' && last == ']')
+
+  private def stripMarkdownFences(s: String): String =
+    if !s.startsWith("```") then s
+    else
+      val afterOpening = s.drop(3).dropWhile(c => c.isLetterOrDigit || c == '-')
+      val withoutLeadingNewline =
+        if afterOpening.startsWith("\n") then afterOpening.drop(1)
+        else afterOpening
+      if withoutLeadingNewline.endsWith("```") then
+        withoutLeadingNewline.dropRight(3).stripSuffix("\n")
+      else withoutLeadingNewline
 
   private def truncate(raw: String, maxLength: Int): String =
     val collapsed = raw.replaceAll("\\s+", " ").trim
@@ -222,15 +293,12 @@ private[terminal] object TerminalConversationRenderer:
   private[terminal] enum Section:
     case None, Prose, Tool
 
-  /** `midText` is only meaningful inside a Prose section — the
-    * constructor keeps that invariant loose so tests can build edge
-    * cases, but [[TerminalConversationRenderer.beginSection]] always
-    * normalises it when opening a non-Prose section.
-    */
-  private[terminal] case class RenderState(section: Section, midText: Boolean)
-
-  private[terminal] object RenderState:
-    val empty: RenderState = RenderState(Section.None, midText = false)
+  /** Styling captured for the buffered text we'll flush at TurnEnd. */
+  private[terminal] case class ProseStyling(
+      glyph: String,
+      glyphStyle: fansi.Attrs,
+      textStyle: fansi.Attrs
+  )
 
   /** Outcome of a readline-style prompt. */
   enum PromptOutcome:

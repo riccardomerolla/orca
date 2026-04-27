@@ -70,7 +70,7 @@ def fixLoop(
     evaluate: () => ReviewResult,
     fix: List[ReviewIssue] => IgnoredIssues,
     maxIterations: Int = 10
-)(using FlowContext): IgnoredIssues =
+)(using ctx: FlowContext): IgnoredIssues =
   @scala.annotation.tailrec
   def loop(
       accumulated: IgnoredIssues,
@@ -85,7 +85,14 @@ def fixLoop(
         s"max iterations ($maxIterations) reached"
       )
     else
-      val newlyIgnored = fix(remaining)
+      // Each iteration is its own (sibling) stage so the renderer
+      // shows progress at the parent stage's content depth. The fix
+      // call lives inside the stage; the tail-recursive `loop` call
+      // sits outside, so termination/staging stays clear.
+      val newlyIgnored = stage(
+        s"In iteration ${iteration + 1}, found ${remaining.size} review comment${if remaining.size == 1 then "" else "s"}"
+      ):
+        fix(remaining)
       if newlyIgnored.issues.isEmpty then
         // Fix neither addressed nor ignored anything: evaluate will return
         // the same issues indefinitely, so bail out now.
@@ -98,7 +105,35 @@ def fixLoop(
           iteration + 1
         )
 
-  loop(IgnoredIssues(Nil), Set.empty, 0)
+  val result = loop(IgnoredIssues(Nil), Set.empty, 0)
+  // Closing note in the event log so the user can tell how the loop
+  // ended. Three outcomes worth distinguishing:
+  //   - clean re-evaluation: nothing ignored.
+  //   - bail-out: capReason marks issues as "max iterations…" or
+  //     "fix made no progress" — those aren't *discarded*, they're
+  //     unresolved. Report them as such with the reason attached.
+  //   - intentional discard: `fix` returned `IgnoredIssues` with
+  //     domain-meaningful reasons; the loop chose to ignore them.
+  ctx.emit(OrcaEvent.Step(closingMessage(result)))
+  result
+
+private def closingMessage(result: IgnoredIssues): String =
+  // Empty `result.issues` means the loop never entered an iteration —
+  // the very first evaluate came back clean. (Iterations that ran and
+  // returned IgnoredIssues add to `result.issues`; the bail-out paths
+  // mark issues with capReason. A truly clean run leaves it empty.)
+  if result.issues.isEmpty then "No review comments"
+  else
+    val bailOut = result.issues.collectFirst:
+      case ii if ii.reason.contains("max iterations") ||
+                 ii.reason.contains("no progress") => ii.reason
+    val n = result.issues.size
+    val plural = if n == 1 then "" else "s"
+    bailOut match
+      case Some(reason) =>
+        s"Bailed out with $n unresolved review comment$plural ($reason)"
+      case None =>
+        s"Discarded $n review comment$plural"
 
 private def capReason(
     issues: List[ReviewIssue],
@@ -122,7 +157,9 @@ def reviewAndFixLoop[B <: Backend](
     lintCommand: Option[String] = None,
     confidenceThreshold: Double = 0.7
 )(using FlowContext): IgnoredIssues =
-  stage(s"Review & fix: $task"):
+  // The stage doesn't repeat `task` in its label — the enclosing
+  // implement-task stage already names it.
+  stage("Review & fix"):
     fixLoop(
       evaluate =
         () => gatherReviews(reviewers, task, lintCommand, confidenceThreshold),

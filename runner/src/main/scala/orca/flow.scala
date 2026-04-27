@@ -20,9 +20,20 @@ import scala.util.control.NonFatal
   * With overrides:
   *
   * ```
-  * flow(OrcaArgs.from(args.toSeq), git = Some(myGit), interaction = SlackInteraction(...)):
+  * flow(
+  *   OrcaArgs.from(args.toSeq),
+  *   git = Some(myGit),
+  *   interaction = Some(SlackInteraction(...))
+  * ):
   *   ...
   * ```
+  *
+  * `interaction` is `Option[Interaction]` (rather than a direct
+  * `Interaction` with a default `new TerminalInteraction()`) so the
+  * default can be parameterised by `workDir`, which Scala 3's
+  * default-arg evaluation can't see across params in the same list.
+  * Pass `Some(myInteraction)` to override; leave it out and the
+  * resolved `workDir` flows into the default `TerminalInteraction`.
   *
   * The two-parameter-list shape is deliberate: Scala 3's fewer-braces
   * propagates the `FlowContext ?=>` given into the body only when the
@@ -31,9 +42,9 @@ import scala.util.control.NonFatal
   */
 def flow(
     args: OrcaArgs,
-    interaction: Interaction = new TerminalInteraction(),
-    extraListeners: List[OrcaListener] = Nil,
     workDir: os.Path = os.pwd,
+    interaction: Option[Interaction] = None,
+    extraListeners: List[OrcaListener] = Nil,
     claude: Option[ClaudeTool] = None,
     git: Option[GitTool] = None,
     gh: Option[GitHubTool] = None,
@@ -41,15 +52,21 @@ def flow(
     prompts: Prompts = DefaultPrompts
 )(body: FlowContext ?=> Unit): Unit =
   val debug = sys.env.get("ORCA_DEBUG").contains("1") || args.verbose.value
+  // Default to a TerminalInteraction parameterised with the resolved
+  // `workDir` — Scala 3 default-arg evaluation can't see prior params
+  // in the same list, so the substitution happens here instead.
+  val effectiveInteraction = interaction.getOrElse(
+    new TerminalInteraction(workDir = Some(workDir))
+  )
   try
     supervised:
       val dispatcher =
-        new EventDispatcher(interaction.listeners ++ extraListeners)
+        new EventDispatcher(effectiveInteraction.listeners ++ extraListeners)
       val ctx = DefaultFlowContext.withDefaults(
         userPrompt = args.userPrompt,
         dispatcher = dispatcher,
         workDir = workDir,
-        interaction = interaction,
+        interaction = effectiveInteraction,
         claude = claude,
         git = git,
         gh = gh,
