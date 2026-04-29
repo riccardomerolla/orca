@@ -50,11 +50,6 @@ flow(OrcaArgs.from(args.toSeq)):
   val (sessionId, plan) = stage("Creating a development plan"):
     claude.resultAs[Plan].interactive(userPrompt)
 
-  // The terminal renderer suppresses the agent's raw JSON payload;
-  // `logTo` surfaces the parsed plan via the event bus so it lands in
-  // whichever channel the flow is wired to (terminal, Slack, HTTP).
-  plan.logTo
-
   // 2. Implement each task on its own branch and review locally.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.summary}"):

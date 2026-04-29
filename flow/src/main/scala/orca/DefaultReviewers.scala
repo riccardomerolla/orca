@@ -75,7 +75,7 @@ private[orca] class NamedLlmTool[B <: Backend](
     new NamedLlmTool(name, delegate.withConfig(config))
   def withSystemPrompt(prompt: String): LlmTool[B] =
     new NamedLlmTool(name, delegate.withSystemPrompt(prompt))
-  def resultAs[O: JsonData]: LlmCall[B, O] = delegate.resultAs[O]
+  def resultAs[O: JsonData : Announce]: LlmCall[B, O] = delegate.resultAs[O]
 
 /** Pre-configured reviewer agents built atop the supplied base tool. Each
   * reviewer has its own `name` and system prompt; callers pass them (or a

@@ -50,13 +50,16 @@ align with their parent's content. `Step` events (single-line
 notes — `git.createBranch`'s "Switched to branch X", `fixLoop`'s
 "Discarded N issues") render at the current content indent.
 
-**JSON-only assistant payloads are suppressed.** When the flow asked
-for a structured `O`, the agent's final turn is JSON. Streaming it
-verbatim flashes raw `{"tasks":[...]}` on the way to the parsed
-`Plan`. The renderer buffers `AssistantTextDelta`s through
-`AssistantTurnEnd` and drops the buffer if it parses as a JSON value
-(cheap first/last-char heuristic). The flow script renders the
-parsed plan in human-readable form via its own `println`s.
+**Nothing the agent produced is hidden.** Earlier the renderer
+suppressed JSON-only assistant turns on the assumption they were
+the structured-output payload the flow would re-render itself.
+That heuristic was lossy and surprised users; the rationale and
+replacement live in
+[ADR 0009](0009-announce-typeclass.md). The renderer now flushes
+every assistant turn verbatim and the library auto-emits an
+`OrcaEvent.Step` carrying an `Announce[O]` summary, so a plan run
+shows the raw JSON *and* a friendly "Planned N tasks on branch '…'"
+line — both visible, neither hidden.
 
 **Tool-call paths under `workDir` show as relative.** Absolute paths
 outside `workDir` stay absolute, so out-of-project file access is
@@ -81,7 +84,7 @@ Used in the event log:
 | ----- | ------ | ------- |
 | `▶` | cyan | Stage start, or a `Step` (single-line note: branch switch, "discarded N issues"). No closing glyph for either. |
 | `▸` | cyan, bold | The user's prompt at the start of an interactive session. |
-| `●` | magenta, bold | An assistant prose message. JSON-only payloads are suppressed; the flow script renders the parsed structured output. |
+| `●` | magenta, bold | An assistant prose message. Structured-output JSON renders verbatim; flow scripts opt into a friendly `Step` summary via `Announce[O]`. |
 | `·` | grey | Assistant "thinking" prose. Hidden by default; `showThinking = true` reveals it. |
 | `⏺` | blue, bold | A tool call the agent is making. The headline argument follows in grey. |
 | `⎿` | grey | The result of the preceding tool call, truncated to one line. |
@@ -164,8 +167,9 @@ identical, so captured CI logs read the same as a live terminal.
   on-stop clear escape.
 - `TerminalInteractionTest` pins the indentation math and the
   no-`✔`-in-log invariant.
-- `TerminalConversationRendererTest` covers JSON-only suppression,
-  prose flushing at TurnEnd, and tool-call/result rendering.
+- `TerminalConversationRendererTest` covers prose flushing at
+  TurnEnd (including verbatim JSON payloads) and tool-call/result
+  rendering.
 - `QuietProcTest` pins the stderr-capture contract — the
   abstraction that makes the artifact this ADR closes impossible
   in tool code.

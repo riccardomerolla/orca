@@ -38,7 +38,7 @@ class FakeLlmTool(
   private val promptIt = promptOutputs.iterator
   private val continueIt = continueSessionOutputs.iterator
 
-  def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
+  def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] =
     new FakeLlmCall[O](promptIt, continueIt)
 
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String = ""

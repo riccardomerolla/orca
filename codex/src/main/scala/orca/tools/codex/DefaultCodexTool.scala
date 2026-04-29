@@ -1,6 +1,7 @@
 package orca.tools.codex
 
 import orca.{
+  Announce,
   Backend,
   CodexTool,
   Interaction,
@@ -69,7 +70,7 @@ class DefaultCodexTool(
     emitTokens(effective, result.usage)
     result.output
 
-  def resultAs[O: JsonData]: LlmCall[Backend.Codex.type, O] =
+  def resultAs[O: JsonData : Announce]: LlmCall[Backend.Codex.type, O] =
     new DefaultLlmCall[Backend.Codex.type, O](
       backend,
       effectiveConfig,

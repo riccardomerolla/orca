@@ -85,7 +85,10 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     val _ = renderer(buf).render(conv)
     assert(buf.toString.contains("hello "))
 
-  test("a JSON-only delta + TurnEnd is suppressed (structured payload)"):
+  test("a JSON-only delta + TurnEnd is rendered like any other prose"):
+    // The renderer no longer second-guesses the agent's output. Flow
+    // scripts opt into a friendly summary via `Announce[O]`; the
+    // raw JSON stays visible so nothing the agent produced is hidden.
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
       List(
@@ -96,28 +99,8 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     )
     val _ = renderer(buf).render(conv)
     assert(
-      !buf.toString.contains("tasks"),
-      s"JSON-only payload should not be rendered; got: ${buf.toString}"
-    )
-
-  test("prose followed by a JSON-only delta still gets rendered as prose"):
-    // Buffer + flush is per-turn, so multiple deltas concatenate into
-    // one buffer; the JSON wrapper around prose isn't pure JSON, so
-    // it flushes.
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantTextDelta("Here is the plan: "),
-        ConversationEvent.AssistantTextDelta("""{"tasks":[]}"""),
-        ConversationEvent.AssistantTurnEnd
-      ),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    val out = buf.toString
-    assert(
-      out.contains("Here is the plan"),
-      s"prose-prefixed turn should still flush; got: $out"
+      buf.toString.contains("tasks"),
+      s"JSON payload should be rendered verbatim; got: ${buf.toString}"
     )
 
   test("plain prose flushes on TurnEnd"):

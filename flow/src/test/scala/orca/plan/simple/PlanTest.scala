@@ -30,24 +30,12 @@ class PlanTest extends munit.FunSuite:
     val parsed = readFromString[Plan](json)
     assertEquals(parsed, plan)
 
-  test("logTo emits a single Step with the branch and per-task summary list"):
-    val seen = new java.util.concurrent.atomic.AtomicReference[List[orca.OrcaEvent]](Nil)
-    val listener = new orca.OrcaListener:
-      def onEvent(event: orca.OrcaEvent): Unit =
-        val _ = seen.updateAndGet(event :: _)
-    given orca.FlowContext = new orca.TestFlowContext(
-      new orca.EventDispatcher(List(listener))
-    )
+  test("Announce[Plan] produces a header + per-task bullet summary"):
     val plan = Plan(List(
       Task("feat-a", "Add feature A", "do A"),
       Task("feat-b", "Add feature B", "do B")
     ))
-    plan.logTo
-    val steps = seen.get().reverse.collect {
-      case orca.OrcaEvent.Step(msg) => msg
-    }
-    assertEquals(steps.size, 1, s"expected exactly one Step; got: $steps")
-    val msg = steps.head
+    val msg = summon[orca.Announce[Plan]].message(plan)
     assert(
       msg.startsWith("Planned 2 tasks on branch 'feat-a'"),
       s"expected the header; got: $msg"
@@ -55,13 +43,5 @@ class PlanTest extends munit.FunSuite:
     assert(msg.contains("- Add feature A"), s"missing task A; got: $msg")
     assert(msg.contains("- Add feature B"), s"missing task B; got: $msg")
 
-  test("logTo on an empty plan emits nothing"):
-    val seen = new java.util.concurrent.atomic.AtomicReference[List[orca.OrcaEvent]](Nil)
-    val listener = new orca.OrcaListener:
-      def onEvent(event: orca.OrcaEvent): Unit =
-        val _ = seen.updateAndGet(event :: _)
-    given orca.FlowContext = new orca.TestFlowContext(
-      new orca.EventDispatcher(List(listener))
-    )
-    Plan(Nil).logTo
-    assertEquals(seen.get(), Nil)
+  test("Announce[Plan] returns empty for an empty plan (no Step emitted)"):
+    assertEquals(summon[orca.Announce[Plan]].message(Plan(Nil)), "")

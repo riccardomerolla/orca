@@ -1,6 +1,6 @@
 package orca.plan.simple
 
-import orca.{FlowContext, JsonData, OrcaEvent, given}
+import orca.{Announce, JsonData, given}
 
 /** A single task in the plan. `summary` is a short user-facing label
   * (used for the implement-stage name and the printed plan list);
@@ -22,21 +22,24 @@ case class Task(
   * The "simple" variant fits in one LLM round-trip: the agent
   * produces the JSON; the runtime parses it; the flow iterates.
   */
-case class Plan(tasks: List[Task]) derives JsonData:
-  /** Surface the plan to the active interaction channel as a single
-    * multi-line `Step`. Goes through the event bus rather than
-    * `println` so the output works against any channel — terminal,
-    * Slack, an HTTP subscriber — without each flow author needing to
-    * think about which one is wired.
+case class Plan(tasks: List[Task]) derives JsonData
+
+object Plan:
+  /** Friendly summary picked up by `claude.resultAs[Plan]` (or any
+    * `LlmCall[_, Plan]`). The library auto-emits this as a `Step`
+    * after parsing the agent's JSON, so flow scripts get the
+    * human-readable plan listing without an explicit `announce` call.
     *
-    * No-op on an empty plan: a `Plan(Nil)` from the planner is a
+    * Empty on an empty plan: a `Plan(Nil)` from the planner is a
     * planning failure worth surfacing where it happened, not a thing
-    * to render quietly.
+    * to render quietly. `Announce`'s contract treats an empty string
+    * as "no message", so the `Step` is dropped.
     */
-  def logTo(using ctx: FlowContext): Unit =
-    if tasks.nonEmpty then
-      val plural = if tasks.size == 1 then "" else "s"
+  given Announce[Plan] = Announce.from: plan =>
+    if plan.tasks.isEmpty then ""
+    else
+      val plural = if plan.tasks.size == 1 then "" else "s"
       val header =
-        s"Planned ${tasks.size} task$plural on branch '${tasks.head.branchName}':"
-      val body = tasks.map(t => s"  - ${t.summary}").mkString("\n")
-      ctx.emit(OrcaEvent.Step(s"$header\n$body"))
+        s"Planned ${plan.tasks.size} task$plural on branch '${plan.tasks.head.branchName}':"
+      val body = plan.tasks.map(t => s"  - ${t.summary}").mkString("\n")
+      s"$header\n$body"

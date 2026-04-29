@@ -27,11 +27,6 @@ flow(OrcaArgs.from(args.toSeq)):
   val (sessionId, plan) = stage("Creating a development plan"):
     claude.resultAs[Plan].interactive(userPrompt)
 
-  // Surface the plan via the event bus so it shows up in any
-  // configured channel — terminal, Slack, HTTP — without the script
-  // knowing or caring which.
-  plan.logTo
-
   // 2. Implement each task on its own branch and review locally.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.summary}"):

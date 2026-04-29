@@ -1,6 +1,7 @@
 package orca.plan.extended
 
 import orca.{
+  Announce,
   Backend,
   JsonData,
   LlmCall,
@@ -21,7 +22,7 @@ private[extended] class CannedLlm(reply: String)
   def continueSession(s: SessionId[Backend.ClaudeCode.type], p: String, c: LlmConfig = LlmConfig.default) = ???
   def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
-  def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] = ???
+  def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] = ???
 
 /** Test double that throws on every method — used to assert that a
   * code path doesn't call the LLM.
@@ -37,5 +38,5 @@ private[extended] class ExplodingLlm(reason: String)
     throw new AssertionError(reason)
   def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
-  def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
+  def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] =
     throw new AssertionError(reason)

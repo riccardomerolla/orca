@@ -1,6 +1,7 @@
 package orca.tools.claude
 
 import orca.{
+  Announce,
   Backend,
   ClaudeTool,
   Interaction,
@@ -70,7 +71,7 @@ class DefaultClaudeTool(
     emitTokens(effective, result.usage)
     result.output
 
-  def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
+  def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] =
     new DefaultLlmCall[Backend.ClaudeCode.type, O](
       backend,
       effectiveConfig,

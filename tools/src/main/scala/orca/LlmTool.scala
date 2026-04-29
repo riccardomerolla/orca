@@ -12,8 +12,13 @@ trait LlmTool[B <: Backend]:
     * `.interactive(...)` / `.continueSession(...)` to actually invoke the
     * model. `O` needs a `JsonData[O]` — `derives JsonData` on a case class
     * is the normal way to provide one.
+    *
+    * An `Announce[O]` is also required; the library's default given
+    * returns an empty string (no auto-announce), so callers don't
+    * need to do anything unless they want a friendly summary on the
+    * channel. See [[Announce]].
     */
-  def resultAs[O: JsonData]: LlmCall[B, O]
+  def resultAs[O: JsonData : Announce]: LlmCall[B, O]
 
   /** One-shot autonomous call that takes a string and returns a string —
     * equivalent to `resultAs[String].autonomous(prompt, config)` without the need

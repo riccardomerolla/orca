@@ -25,7 +25,7 @@ class LintTest extends munit.FunSuite:
     ): String = ???
     def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
-    def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] =
+    def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] =
       new LlmCall[Backend.ClaudeCode.type, O]:
         def autonomous[I](i: I, c: LlmConfig = LlmConfig.default)(using
             a: AgentInput[I]

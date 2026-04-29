@@ -10,9 +10,10 @@ Use this when the task is small enough to finish in one session.
 ## What it does
 
 1. **Plan.** The agent receives the user's prompt and returns a
-   structured `Plan(tasks: List[Task])` (one interactive turn).
-2. **Surface.** `plan.logTo` shows the plan via the event bus.
-3. **For each task:**
+   structured `Plan(tasks: List[Task])` (one interactive turn). The
+   `Announce[Plan]` instance auto-summarises it on the event bus —
+   no explicit `plan.announce` call needed.
+2. **For each task:**
    - Create the task's branch.
    - Hand the task's prompt to the agent (continuing the planning
      session).

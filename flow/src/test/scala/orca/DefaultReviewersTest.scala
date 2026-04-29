@@ -13,7 +13,7 @@ class DefaultReviewersTest extends munit.FunSuite:
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] =
       systemPromptsSeen = p :: systemPromptsSeen
       this
-    def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] = ???
+    def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] = ???
     def startSession(
         p: String,
         c: LlmConfig = LlmConfig.default

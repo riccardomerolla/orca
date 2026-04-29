@@ -2,6 +2,7 @@ package orca.runner
 
 import _root_.orca.runner.terminal.TerminalInteraction
 import orca.{
+  Announce,
   Backend,
   ClaudeTool,
   CostTracker,
@@ -59,7 +60,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           p: String,
           c: LlmConfig = LlmConfig.default
       ): String = ???
-      def resultAs[O: JsonData]: LlmCall[Backend.ClaudeCode.type, O] = ???
+      def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] = ???
     var observed: String = ""
     flow(args = OrcaArgs(), claude = Some(fakeClaude), interaction = Some(silentInteraction)) {
       observed = summon[FlowContext].claude.ask("hi")

@@ -51,13 +51,11 @@ private[terminal] class TerminalConversationRenderer(
     */
   private var currentSection: Section = Section.None
 
-  /** Buffer for assistant text in the current turn. Held until
-    * `AssistantTurnEnd`, at which point we decide whether to flush it
-    * (prose) or drop it (a JSON-only structured-output payload that
-    * the flow script will print in human-readable form). Streaming
-    * mid-turn would mean printing the raw JSON before we knew it was
-    * the final structured payload — the buffer lets us defer that
-    * call until the turn boundary.
+  /** Buffer for assistant text in the current turn. Flushed as a single
+    * block at `AssistantTurnEnd` so the prose lands together rather than
+    * delta-by-delta. Structured-output payloads (JSON, etc.) are flushed
+    * verbatim like any other prose — flow scripts opt into a friendly
+    * summary via `Announce[O]`, the renderer no longer second-guesses.
     */
   private val textBuffer = new StringBuilder
 
@@ -143,14 +141,9 @@ private[terminal] class TerminalConversationRenderer(
     enterSection(Section.Prose)
     appendBlock(paint(ErrorStyle, s"$ErrorGlyph $message"))
 
-  /** Decide whether to render the buffered text or drop it. JSON-only
-    * payloads (the structured output the flow asked for) are dropped:
-    * the flow script will pretty-print the parsed value, and the raw
-    * JSON would just flash and confuse the user. Prose, status
-    * updates, and questions all flush as a single block.
-    *
-    * Always clears `pendingProseStyling`, so an empty-buffer turn
-    * doesn't leak captured styling into the next turn.
+  /** Render the buffered text as a single prose block. Always clears
+    * `pendingProseStyling`, so an empty-buffer turn doesn't leak
+    * captured styling into the next turn.
     */
   private def flushBufferedText(): Unit =
     val styling = pendingProseStyling.getOrElse(
@@ -161,11 +154,10 @@ private[terminal] class TerminalConversationRenderer(
     else
       val text = textBuffer.toString
       textBuffer.clear()
-      if !looksLikeStructuredJson(text) then
-        enterSection(Section.Prose)
-        val rendered = paint(styling.glyphStyle, s"${styling.glyph} ") +
-          paint(styling.textStyle, text)
-        appendBlock(rendered)
+      enterSection(Section.Prose)
+      val rendered = paint(styling.glyphStyle, s"${styling.glyph} ") +
+        paint(styling.textStyle, text)
+      appendBlock(rendered)
 
   /** Insert a blank-line separator when crossing a section boundary,
     * then update the section. No-op when staying in the same kind of
@@ -223,39 +215,6 @@ private[terminal] class TerminalConversationRenderer(
     */
   private def bulletIndent(text: String): String =
     text.linesIterator.map(l => s"  $l").mkString("\n")
-
-  /** Cheap heuristic for "this is the agent's final structured-output
-    * payload" — true when the text (after fence-strip + trim) starts
-    * with `{`/`[` and ends with the matching close. Deliberately
-    * sloppy: a malformed `{not even json}` would also be dropped.
-    * Accepted because non-JSON prose effectively never starts and
-    * ends that way; the precise alternative would require a real
-    * parser, which costs more than the false-positive risk.
-    *
-    * The flow script renders the parsed structured output in human
-    * form; the renderer suppresses the raw JSON so the user doesn't
-    * see both.
-    */
-  private def looksLikeStructuredJson(raw: String): Boolean =
-    val stripped = stripMarkdownFences(raw.trim)
-    val s = stripped.trim
-    if s.isEmpty then false
-    else
-      val first = s.head
-      val last = s.last
-      (first == '{' && last == '}') || (first == '[' && last == ']')
-
-  private def stripMarkdownFences(s: String): String =
-    if !s.startsWith("```") then s
-    else
-      val afterOpening = s.drop(3).dropWhile(c => c.isLetterOrDigit || c == '-')
-      val withoutLeadingNewline =
-        if afterOpening.startsWith("\n") then afterOpening.drop(1)
-        else afterOpening
-      if withoutLeadingNewline.endsWith("```") then
-        withoutLeadingNewline.dropRight(3).stripSuffix("\n")
-      else withoutLeadingNewline
-
 
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)

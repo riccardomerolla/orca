@@ -2,6 +2,7 @@ package orca.io
 
 import orca.{
   AgentInput,
+  Announce,
   Backend,
   Interaction,
   JsonData,
@@ -41,12 +42,21 @@ class DefaultLlmCall[B <: Backend, O](
       * `CostTracker` doesn't have to deal with an `<unknown>` bucket.
       */
     defaultModel: String
-)(using jd: JsonData[O])
+)(using jd: JsonData[O], announce: Announce[O])
     extends LlmCall[B, O]:
 
   private given sttp.tapir.Schema[O] = jd.schema
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
     jd.codec
+
+  /** Emit the announce-typeclass message for `value` as a `Step`.
+    * No-op if the message is empty (the default given returns ""),
+    * which is what makes the new context bound transparent to
+    * callers that don't define a specific `Announce[O]`.
+    */
+  private def announceParsed(value: O): Unit =
+    val msg = announce.message(value)
+    if msg.nonEmpty then emit(OrcaEvent.Step(msg))
 
   def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
       ai: AgentInput[I]
@@ -109,7 +119,10 @@ class DefaultLlmCall[B <: Backend, O](
           backend.continueHeadless(sid, promptText, effective, workDir)
         case None => backend.runHeadless(promptText, effective, workDir)
       emit(OrcaEvent.TokensUsed(effective.model.getOrElse(defaultModel), result.usage))
-      try (result.sessionId, ResponseParser.parse[O](result.output))
+      try
+        val parsed = ResponseParser.parse[O](result.output)
+        announceParsed(parsed)
+        (result.sessionId, parsed)
       catch
         case e: MalformedAgentOutputException =>
           lastFailure = Some(
@@ -158,4 +171,6 @@ class DefaultLlmCall[B <: Backend, O](
     // protocols don't always carry partial usage, so there's nothing
     // authoritative to emit at cancel time.
     emit(OrcaEvent.TokensUsed(effective.model.getOrElse(defaultModel), result.usage))
-    (result.sessionId, ResponseParser.parse[O](result.output))
+    val parsed = ResponseParser.parse[O](result.output)
+    announceParsed(parsed)
+    (result.sessionId, parsed)

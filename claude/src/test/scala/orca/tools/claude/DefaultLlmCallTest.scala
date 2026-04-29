@@ -158,3 +158,45 @@ class DefaultLlmCallTest extends munit.FunSuite:
         second.contains("garbage"),
         "second attempt must quote the first failure as a corrective prompt"
       )
+
+  test("autonomous emits an Announce-derived Step after parsing"):
+    // A specific Announce[Answer] wins over Announce.default; the call
+    // should emit a Step carrying that message after parsing succeeds.
+    given orca.Announce[Answer] =
+      orca.Announce.from(a => s"answer is ${a.value}")
+    val backend = new SequencedBackend(List("""{"value":99}"""))
+    val seen = AtomicReference[List[orca.OrcaEvent]](Nil)
+    val call = new DefaultLlmCall[Backend.ClaudeCode.type, Answer](
+      backend = backend,
+      effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+      prompts = DefaultPrompts,
+      workDir = os.pwd,
+      emit = e => { val _ = seen.updateAndGet(e :: _) },
+      interaction = stubInteraction,
+      defaultModel = "claude"
+    )
+    supervised:
+      val _ = call.autonomous("anything")
+      val steps = seen.get().collect { case orca.OrcaEvent.Step(m) => m }
+      assert(
+        steps.contains("answer is 99"),
+        s"expected the Announce-derived Step; saw: $steps"
+      )
+
+  test("autonomous skips the Step when no specific Announce is in scope"):
+    // The library's catch-all `Announce.default` returns an empty
+    // string, which the auto-announce path treats as "nothing to say".
+    val backend = new SequencedBackend(List("""{"value":1}"""))
+    val seen = AtomicReference[List[orca.OrcaEvent]](Nil)
+    supervised:
+      val _ = new DefaultLlmCall[Backend.ClaudeCode.type, Answer](
+        backend = backend,
+        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        prompts = DefaultPrompts,
+        workDir = os.pwd,
+        emit = e => { val _ = seen.updateAndGet(e :: _) },
+        interaction = stubInteraction,
+        defaultModel = "claude"
+      ).autonomous("anything")
+      val steps = seen.get().collect { case orca.OrcaEvent.Step(_) => () }
+      assertEquals(steps, Nil, "no Step should be emitted under the default Announce")
