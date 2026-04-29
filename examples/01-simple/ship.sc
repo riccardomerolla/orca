@@ -22,7 +22,7 @@
 import orca.{*, given}
 import orca.plan.simple.{Plan, Task}
 
-flow(OrcaArgs.from(args.toSeq)):
+flow(OrcaArgs(args)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
   val (sessionId, plan) = stage("Creating a development plan"):
     claude.resultAs[Plan].interactive(userPrompt)

@@ -11,13 +11,13 @@ Orca is a Scala library for defining and executing development workflows — pla
 //> using jvm 21
 import orca.{*, given}
 
-flow(OrcaArgs.from(args.toSeq)):
+flow(OrcaArgs(args)):
   val (_, plan) = claude.resultAs[TaskPlan].interactive(userPrompt)
   git.createBranch(plan.branchName)
   // ...
 ```
 
-Flows use `.sc` (scala-cli script) files, where top-level expressions are allowed. `args` is scala-cli's script argv. For `.scala` files, wrap in `@main def run(args: String*) = flow(OrcaArgs.from(args)) { ... }`.
+Flows use `.sc` (scala-cli script) files, where top-level expressions are allowed. `args` is scala-cli's script argv. For `.scala` files, wrap in `@main def run(args: String*) = flow(OrcaArgs(args.toArray)) { ... }`.
 
 ```bash
 scala-cli run my-flow.sc -- "implement feature X"

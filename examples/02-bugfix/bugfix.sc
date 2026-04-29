@@ -63,7 +63,7 @@ case class BugReportMatch(
     explanation: String
 ) derives JsonData
 
-flow(OrcaArgs.from(args.toSeq)):
+flow(OrcaArgs(args)):
 
   // 1. Triage the bug interactively. The agent reads the report,
   // explores the code, and tells us how to reproduce.

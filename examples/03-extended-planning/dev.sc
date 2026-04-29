@@ -26,7 +26,7 @@
 import orca.{*, given}
 import orca.plan.extended.Plan
 
-flow(OrcaArgs.from(args.toSeq)):
+flow(OrcaArgs(args)):
 
   val planFile = os.pwd / "dev.md"
 

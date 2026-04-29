@@ -12,7 +12,7 @@ import scala.util.control.NonFatal
   * scope with the resulting `FlowContext` as an ambient given.
   *
   * ```
-  * flow(OrcaArgs.from(args.toSeq)):
+  * flow(OrcaArgs(args)):
   *   val plan = claude.resultAs[Plan].autonomous(userPrompt)
   *   ...
   * ```
@@ -21,7 +21,7 @@ import scala.util.control.NonFatal
   *
   * ```
   * flow(
-  *   OrcaArgs.from(args.toSeq),
+  *   OrcaArgs(args),
   *   git = Some(myGit),
   *   interaction = Some(SlackInteraction(...))
   * ):

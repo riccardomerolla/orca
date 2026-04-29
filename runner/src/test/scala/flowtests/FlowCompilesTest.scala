@@ -83,6 +83,6 @@ object FlowCanary:
     * `args: Array[String]`.
     */
   def fromCliArgs(args: Array[String]): Unit =
-    flow(OrcaArgs.from(args.toSeq)):
+    flow(OrcaArgs(args)):
       stage("start"):
         val _ = claude.ask(userPrompt)
