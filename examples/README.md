@@ -18,9 +18,12 @@ All three examples expect:
   [repo root README](../README.md#authenticating-the-coding-agents)).
 - Orca published locally: `cd <orca-sandbox> && sbt publishLocal`.
 - A target project. Each example ships a `create-test-project.sh`
-  next to its flow script that copies a tiny Java calculator
-  starter (in the example's `test-project/` directory) into a
-  temp dir and inits git. Edit the seed files there, not the
+  next to its flow script that copies a small starter (in the
+  example's `test-project/` directory) into a temp dir and inits
+  git. The starters intentionally vary across examples — 01 is a
+  Rust calculator crate, 02 a Java/Maven Calculator with a
+  `.github/workflows/ci.yml`, 03 a Java todo-CLI with several
+  obvious feature gaps. Edit the seed files there, not the
   script, if you want a different starter:
 
   ```bash

@@ -31,9 +31,12 @@ Use this when the task is small enough to finish in one session.
   sbt publishLocal
   ```
 
+- `cargo` on PATH — the seed is a small Rust crate so the lint
+  command is `cargo test --quiet`. Swap the `lintCommand` line in
+  `ship.sc` if you point the flow at a non-Rust project.
 - A target project to run against. The sibling
   [`create-test-project.sh`](create-test-project.sh) seeds a
-  tiny Java calculator from the [`test-project/`](test-project/)
+  tiny Rust calculator crate from the [`test-project/`](test-project/)
   directory into a temp dir and inits git:
 
   ```bash
@@ -50,9 +53,5 @@ in shape it's:
 
 ```bash
 scala-cli run <path-to-orca>/examples/01-simple/ship.sc -- \
-  "Add a multiply method to Calculator"
+  "Add a multiply function to the calculator crate"
 ```
-
-Use a small lint command for the review step (the script wires
-`mvn -q test`); swap it for `sbt test`, `pytest -q`, or whatever your
-project uses.

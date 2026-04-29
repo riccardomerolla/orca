@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Seeds the calculator scratch project for example 01-simple into a temp
-# directory (or a path you supply) and inits a git repo so the flow has
-# something to commit against. The seed files live in the sibling
+# Seeds the calculator Rust crate for example 01-simple into a temp
+# directory (or a path you supply) and inits a git repo so the flow
+# has something to commit against. The seed files live in the sibling
 # `test-project/` directory — edit those, not the script, if you want
 # the starter to look different.
 #
@@ -30,7 +30,7 @@ cd "$DEST"
 git init -q -b main
 git -c user.name=orca-seed -c user.email=orca-seed@example.com add . > /dev/null
 git -c user.name=orca-seed -c user.email=orca-seed@example.com \
-    commit -q -m "Initial calculator project"
+    commit -q -m "Initial calculator crate"
 
 cat <<EOF
 
@@ -38,5 +38,5 @@ Test project ready at: $DEST
 
 Next steps:
   cd $DEST
-  scala-cli run $SCRIPT_DIR/ship.sc -- "Add a multiply method to Calculator"
+  scala-cli run $SCRIPT_DIR/ship.sc -- "Add a multiply function to the calculator crate"
 EOF

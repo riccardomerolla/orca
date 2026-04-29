@@ -12,11 +12,11 @@
   * Run it from inside a project's working directory:
   *
   * ```bash
-  * scala-cli run examples/01-simple/ship.sc -- "Add a multiply method to Calculator"
+  * scala-cli run examples/01-simple/ship.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
-  * The seeded calculator project from `examples/create-test-project.sh`
-  * is the easiest target. Requires `claude` logged in.
+  * The seeded calculator crate from `examples/01-simple/create-test-project.sh`
+  * is the easiest target. Requires `claude` logged in and `cargo` on PATH.
   */
 
 import orca.{*, given}
@@ -39,5 +39,5 @@ flow(OrcaArgs(args)):
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
         task = task.summary,
-        lintCommand = Some("mvn -q test")
+        lintCommand = Some("cargo test --quiet")
       )
