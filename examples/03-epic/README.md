@@ -1,12 +1,16 @@
-# Example 03 — multi-agent review on a resumable plan
+# Example 03 — running an epic with cross-agent review
 
-A more involved flow than [01-simple](../01-simple/): the plan
+A more involved flow than [01-simple](../01-simple/): the epic
 lives on disk in a file the human can read, edit before running,
 and inspect mid-flow; and after each task lands, both Claude and
 Codex review the result in parallel. Crashes don't lose
 progress — each task's `[x]` checkbox is committed before the
 next one starts, and a re-run picks up where the previous run
 stopped.
+
+We use "epic" in the agile sense: a multi-task workstream big
+enough that you want it written down before starting, broken
+into smaller reviewable tasks, and resumable across sessions.
 
 ## When to reach for this
 
@@ -17,12 +21,12 @@ stopped.
 - One model's blind spots shouldn't decide whether a task ships.
   Cross-backend review is cheap insurance against a single
   vendor's failure modes.
-- A reviewer wants to read the plan as a markdown document, not a
+- A reviewer wants to read the epic as a markdown document, not a
   JSON blob.
 
 ## On-disk format
 
-The plan file (default `dev.md`, at the working-directory root)
+The epic file (default `epic.md`, at the working-directory root)
 follows a strict schema the library both writes and parses:
 
 ```markdown
@@ -50,10 +54,10 @@ splice it into their own custom planner prompt can.
 
 ## Stages
 
-1. **Acquiring plan** — `Plan.loadOrGenerate(file, prompt, llm)`:
+1. **Acquiring epic** — `Plan.loadOrGenerate(file, prompt, llm)`:
    - File exists → parse and reuse (logs a Step that the file is
      being reused, including how many tasks are already complete).
-   - File missing → ask the LLM to produce the plan in the schema,
+   - File missing → ask the LLM to produce the epic in the schema,
      write it to disk, return.
 2. **Ensure clean working tree** — `git.ensureClean(...)`. Stashes
    any pending changes so the flow doesn't tear them up; recovery
@@ -70,10 +74,10 @@ splice it into their own custom planner prompt can.
      functionality, abstraction) in parallel; fixes go back
      through the original Claude session.
    - `Plan.persistComplete(file, task.name)` — flips the checkbox
-     in `dev.md` so a future run skips this task.
+     in `epic.md` so a future run skips this task.
 5. **Update documentation** — agent updates README / doc-comments
    to reflect the changes, and commits.
-6. **Remove plan file** — `os.remove(devMd)`, committed as the
+6. **Remove epic file** — `os.remove(epicMd)`, committed as the
    final cleanup.
 
 ## Why two backends?
@@ -89,14 +93,14 @@ disagree, that's the interesting case worth surfacing.
 
 If the script crashes mid-flow, just rerun it. The runtime:
 
-- Reuses the existing `dev.md`.
+- Reuses the existing `epic.md`.
 - Stashes any leftover working-tree changes.
-- Switches back to the plan's branch.
+- Switches back to the epic's branch.
 - Skips tasks already marked `[x]`.
 - Picks up from the first `[ ]` task.
 
-If the user pre-writes `dev.md` themselves, the planner stage
-becomes "we trust your file" — useful for handcrafted plans.
+If the user pre-writes `epic.md` themselves, the planner stage
+becomes "we trust your file" — useful for handcrafted epics.
 
 ## Prerequisites
 
@@ -109,7 +113,7 @@ becomes "we trust your file" — useful for handcrafted plans.
 
 ```bash
 cd <project>
-scala-cli run <orca-sandbox>/examples/03-multi-agent-review/dev.sc -- \
+scala-cli run <orca-sandbox>/examples/03-epic/epic.sc -- \
   "Add a divide method to Calculator with full test coverage"
 ```
 
@@ -119,6 +123,6 @@ The renderer's status bar shows the current stage. The event log
 shows each task's start, the agent's tool calls (file reads, edits,
 tests), the parallel reviewer turns from both backends, and any
 Step events from `git` and the loop machinery (branch switches,
-plan-file reuse, etc.). When something fails, the plan file's
+epic-file reuse, etc.). When something fails, the epic file's
 checkboxes are the truth — anything still `[ ]` will run on the
 next attempt.

@@ -2,15 +2,15 @@
 //> using repository ivy2Local
 //> using jvm 21
 
-/** Cross-agent review on a resumable, on-disk plan.
+/** Run an epic: a multi-task workstream with cross-agent review.
   *
   * Two layers are stacked here:
   *
-  * 1. **The plan is on disk.** `dev.md` at the working-directory
+  * 1. **The epic is on disk.** `epic.md` at the working-directory
   *    root holds the task list; on a fresh run the agent
   *    generates it, on a resume the existing file is reused and
   *    execution restarts from the first incomplete task. Each
-  *    task's `Status: [x]` checkbox is committed back to `dev.md`
+  *    task's `Status: [x]` checkbox is committed back to `epic.md`
   *    as the task lands, so a crash mid-flow loses no progress.
   *
   * 2. **Each task is reviewed by both backends.** After Claude
@@ -22,13 +22,13 @@
   *    CLIs logged in.
   *
   * At the end of a successful run the documentation step updates
-  * the project README based on what changed, and the plan file is
+  * the project README based on what changed, and the epic file is
   * removed (committed as the wrap-up).
   *
   * Run from the project's working directory:
   *
   * ```bash
-  * scala-cli run <orca-sandbox>/examples/03-multi-agent-review/dev.sc -- \
+  * scala-cli run <orca-sandbox>/examples/03-epic/epic.sc -- \
   *   "Add a divide method to Calculator with full test coverage"
   * ```
   */
@@ -38,11 +38,11 @@ import orca.plan.extended.Plan
 
 flow(OrcaArgs(args)):
 
-  val planFile = os.pwd / "dev.md"
+  val planFile = os.pwd / "epic.md"
 
-  // 1. Plan: generate or reuse. The Step inside `loadOrGenerate`
+  // 1. Epic: generate or reuse. The Step inside `loadOrGenerate`
   // tells the user when an existing file is being reused.
-  val plan = stage("Acquiring plan"):
+  val plan = stage("Acquiring epic"):
     Plan.loadOrGenerate(planFile, userPrompt, claude.opus)
 
   // 2. Make sure the working tree is clean before we touch it. If
@@ -59,9 +59,9 @@ flow(OrcaArgs(args)):
   // 4. Iterate from the first incomplete task. We open a session
   // once and continue it across tasks so the agent retains context.
   val (sessionId, _) = claude.startSession(
-    s"""You are working on the development plan at $planFile.
+    s"""You are working on the epic at $planFile.
        |
-       |The plan defines tasks with short names and prompts. I will
+       |The epic defines tasks with short names and prompts. I will
        |send you each task's prompt in turn — implement just that
        |task, commit nothing yourself (the runtime handles commits),
        |and reply briefly when you've finished so I know to move
@@ -77,7 +77,7 @@ flow(OrcaArgs(args)):
     defaultReviewers(claude) ++ defaultReviewers(codex)
 
   // Loop while there's still an incomplete task. We re-read the
-  // plan after each task so persisted completion markers shape
+  // epic after each task so persisted completion markers shape
   // the next iteration even on resume.
   var currentPlan = plan
   while currentPlan.firstIncomplete.isDefined do
@@ -106,7 +106,7 @@ flow(OrcaArgs(args)):
     )
     git.commit("docs: update for completed work")
 
-  // 6. Wrap-up: remove the plan file so the branch ships cleanly.
-  stage("Remove plan file"):
+  // 6. Wrap-up: remove the epic file so the branch ships cleanly.
+  stage("Remove epic file"):
     os.remove(planFile)
-    git.commit("chore: remove dev.md plan file")
+    git.commit("chore: remove epic.md")

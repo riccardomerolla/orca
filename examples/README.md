@@ -7,7 +7,7 @@ with `scala-cli`. Pick by what you're trying to do:
 | ------- | -------------- |
 | [01-simple](01-simple/) | One-shot planning + coding for small tasks. The plan is in memory; no resume, no on-disk state. |
 | [02-bugfix](02-bugfix/) | Bug report → failing test (or `REPRODUCTION.md`) → PR → CI confirms red → fix → CI green. Touches GitHub. |
-| [03-multi-agent-review](03-multi-agent-review/) | Resumable markdown-backed plan in `dev.md` (re-run picks up at the first `[ ]` task) plus parallel review of every task by Claude *and* Codex. Ends with a documentation update and a plan-file cleanup. |
+| [03-epic](03-epic/) | Multi-task workstream ("epic") in a resumable markdown file (`epic.md`). Each task is reviewed in parallel by Claude *and* Codex before being marked complete. Re-runs pick up at the first `[ ]` task. Ends with a documentation update and an epic-file cleanup. |
 
 ## Common prerequisites
 
