@@ -83,12 +83,17 @@ flow(OrcaArgs(args)):
   // Loop while there's still an incomplete task. We re-read the
   // epic after each task so persisted completion markers shape
   // the next iteration even on resume.
+  //
+  // Per task: implement → review (may modify files) → mark task
+  // complete in epic.md → single commit covering all three. One
+  // commit per task keeps the history readable on resume; the
+  // checkbox tick lives in the same commit as the work it marks
+  // complete, not the next task's commit.
   var currentPlan = plan
   while currentPlan.firstIncomplete.isDefined do
     val task = currentPlan.firstIncomplete.get
     stage(s"Implement task: ${task.name}"):
       val _ = claude.continueSession(sessionId, task.prompt)
-      git.commit(s"task: ${task.name}")
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
@@ -96,6 +101,7 @@ flow(OrcaArgs(args)):
         task = task.name
       )
       Plan.persistComplete(planFile, task.name)
+      git.commit(s"task: ${task.name}")
     currentPlan = Plan.parse(os.read(planFile))
 
   // 5. Documentation pass — update relevant docs based on what

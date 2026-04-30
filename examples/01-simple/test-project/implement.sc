@@ -28,11 +28,14 @@ flow(OrcaArgs(args)):
     claude.resultAs[Plan].interactive(userPrompt)
 
   // 2. Implement each task on its own branch and review locally.
+  // The review-and-fix loop may modify files in response to reviewer
+  // findings, so we commit *after* the loop completes — one commit
+  // per task, capturing both the original implementation and any
+  // follow-up fixes in a single history entry.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.shortSummary}"):
       git.createBranch(task.branchName)
       claude.continueSession(sessionId, task.description)
-      git.commit(s"Implement ${task.shortSummary}")
 
       reviewAndFixLoop(
         coder = claude,
@@ -41,3 +44,5 @@ flow(OrcaArgs(args)):
         task = task.shortSummary,
         lintCommand = Some("cargo test --quiet")
       )
+
+      git.commit(s"Implement ${task.shortSummary}")

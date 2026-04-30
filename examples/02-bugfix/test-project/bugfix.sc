@@ -172,7 +172,8 @@ flow(OrcaArgs(args)):
 
   // 6. Implement the fix. Autonomous — continues the planning
   // session so the agent already has context. The reviewers run
-  // after to clean up.
+  // after to clean up; commit captures both at once so the PR's
+  // history shows fix + cleanup as a single entry.
   stage(s"Implement the fix: ${triage.summary}"):
     val _ = claude.continueSession(
       sessionId,
@@ -181,7 +182,6 @@ flow(OrcaArgs(args)):
          |Ensure the previously-failing test now passes, and that no
          |other tests regress.""".stripMargin
     )
-    git.commit(s"Fix: ${triage.summary}")
 
     reviewAndFixLoop(
       coder = claude,
@@ -190,6 +190,8 @@ flow(OrcaArgs(args)):
       task = triage.summary,
       lintCommand = Some("mvn -q test")
     )
+
+    git.commit(s"Fix: ${triage.summary}")
 
   // 7. Push and wait for green.
   stage("Push the fix"):
