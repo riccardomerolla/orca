@@ -117,11 +117,6 @@ private[terminal] class TerminalConversationRenderer(
     val header = paint(UserHeaderStyle, s"$UserGlyph you")
     val body = paint(UserBodyStyle, bulletIndent(text))
     appendBlock(s"$header\n$body")
-    // After a user block we want a blank line before the next event;
-    // resetting the section to None means the next `enterSection` will
-    // skip its own separator.
-    appendBlock("")
-    currentSection = Section.None
 
   private def bufferText(
       text: String,

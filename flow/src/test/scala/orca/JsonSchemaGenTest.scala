@@ -13,7 +13,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
 
   test("generated schema validates a well-formed ReviewResult"):
     val sample = ReviewResult(
-      issues = List(ReviewIssue(Severity.Info, 0.8, "hello", None, None, None)),
+      issues = List(ReviewIssue(Severity.Info, 0.8, "Hello", "hello", None, None, None)),
       summary = "a summary"
     )
     val errors =

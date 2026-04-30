@@ -29,15 +29,15 @@ flow(OrcaArgs(args)):
 
   // 2. Implement each task on its own branch and review locally.
   for task <- plan.tasks do
-    stage(s"Implement task: ${task.summary}"):
+    stage(s"Implement task: ${task.shortSummary}"):
       git.createBranch(task.branchName)
-      claude.continueSession(sessionId, task.prompt)
-      git.commit(s"Implement ${task.summary}")
+      claude.continueSession(sessionId, task.description)
+      git.commit(s"Implement ${task.shortSummary}")
 
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
-        task = task.summary,
+        task = task.shortSummary,
         lintCommand = Some("cargo test --quiet")
       )

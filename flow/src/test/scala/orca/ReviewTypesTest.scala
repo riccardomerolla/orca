@@ -12,6 +12,7 @@ class ReviewTypesTest extends munit.FunSuite:
         ReviewIssue(
           severity = Severity.Critical,
           confidence = 0.95,
+          shortSummary = "Null pointer risk",
           description = "null pointer risk",
           file = Some("Foo.scala"),
           line = Some(42),
@@ -20,6 +21,7 @@ class ReviewTypesTest extends munit.FunSuite:
         ReviewIssue(
           severity = Severity.Info,
           confidence = 0.4,
+          shortSummary = "Stylistic nitpick",
           description = "stylistic nitpick",
           file = None,
           line = None,
@@ -33,7 +35,7 @@ class ReviewTypesTest extends munit.FunSuite:
     assertEquals(parsed, original)
 
   private val sampleIssue =
-    ReviewIssue(Severity.Warning, 0.5, "style", None, None, None)
+    ReviewIssue(Severity.Warning, 0.5, "Style nit", "style", None, None, None)
 
   test("IgnoredIssues ++ concatenates entries"):
     val a = IgnoredIssues(List(IgnoredIssue(sampleIssue, "accepted")))
@@ -42,4 +44,4 @@ class ReviewTypesTest extends munit.FunSuite:
 
   test("IgnoredIssues.format renders severity, description, and reason"):
     val issues = IgnoredIssues(List(IgnoredIssue(sampleIssue, "accepted")))
-    assertEquals(issues.format, "- [Warning] style: accepted")
+    assertEquals(issues.format, "- [Warning] Style nit: accepted")

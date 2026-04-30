@@ -58,6 +58,7 @@ class LintTest extends munit.FunSuite:
         ReviewIssue(
           Severity.Warning,
           0.8,
+          "Unused import",
           "unused import",
           None,
           None,

@@ -63,6 +63,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     ReviewIssue(
       severity = Severity.Warning,
       confidence = confidence,
+      shortSummary = desc,
       description = desc,
       file = None,
       line = None,

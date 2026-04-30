@@ -2,17 +2,20 @@ package orca.plan.simple
 
 import orca.{Announce, JsonData, given}
 
-/** A single task in the plan. `summary` is a short user-facing label
-  * (used for the implement-stage name and the printed plan list);
-  * `prompt` is the longer instruction sent verbatim to the LLM.
+/** A single task in the plan. `shortSummary` is the one-line
+  * user-facing label (used for the implement-stage name and the
+  * printed plan list); `description` is the longer instruction sent
+  * verbatim to the LLM. The split mirrors `ReviewIssue`'s
+  * shortSummary/description pair so the same naming covers tasks
+  * and review findings.
   *
-  * Aim for `summary` around 60 characters — anything longer
+  * Aim for `shortSummary` around 60 characters — anything longer
   * truncates in the status bar (and crowds the event log).
   */
 case class Task(
     branchName: String,
-    summary: String,
-    prompt: String
+    shortSummary: String,
+    description: String
 ) derives JsonData
 
 /** A list of tasks the agent should work through in order. Plans
@@ -41,5 +44,5 @@ object Plan:
       val plural = if plan.tasks.size == 1 then "" else "s"
       val header =
         s"Planned ${plan.tasks.size} task$plural on branch '${plan.tasks.head.branchName}':"
-      val body = plan.tasks.map(t => s"  - ${t.summary}").mkString("\n")
+      val body = plan.tasks.map(t => s"  - ${t.shortSummary}").mkString("\n")
       s"$header\n$body"

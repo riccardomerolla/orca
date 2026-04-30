@@ -19,6 +19,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     ReviewIssue(
       severity = Severity.Warning,
       confidence = confidence,
+      shortSummary = desc,
       description = desc,
       file = None,
       line = None,
@@ -83,14 +84,15 @@ class ReviewFixFlowTest extends munit.FunSuite:
     val listener = new RecordingListener
     given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
 
-    // Reviewer keeps reporting a new fresh issue every time and coder keeps
-    // accepting exactly one — maxIterations caps the loop with leftover.
-    val allIssues = (1 to 100).map(n => issue(s"issue-$n"))
-    val evalIt = allIssues.iterator
+    // Reviewer reports two fresh issues every round; coder ignores
+    // exactly one (Progressed, not AllIgnored). The other leaks
+    // forward — `maxIterations` ultimately caps the loop with the
+    // pending leftover.
+    val freshGroups = (1 to 100).grouped(2).map(g => g.map(n => issue(s"issue-$n")).toList)
     val reviewer = new FakeLlmTool(
       name = "loud",
       promptOutputs = (1 to 20)
-        .map(_ => ReviewResult(List(evalIt.next()), "next"))
+        .map(_ => ReviewResult(freshGroups.next(), "next"))
         .toList
     )
     val coder = new FakeLlmTool(

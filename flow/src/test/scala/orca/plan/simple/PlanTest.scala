@@ -14,13 +14,13 @@ class PlanTest extends munit.FunSuite:
       tasks = List(
         Task(
           branchName = "add-multiply",
-          summary = "Add multiply",
-          prompt = "Add a multiply(int a, int b) method to Calculator."
+          shortSummary = "Add multiply",
+          description = "Add a multiply(int a, int b) method to Calculator."
         ),
         Task(
           branchName = "add-divide",
-          summary = "Add divide",
-          prompt = "Add a divide(int, int) method with a zero-divisor guard."
+          shortSummary = "Add divide",
+          description = "Add a divide(int, int) method with a zero-divisor guard."
         )
       )
     )
