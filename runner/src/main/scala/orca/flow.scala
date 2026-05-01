@@ -8,8 +8,8 @@ import ox.supervised
 import scala.util.control.NonFatal
 
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
-  * number of overrides, then runs the body inside an Ox `supervised` scope with
-  * the resulting `FlowContext` as an ambient given.
+  * number of overrides, then runs the body with a `FlowContext` as an ambient
+  * given so the DSL accessors (`claude`, `git`, etc.) resolve.
   *
   * ```
   * flow(OrcaArgs(args)):
@@ -17,7 +17,7 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * With overrides:
+  * Override any tool by passing it as a named argument in the first list:
   *
   * ```
   * flow(
@@ -28,17 +28,9 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * `interaction` is `Option[Interaction]` (rather than a direct `Interaction`
-  * with a default `new TerminalInteraction()`) so the default can be
-  * parameterised by `workDir`, which Scala 3's default-arg evaluation can't see
-  * across params in the same list. Pass `Some(myInteraction)` to override;
-  * leave it out and the resolved `workDir` flows into the default
-  * `TerminalInteraction`.
-  *
-  * The two-parameter-list shape is deliberate: Scala 3's fewer-braces
-  * propagates the `FlowContext ?=>` given into the body only when the block
-  * lands in a list of its own. `flow(...): body` satisfies that because the
-  * first list is closed by `(...)` before the block starts.
+  * Overrides default to `None` so the runtime can build the default lazily —
+  * `TerminalInteraction`, in particular, takes the resolved `workDir` which
+  * can't be threaded through a Scala 3 default-arg expression.
   */
 def flow(
     args: OrcaArgs,
