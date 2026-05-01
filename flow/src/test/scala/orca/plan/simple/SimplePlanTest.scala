@@ -2,6 +2,7 @@ package orca.plan.simple
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
 import orca.JsonData
+import orca.plan.Task
 
 class SimplePlanTest extends munit.FunSuite:
 
@@ -13,12 +14,12 @@ class SimplePlanTest extends munit.FunSuite:
     val plan = SimplePlan(
       tasks = List(
         Task(
-          branchName = "add-multiply",
+          name = "add-multiply",
           shortSummary = "Add multiply",
           description = "Add a multiply(int a, int b) method to Calculator."
         ),
         Task(
-          branchName = "add-divide",
+          name = "add-divide",
           shortSummary = "Add divide",
           description = "Add a divide(int, int) method with a zero-divisor guard."
         )

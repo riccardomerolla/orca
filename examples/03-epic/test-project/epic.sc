@@ -93,7 +93,7 @@ flow(OrcaArgs(args)):
   while currentPlan.firstIncomplete.isDefined do
     val task = currentPlan.firstIncomplete.get
     stage(s"Implement task: ${task.name}"):
-      val _ = claude.continueSession(sessionId, task.prompt)
+      val _ = claude.continueSession(sessionId, task.description)
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,

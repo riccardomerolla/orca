@@ -1,6 +1,6 @@
 # Orca
 
-// TODO: make the readme more concise. Keep only essential and relevant details for the end-user
+// TODO: make the readme more concise. Keep only essential and relevant details for the end-user. Inlucde short documentation on the built-in tools, flow methods (review loop) and data structures (simple plan, bug, etc.)
 
 **Describe what you want, ship it.** Orca turns a one-line prompt into a
 sequence of concrete coding tasks, implements each one through an LLM coding
@@ -41,7 +41,7 @@ Save this as `ship.sc` and run it with your task:
 //> using jvm 21
 
 import orca.{*, given}
-import orca.plan.simple.{SimplePlan, Task}
+import orca.plan.simple.SimplePlan
 
 // `args` is scala-cli's script argv; `OrcaArgs(args)` parses the
 // positional prompt and flags. Pass `OrcaArgs()` for scripts that take
@@ -57,7 +57,7 @@ flow(OrcaArgs(args)):
   // edits land in the same commit as the original implementation.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.shortSummary}"):
-      git.createBranch(task.branchName)
+      git.createBranch(task.name)
       claude.continueSession(sessionId, task.description)
 
       reviewAndFixLoop(

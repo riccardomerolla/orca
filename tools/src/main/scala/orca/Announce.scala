@@ -1,5 +1,6 @@
 package orca
 
+// TODO: omit historical details in the comments
 /** A human-readable summary for a domain value, surfaced by the library's
   * structured-call surface (`LlmCall.resultAs[O]`) after parsing.
   *
@@ -20,6 +21,7 @@ trait Announce[O]:
 
 object Announce:
 
+  // TODO: instead of using a magical value, use a structured output, if the "" is used by the callers. Maybe simply option?
   /** Catch-all no-op so every type works — `Announce[O]` is always resolvable.
     * Specific givens (e.g. `given Announce[Plan]`) win via Scala 3's
     * specificity rules.

@@ -7,6 +7,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 }
 import sttp.tapir.Schema
 
+// TODO: let's put anything review-related to the review package
 enum Severity:
   case Critical
   case Warning

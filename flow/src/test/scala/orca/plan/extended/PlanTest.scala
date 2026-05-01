@@ -30,11 +30,11 @@ class PlanTest extends munit.FunSuite:
     assertEquals(plan.tasks(1).name, "add-divide-test")
     assertEquals(plan.tasks(1).completed, true)
 
-  test("parse keeps the multi-line prompt body intact"):
+  test("parse keeps the multi-line description body intact"):
     val plan = Plan.parse(sample)
-    val prompt = plan.tasks.head.prompt
-    assert(prompt.startsWith("Add a `divide"))
-    assert(prompt.contains("IllegalArgumentException"))
+    val description = plan.tasks.head.description
+    assert(description.startsWith("Add a `divide"), s"got: $description")
+    assert(description.contains("IllegalArgumentException"), s"got: $description")
 
   test("render + parse round-trips the plan"):
     val original = Plan.parse(sample)

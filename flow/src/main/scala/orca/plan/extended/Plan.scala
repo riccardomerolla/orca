@@ -1,13 +1,7 @@
 package orca.plan.extended
 
 import orca.{FlowContext, LlmTool, OrcaEvent}
-
-/** A single task in an extended (file-backed) plan. Unlike
-  * [[orca.plan.simple.Task]], this one has a `completed` checkbox so a
-  * partially-finished run can resume on rerun.
-  */
-case class Task(name: String, prompt: String, completed: Boolean):
-  def markComplete: Task = copy(completed = true)
+import orca.plan.Task
 
 /** A markdown-backed plan persisted to a file (typically `dev.md`) so resuming
   * a flow doesn't re-plan from scratch. The branch name is part of the plan;
@@ -155,7 +149,7 @@ object Plan:
     val body = plan.tasks
       .map: t =>
         val checkbox = if t.completed then "[x]" else "[ ]"
-        s"\n## Task: ${t.name}\nStatus: $checkbox\n\n${t.prompt.stripLineEnd}\n"
+        s"\n## Task: ${t.name}\nStatus: $checkbox\n\n${t.description.stripLineEnd}\n"
       .mkString
     header + body
 
@@ -207,9 +201,24 @@ object Plan:
         throw PlanParseException(
           s"Task '$name' has unrecognised status checkbox '$other'"
         )
-    val prompt = afterStatus.mkString("\n").trim
-    if prompt.isEmpty then
+    val description = afterStatus.mkString("\n").trim
+    if description.isEmpty then
       throw PlanParseException(s"Task '$name' has no prompt body")
-    Task(name = name, prompt = prompt, completed = completed)
+    Task(
+      name = name,
+      shortSummary = humaniseName(name),
+      description = description,
+      completed = completed
+    )
+
+  /** Turn a kebab-case task name into a human-readable label so the
+    * shortSummary slot has something useful for display. The on-disk
+    * markdown format doesn't carry an explicit summary, so this is
+    * the best we can do without changing the schema.
+    */
+  private def humaniseName(name: String): String =
+    name.split("-").toList match
+      case Nil          => name
+      case head :: tail => (head.capitalize :: tail).mkString(" ")
 
 class PlanParseException(message: String) extends RuntimeException(message)

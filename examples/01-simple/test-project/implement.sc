@@ -19,7 +19,7 @@
   */
 
 import orca.{*, given}
-import orca.plan.simple.{SimplePlan, Task}
+import orca.plan.simple.SimplePlan
 
 flow(OrcaArgs(args)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
@@ -33,7 +33,7 @@ flow(OrcaArgs(args)):
   // follow-up fixes in a single history entry.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.shortSummary}"):
-      git.createBranch(task.branchName)
+      git.createBranch(task.name)
       claude.continueSession(sessionId, task.description)
 
       reviewAndFixLoop(
