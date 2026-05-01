@@ -1,12 +1,13 @@
 import Dependencies.*
 
-ThisBuild / scalaVersion      := V.scala
-ThisBuild / organization      := "com.virtuslab"
-ThisBuild / version           := "0.1.0-SNAPSHOT"
-ThisBuild / versionScheme     := Some("early-semver")
+ThisBuild / scalaVersion := V.scala
+ThisBuild / organization := "com.virtuslab"
+ThisBuild / version := "0.1.0-SNAPSHOT"
+ThisBuild / versionScheme := Some("early-semver")
 
 ThisBuild / scalacOptions ++= Seq(
-  "-release", "21",
+  "-release",
+  "21",
   "-deprecation",
   "-feature",
   "-unchecked",
@@ -16,7 +17,6 @@ ThisBuild / scalacOptions ++= Seq(
 )
 
 ThisBuild / javacOptions ++= Seq("--release", "21")
-
 
 lazy val commonSettings = Seq(
   libraryDependencies ++= Seq(munit),
@@ -34,7 +34,6 @@ lazy val tools = (project in file("tools"))
       tapirApispec,
       sttpApispecCirce,
       ox,
-      scribe,
       jsonSchemaValidator
     )
   )
