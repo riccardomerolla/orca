@@ -37,6 +37,7 @@ class SimplePlanTest extends munit.FunSuite:
       Task("feat-b", "Add feature B", "do B")
     ))
     val msg = summon[orca.Announce[SimplePlan]].message(plan)
+      .getOrElse(fail("expected a non-empty announce message"))
     assert(
       msg.startsWith("Planned 2 tasks on branch 'feat-a'"),
       s"expected the header; got: $msg"
@@ -44,5 +45,5 @@ class SimplePlanTest extends munit.FunSuite:
     assert(msg.contains("- Add feature A"), s"missing task A; got: $msg")
     assert(msg.contains("- Add feature B"), s"missing task B; got: $msg")
 
-  test("Announce[SimplePlan] returns empty for an empty plan (no Step emitted)"):
-    assertEquals(summon[orca.Announce[SimplePlan]].message(SimplePlan(Nil)), "")
+  test("Announce[SimplePlan] returns None for an empty plan (no Step emitted)"):
+    assertEquals(summon[orca.Announce[SimplePlan]].message(SimplePlan(Nil)), None)

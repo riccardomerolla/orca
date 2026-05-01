@@ -49,21 +49,13 @@ class DefaultLlmCall[B <: Backend, O](
     jd.codec
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
-    * `Announce[O]`-derived summary (if any). The default `Announce` given
-    * returns "", which we normalise to `None` so listeners can pattern-match
-    * `summary` without tripping over an empty-string sentinel.
-    *
-    * The `raw` field carries whatever the parser saw (typically the agent's
-    * JSON output). Terminal channels normally show `summary` if present and
-    * fall back to `raw` when it isn't, so this single event drives the visible
-    * "what did the agent return?" rendering — replacing the older "stream JSON
-    * live, then announce as a separate Step" pattern that ended up duplicating
-    * the payload on screen.
+    * `Announce[O]`-derived summary (if any). The terminal listener
+    * renders `summary` when present and skips otherwise; non-terminal
+    * listeners (Slack, structured logs) can carry `raw` through
+    * unchanged.
     */
   private def emitStructuredResult(raw: String, value: O): Unit =
-    val msg = announce.message(value)
-    val summary = if msg.isEmpty then None else Some(msg)
-    emit(OrcaEvent.StructuredResult(raw, summary))
+    emit(OrcaEvent.StructuredResult(raw, announce.message(value)))
 
   def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
       ai: AgentInput[I]

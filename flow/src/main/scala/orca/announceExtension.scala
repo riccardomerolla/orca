@@ -7,5 +7,4 @@ package orca
   */
 extension [O](value: O)(using a: Announce[O])
   def announce(using ctx: FlowContext): Unit =
-    val msg = a.message(value)
-    if msg.nonEmpty then ctx.emit(OrcaEvent.Step(msg))
+    a.message(value).foreach(msg => ctx.emit(OrcaEvent.Step(msg)))
