@@ -38,16 +38,8 @@ private enum BailKind:
   * been made. Remaining issues after a bail-out are folded into the returned
   * IgnoredIssues with a reason so callers can surface them.
   *
-  * Each call to `evaluate` is rendered as a nested stage (`Iteration N`) so the
-  * status bar's breadcrumb shows where we are. Inside the stage: found-issues
-  * summary, one step per issue, then the iteration's closing line (`Fixed
-  * review comments` / `Unable to fix review comments` / `All N marked as
-  * won't-fix` / `No review comments`).
-  *
-  * `maxIterations` counts fix attempts — the cap-reaching iteration runs
-  * `evaluate` one last time but skips `fix`. Callers that want to surface
-  * "Running N review agents" (or anything before evaluate) emit it themselves
-  * from inside the supplied `evaluate` closure.
+  * Each call to `evaluate` runs inside a nested `Iteration N` stage. The
+  * cap-reaching iteration runs `evaluate` one last time but skips `fix`.
   */
 def fixLoop(
     evaluate: () => ReviewResult,
