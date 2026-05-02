@@ -45,13 +45,8 @@ case class ReviewResult(
 object ReviewResult:
   val empty: ReviewResult = ReviewResult(Nil, "")
 
-  /** ReviewResult intentionally has no auto-announce. Per-reviewer Steps are
-    * emitted by [[reviewAndFixLoop]]'s evaluate closure with the reviewer's
-    * name in the line — provenance the type-level `Announce[ReviewResult]`
-    * can't see, since the reviewer name lives on the `LlmTool` and not on the
-    * result. Returning `""` lets the terminal listener treat the per-call
-    * `StructuredResult` as silent so it doesn't compete with the named
-    * per-reviewer line.
+  /** Silent — `reviewAndFixLoop` emits per-reviewer Steps with the
+    * reviewer's name; this would compete.
     */
   given Announce[ReviewResult] = Announce.from(_ => "")
 
@@ -68,11 +63,7 @@ case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
       .mkString("\n")
 
 object IgnoredIssues:
-  /** Silent like `ReviewResult` — the fix loop already names what happened via
-    * "Fixed review comments" / "Unable to fix" / "All N marked as won't-fix"
-    * steps inside the iteration stage, so an additional auto-announce would
-    * just duplicate.
-    */
+  /** Silent — the fix loop already announces its outcome per iteration. */
   given Announce[IgnoredIssues] = Announce.from(_ => "")
 
 case class ReviewContext(summary: String, filesChanged: List[String])

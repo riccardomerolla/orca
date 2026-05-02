@@ -123,13 +123,8 @@ object ExtendedPlan:
       |""".stripMargin
 
   /** Parse a plan from its markdown representation. Strict — throws
-    * [[PlanParseException]] on any deviation from the schema. We write these
-    * files ourselves (or have the LLM write them under a strict schema prompt)
-    * so format drift is a real bug, not something to silently absorb.
-    *
-    * CRLF line endings and a leading BOM are normalised first so editor-saved
-    * or LLM-emitted files don't fail with confusing "expected `# Plan:` got ?"
-    * diagnostics over a single invisible codepoint.
+    * [[PlanParseException]] on any deviation from the schema. CRLF line endings
+    * and a leading BOM are normalised first.
     */
   def parse(markdown: String): ExtendedPlan =
     val normalised = markdown.stripPrefix("﻿").replace("\r\n", "\n")

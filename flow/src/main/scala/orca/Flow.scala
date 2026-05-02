@@ -19,11 +19,9 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
     result
   catch
     case e: OrcaFlowException =>
-      // `fail(...)` already emitted its Error; malformed-agent-output
-      // carries additional context (what the agent said) that the
-      // channel should render. OrcaFlowException with a previously-
-      // emitted Error goes through without duplicate emission; the
-      // malformed-output subtype gets an event with the raw snippet.
+      // Malformed-output is the one subtype that carries extra render
+      // context (the agent's raw reply); other OrcaFlowExceptions
+      // already emitted their own Error inside `fail(...)`.
       e match
         case mao: orca.io.MalformedAgentOutputException =>
           ctx.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))

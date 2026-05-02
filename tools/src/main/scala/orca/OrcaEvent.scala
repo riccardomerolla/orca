@@ -7,9 +7,7 @@ enum OrcaEvent:
 
   /** A single instantaneous note in the event log — neither a stage (no
     * completion) nor a stream-of-text (no continuation). Tools emit these for
-    * discrete progress: "switched to branch X", "discarded N issues", etc. The
-    * renderer prints one line with the same `▶` glyph stages use, but never a
-    * closing `✔`.
+    * discrete progress: "switched to branch X", "discarded N issues", etc.
     */
   case Step(message: String)
 
@@ -22,16 +20,8 @@ enum OrcaEvent:
   case TokensUsed(model: String, usage: Usage)
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
-    * the verbatim text the agent produced (typically the JSON the parser saw);
-    * `summary` is the `Announce[O]`-derived human-readable form, or `None` if
-    * no specific instance is provided (the catch-all default returns an empty
-    * string, which the library normalises to `None`).
-    *
-    * Listeners decide what to render: a terminal channel typically prints
-    * `summary` if present and falls back to `raw` otherwise, since the
-    * conversation's assistant-text stream for the structured turn is suppressed
-    * elsewhere. Other listeners (a Slack adapter, a structured log) can carry
-    * both fields through unchanged.
+    * the verbatim text the agent produced (typically JSON); `summary` is the
+    * `Announce[O]`-derived human-readable form when an instance is configured.
     */
   case StructuredResult(raw: String, summary: Option[String])
   case Error(message: String)
