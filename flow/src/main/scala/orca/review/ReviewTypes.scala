@@ -1,13 +1,13 @@
-package orca
+package orca.review
 
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   JsonCodecMaker
 }
+import orca.{Announce, JsonData, LlmTool, given}
 import sttp.tapir.Schema
 
-// TODO: let's put anything review-related to the review package
 enum Severity:
   case Critical
   case Warning

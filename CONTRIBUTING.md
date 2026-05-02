@@ -16,7 +16,7 @@ listed in the README.
 orca/
 ├── build.sbt / project/
 ├── tools/      # tool interfaces + os-backed impls + structured I/O + event bus
-├── flow/       # FlowContext, stage/fail/fixLoop/reviewAndFixLoop/lint, review types
+├── flow/       # FlowContext, stage/fail; orca.review (ReviewTypes, ReviewLoop, Reviewers); orca.bug; orca.plan
 ├── claude/     # Claude Code backend + DefaultClaudeTool + DefaultLlmCall
 ├── codex/      # Codex backend (codex exec --json over stdio)
 └── runner/     # flow() entry + DefaultFlowContext + terminal layer

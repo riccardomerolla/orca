@@ -36,6 +36,7 @@ Save this as `ship.sc` and run it with your task:
 
 import orca.{*, given}
 import orca.plan.simple.SimplePlan
+import orca.review.{defaultReviewers, reviewAndFixLoop}
 
 flow(OrcaArgs(args)):
   val (sessionId, plan) = stage("Creating a development plan"):
@@ -88,11 +89,19 @@ directly:
 
 ## Flow methods
 
+In `package orca` (resolve via `import orca.*`):
+
 | Method | Use |
 |---|---|
 | `flow(args, ...)(body)` | Entry point. Sets up the `FlowContext` for the body. |
 | `stage(name)(body)` | Wrap an operation in a named stage. Emits `StageStarted`/`StageCompleted` and shows in the status-bar breadcrumb. |
 | `fail(message)` | Abort the current stage with an error. |
+
+In `package orca.review` (`import orca.review.*` or import individual
+names):
+
+| Method | Use |
+|---|---|
 | `lint(command, llm)` | Run a shell lint, hand the output to `llm`, parse as `ReviewResult`. |
 | `reviewAndFixLoop(coder, sessionId, reviewers, task, lintCommand?, ...)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to `coder` to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
 | `defaultReviewers(base)` | Five canonical reviewer agents (performance, readability, test-coverage, code-functionality, abstraction) layered on top of `base`. |
@@ -119,12 +128,12 @@ agent generates them as structured output via `claude.resultAs[T]`.
 - **`orca.bug.BugTriage`** / **`orca.bug.BugReportMatch`** — the agent's
   decision on whether a bug can be reproduced as a unit test, and
   whether a CI failure matches the report.
-- **`orca.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
-  Issues carry severity, confidence, a short summary (shown), and a
-  long description (sent to the fixer).
-- **`orca.IgnoredIssues(issues: List[IgnoredIssue])`** — what the fix
-  step returns: each entry is an issue the fixer chose to set aside,
-  with a reason.
+- **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer
+  agents return. Issues carry severity, confidence, a short summary
+  (shown), and a long description (sent to the fixer).
+- **`orca.review.IgnoredIssues(issues: List[IgnoredIssue])`** — what
+  the fix step returns: each entry is an issue the fixer chose to set
+  aside, with a reason.
 
 ## Output
 

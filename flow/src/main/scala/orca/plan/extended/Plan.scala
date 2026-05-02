@@ -3,6 +3,7 @@ package orca.plan.extended
 import orca.{FlowContext, LlmTool, OrcaEvent}
 import orca.plan.Task
 
+// TODO: let's move both this class (renamed as ExtendedPlan) and SimplePlan to the `plan` package. No point in having subpackages if there's only one class
 /** A markdown-backed plan persisted to a file (typically `dev.md`) so resuming
   * a flow doesn't re-plan from scratch. The branch name is part of the plan;
   * the runtime checks out / creates that branch before iterating tasks.
@@ -212,9 +213,9 @@ object Plan:
     )
 
   /** Turn a kebab-case task name into a human-readable label so the
-    * shortSummary slot has something useful for display. The on-disk
-    * markdown format doesn't carry an explicit summary, so this is
-    * the best we can do without changing the schema.
+    * shortSummary slot has something useful for display. The on-disk markdown
+    * format doesn't carry an explicit summary, so this is the best we can do
+    * without changing the schema.
     */
   private def humaniseName(name: String): String =
     name.split("-").toList match

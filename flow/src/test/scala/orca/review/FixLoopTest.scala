@@ -1,4 +1,12 @@
-package orca
+package orca.review
+
+import orca.{
+  EventDispatcher,
+  FlowContext,
+  OrcaEvent,
+  OrcaListener,
+  TestFlowContext
+}
 
 class FixLoopTest extends munit.FunSuite:
 
@@ -94,7 +102,7 @@ class FixLoopTest extends munit.FunSuite:
       line = Some(42),
       suggestion = Some("stream batches instead of buffering")
     )
-    val rendered = orca.formatIssue(real)
+    val rendered = formatIssue(real)
     assert(rendered.contains("[Warning]"), s"missing severity; got: $rendered")
     assert(rendered.contains("Unbounded growth"), s"missing summary; got: $rendered")
     assert(rendered.contains("at src/main/Foo.scala:42"), s"missing location; got: $rendered")

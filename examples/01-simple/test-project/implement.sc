@@ -20,6 +20,7 @@
 
 import orca.{*, given}
 import orca.plan.simple.SimplePlan
+import orca.review.{defaultReviewers, reviewAndFixLoop}
 
 flow(OrcaArgs(args)):
   // 1. Break the user's prompt into concrete subtasks, interactively.

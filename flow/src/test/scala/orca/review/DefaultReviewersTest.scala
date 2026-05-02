@@ -1,4 +1,14 @@
-package orca
+package orca.review
+
+import orca.{
+  Announce,
+  Backend,
+  JsonData,
+  LlmCall,
+  LlmConfig,
+  LlmTool,
+  SessionId
+}
 
 class DefaultReviewersTest extends munit.FunSuite:
 

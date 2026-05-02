@@ -33,6 +33,7 @@
 
 import orca.{*, given}
 import orca.bug.{BugTriage, BugReportMatch}
+import orca.review.{defaultReviewers, reviewAndFixLoop}
 import scala.concurrent.duration.DurationInt
 
 flow(OrcaArgs(args)):
