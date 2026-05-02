@@ -37,6 +37,7 @@ flow(OrcaArgs(args)):
 
   for task <- plan.tasks do
     stage(s"Implement task: ${task.shortSummary}"):
+      // TODO: there should be a single branch per the entire prompt. So the SimplePlan (and likewise ExtendedPlan) should contain a `epicId` which should be a kebab-case identifier (maybe express this in types as well?) The Task then should only have: title (instead of shortSummary), description, completed (as now).
       git.createBranch(task.name)
       claude.continueSession(sessionId, task.description)
       reviewAndFixLoop(
@@ -141,7 +142,10 @@ are indented.
 | `?` | Approval request |
 
 Colours and animation auto-disable when stderr isn't a terminal. Set
-`NO_COLOR=1` and `ORCA_NO_ANIMATION=1` to turn them off.
+`NO_COLOR=1` (the cross-tool [no-color.org](https://no-color.org)
+convention — kept un-prefixed so a single env var works for every CLI)
+or `ORCA_NO_ANIMATION=1` (Orca-specific, suppresses just the spinner)
+to force them off.
 
 ## Authenticating the coding agents
 
@@ -167,8 +171,8 @@ scala-cli run implement.sc -- "your task here"
 
 - [`design.md`](design.md) — architecture and design rationale.
 - [`adr/`](adr/) — architecture decision records.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — internals, conventions,
-  building/testing the library itself.
+- [`AGENTS.md`](AGENTS.md) — internals, conventions, build/test
+  recipes; the same file AI assistants pick up.
 
 ## License
 

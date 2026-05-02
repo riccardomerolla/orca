@@ -1,7 +1,8 @@
-# Contributing to Orca
+# Working on Orca
 
-Internals and conventions for hacking on the library itself. End-user
-documentation lives in the [README](README.md).
+Internals and conventions for hacking on the library itself, for both
+human contributors and AI assistants. End-user documentation lives in
+the [README](README.md).
 
 Orca is implemented in Scala 3 on top of [Ox](https://ox.softwaremill.com/)
 for structured concurrency, [tapir](https://tapir.softwaremill.com/) for
@@ -55,8 +56,9 @@ sbt "flow/test"                         # scope to one module
 sbt "flow/testOnly orca.FixLoopTest"    # scope to one suite
 ```
 
-Compiler warnings are treated as errors (`-Wunused:all`, `-Wvalue-discard`,
-`-Wnonunit-statement`).
+Extra Scala 3 warnings are enabled (`-Wunused:all`, `-Wvalue-discard`,
+`-Wnonunit-statement`). They aren't fatal — fix them before committing
+rather than relying on the compiler to block.
 
 ### Formatting
 
@@ -99,8 +101,6 @@ outside of `os.temp.dir()`.
 - Braceless syntax; explicit return types on every public member.
 - No class-level `var`s; mutable state is confined to method bodies or
   `AtomicReference`-guarded test helpers.
-- Ox for structured concurrency; `.handle*` (not `.serverLogic*`) for
-  Tapir endpoints.
 - Tests target exactly one scenario each.
 - Subprocesses launched from a tool **must** capture stderr — go through
   [`subprocess.QuietProc.call`](tools/src/main/scala/orca/subprocess/QuietProc.scala)
