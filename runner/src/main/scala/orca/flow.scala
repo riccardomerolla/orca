@@ -8,8 +8,8 @@ import ox.supervised
 import scala.util.control.NonFatal
 
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
-  * number of overrides, then runs the body with a `FlowContext` as an ambient
-  * given so the DSL accessors (`claude`, `git`, etc.) resolve.
+  * number of overrides, then runs the body, providing the `FlowContext` as a
+  * given.
   *
   * ```
   * flow(OrcaArgs(args)):

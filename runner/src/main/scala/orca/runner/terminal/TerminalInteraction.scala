@@ -55,7 +55,6 @@ class TerminalInteraction(
     */
   def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
     new TerminalConversationRenderer(
-      out = out,
       useColor = useColor,
       statusBar = statusBar,
       depth = depthCounter,

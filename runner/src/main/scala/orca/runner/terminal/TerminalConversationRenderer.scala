@@ -10,7 +10,6 @@ import orca.{
 import org.jline.reader.{LineReader, LineReaderBuilder, UserInterruptException}
 import org.jline.terminal.TerminalBuilder
 
-import java.io.PrintStream
 import scala.util.control.NonFatal
 
 /** Renders a [[Conversation]] to the terminal. The layout aims for a
@@ -34,7 +33,6 @@ import scala.util.control.NonFatal
   * conversation instead of killing the JVM.
   */
 private[terminal] class TerminalConversationRenderer(
-    out: PrintStream,
     useColor: Boolean,
     statusBar: StatusBar,
     depth: StageDepth,

@@ -26,7 +26,6 @@ class TerminalConversationRendererTest extends munit.FunSuite:
   ): TerminalConversationRenderer =
     val ps = new PrintStream(out)
     new TerminalConversationRenderer(
-      out = ps,
       useColor = false,
       // `animated = false` makes the bar plain inline writes — no
       // ANSI escapes leak into the captured buffer.
@@ -37,9 +36,9 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       prompter = prompter
     )
 
-  /** A fake Conversation that replays a scripted event list, then returns
-    * a scripted outcome from `awaitResult`. The shorthand `outcome`
-    * encoding mirrors what real conversations produce:
+  /** A fake Conversation that replays a scripted event list, then returns a
+    * scripted outcome from `awaitResult`. The shorthand `outcome` encoding
+    * mirrors what real conversations produce:
     *   - `Right(result)` — successful result, returned as `Right(result)`.
     *   - `Left(cancelled: OrcaInteractiveCancelled)` — returned as
     *     `Left(cancelled)` so the caller pattern-matches.
@@ -60,10 +59,11 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     def sendUserMessage(text: String): Unit = ()
     def cancel(): Unit = cancelled.set(true)
 
-  /** Test prompter that replays a scripted list of outcomes and records
-    * the prompt strings it was asked for.
+  /** Test prompter that replays a scripted list of outcomes and records the
+    * prompt strings it was asked for.
     */
-  private class ScriptedPrompter(outcomes: List[PromptOutcome]) extends Prompter:
+  private class ScriptedPrompter(outcomes: List[PromptOutcome])
+      extends Prompter:
     private val remaining = new AtomicReference[List[PromptOutcome]](outcomes)
     val asked = new AtomicReference[List[String]](Nil)
     def ask(prompt: String): PromptOutcome =
@@ -106,7 +106,9 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       s"JSON payload should be rendered verbatim; got: ${buf.toString}"
     )
 
-  test("structured mode: assistant text is suppressed (StructuredResult takes over)"):
+  test(
+    "structured mode: assistant text is suppressed (StructuredResult takes over)"
+  ):
     // When the conversation was launched with an `outputSchema`,
     // the agent's final text is the structured payload. Suppressing
     // it here lets the listener pick the canonical render via
