@@ -147,6 +147,13 @@ flow(OrcaArgs(args)):
          |other tests regress.""".stripMargin
     )
 
+    // Format before review so reviewers don't waste turns on style
+    // nits the toolchain would fix automatically. Spotless is wired
+    // into the seed pom.
+    stage("Format"):
+      val _ = os.proc("mvn", "-q", "spotless:apply")
+        .call(cwd = os.pwd, check = false)
+
     reviewAndFixLoop(
       coder = claude,
       sessionId = sessionId,

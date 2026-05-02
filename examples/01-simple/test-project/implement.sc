@@ -37,6 +37,13 @@ flow(OrcaArgs(args)):
       git.createBranch(task.name)
       claude.continueSession(sessionId, task.description)
 
+      // Run the project's formatter before review so reviewers don't
+      // waste turns on whitespace nits the toolchain would fix
+      // automatically. `check = false` so an absent toolchain doesn't
+      // abort the flow — the lint step would catch it.
+      stage("Format"):
+        val _ = os.proc("cargo", "fmt").call(cwd = os.pwd, check = false)
+
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
@@ -44,7 +51,5 @@ flow(OrcaArgs(args)):
         task = task.shortSummary,
         lintCommand = Some("cargo test --quiet")
       )
-
-      // TODO: add a step to format the code. Also to the other examples, before commiting and after generating the code
 
       git.commit(s"Implement ${task.shortSummary}")
