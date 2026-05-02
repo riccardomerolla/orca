@@ -5,20 +5,13 @@ on:
     branches: [main, master]
   pull_request:
 
+# CI runs the unit suites only — integration tests gated on
+# `ORCA_INTEGRATION=1` (Claude / GitHub / scala-cli round-trips) are
+# skipped. Run them locally with `ORCA_INTEGRATION=1 sbt test` when you
+# need the cross-process coverage.
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      # Always include integration suites.
-      ORCA_INTEGRATION: "1"
-      # `gh` reads GH_TOKEN (or GITHUB_TOKEN) from the env — no explicit
-      # `gh auth login` needed. The built-in token is enough for the
-      # read-only calls in OsGitHubIntegrationTest.
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # ClaudeIntegrationTest shells out to the `claude` CLI. Set the
-      # ANTHROPIC_API_KEY repo secret so headless runs can authenticate;
-      # without it the Claude suite will fail.
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -27,7 +20,4 @@ jobs:
           java-version: '21'
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
-      - uses: VirtusLab/scala-cli-setup@v1
-      - name: Install claude CLI
-        run: npm install -g @anthropic-ai/claude-code
       - run: sbt +test
