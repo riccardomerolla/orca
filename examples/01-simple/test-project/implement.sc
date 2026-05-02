@@ -5,8 +5,9 @@
 /** Simple in-memory planning + coding flow.
   *
   * Mirrors the README example. The agent breaks the user's prompt into a list
-  * of tasks (one structured turn), the flow surfaces the plan, and each task is
-  * implemented on its own branch with a review-and-fix loop afterwards.
+  * of tasks (one structured turn), the flow surfaces the plan, and each task
+  * is implemented in sequence on a single epic branch with a review-and-fix
+  * loop after each.
   *
   * Lives alongside the seeded calculator crate so a user can run it from the
   * project's root after `examples/01-simple/create-test-project.sh`:
@@ -27,14 +28,16 @@ flow(OrcaArgs(args)):
   val (sessionId, plan) = stage("Creating a development plan"):
     claude.resultAs[SimplePlan].interactive(userPrompt)
 
-  // 2. Implement each task on its own branch and review locally.
-  // The review-and-fix loop may modify files in response to reviewer
-  // findings, so we commit *after* the loop completes — one commit
-  // per task, capturing both the original implementation and any
-  // follow-up fixes in a single history entry.
+  // 2. Single branch for the whole epic; tasks become commits on it.
+  stage(s"Branch: ${plan.epicId}"):
+    git.createBranch(plan.epicId)
+
+  // 3. Implement each task as a commit on that branch. The review-and-fix
+  // loop may modify files in response to reviewer findings, so we commit
+  // *after* the loop completes — one commit per task, capturing both the
+  // original implementation and any follow-up fixes.
   for task <- plan.tasks do
-    stage(s"Implement task: ${task.shortSummary}"):
-      git.createBranch(task.name)
+    stage(s"Implement task: ${task.title}"):
       claude.continueSession(sessionId, task.description)
 
       // Run the project's formatter before review so reviewers don't
@@ -48,8 +51,8 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
-        task = task.shortSummary,
+        task = task.title,
         lintCommand = Some("cargo test --quiet")
       )
 
-      git.commit(s"Implement ${task.shortSummary}")
+      git.commit(s"Implement ${task.title}")

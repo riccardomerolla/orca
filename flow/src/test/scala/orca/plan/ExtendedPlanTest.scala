@@ -20,14 +20,14 @@ class ExtendedPlanTest extends munit.FunSuite:
 
   test("parse extracts the branch name from the H1"):
     val plan = ExtendedPlan.parse(sample)
-    assertEquals(plan.branchName, "add-divide-method")
+    assertEquals(plan.epicId, "add-divide-method")
 
   test("parse splits the file into tasks and reads each status checkbox"):
     val plan = ExtendedPlan.parse(sample)
     assertEquals(plan.tasks.size, 2)
-    assertEquals(plan.tasks.head.name, "add-divide")
+    assertEquals(plan.tasks.head.title, "add-divide")
     assertEquals(plan.tasks.head.completed, false)
-    assertEquals(plan.tasks(1).name, "add-divide-test")
+    assertEquals(plan.tasks(1).title, "add-divide-test")
     assertEquals(plan.tasks(1).completed, true)
 
   test("parse keeps the multi-line description body intact"):
@@ -46,12 +46,12 @@ class ExtendedPlanTest extends munit.FunSuite:
     val updated = plan.markComplete("add-divide")
     assertEquals(updated.tasks.head.completed, true)
     assertEquals(updated.tasks(1).completed, true)
-    // markComplete on a name that doesn't exist is a no-op (caller decides).
+    // markComplete on a title that doesn't exist is a no-op (caller decides).
     assertEquals(plan.markComplete("ghost"), plan)
 
   test("firstIncomplete returns the first task with [ ] in declaration order"):
     val plan = ExtendedPlan.parse(sample)
-    assertEquals(plan.firstIncomplete.map(_.name), Some("add-divide"))
+    assertEquals(plan.firstIncomplete.map(_.title), Some("add-divide"))
     val complete = plan.markComplete("add-divide")
     assertEquals(complete.firstIncomplete, None)
 
@@ -87,7 +87,7 @@ class ExtendedPlanTest extends munit.FunSuite:
     val crlf = sample.replace("\n", "\r\n")
     val withBom = "﻿" + crlf
     val plan = ExtendedPlan.parse(withBom)
-    assertEquals(plan.branchName, "add-divide-method")
+    assertEquals(plan.epicId, "add-divide-method")
     assertEquals(plan.tasks.size, 2)
 
   test("parse throws on a task with empty prompt"):
@@ -111,7 +111,7 @@ class ExtendedPlanTest extends munit.FunSuite:
     os.write.over(tmp, sample)
     val llm = new ExplodingLlm("loadOrGenerate must not call ask when file exists")
     val plan = ExtendedPlan.loadOrGenerate(tmp, "ignored", llm)
-    assertEquals(plan.branchName, "add-divide-method")
+    assertEquals(plan.epicId, "add-divide-method")
     assert(
       seen.get().exists {
         case orca.OrcaEvent.Step(msg) => msg.contains("Reusing existing plan")
@@ -128,7 +128,7 @@ class ExtendedPlanTest extends munit.FunSuite:
     val llm = new CannedLlm(canned)
     val plan = ExtendedPlan.loadOrGenerate(target, "Add a divide method", llm)
     assert(os.exists(target))
-    assertEquals(plan.branchName, "add-divide-method")
+    assertEquals(plan.epicId, "add-divide-method")
     val onDisk = ExtendedPlan.parse(os.read(target))
     assertEquals(onDisk, plan)
 

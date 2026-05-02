@@ -11,15 +11,14 @@ class SimplePlanTest extends munit.FunSuite:
     */
   test("SimplePlan round-trips through JSON via the JsonData codec"):
     val plan = SimplePlan(
+      epicId = "calculator-features",
       tasks = List(
         Task(
-          name = "add-multiply",
-          shortSummary = "Add multiply",
+          title = "Add multiply",
           description = "Add a multiply(int a, int b) method to Calculator."
         ),
         Task(
-          name = "add-divide",
-          shortSummary = "Add divide",
+          title = "Add divide",
           description = "Add a divide(int, int) method with a zero-divisor guard."
         )
       )
@@ -31,18 +30,24 @@ class SimplePlanTest extends munit.FunSuite:
     assertEquals(parsed, plan)
 
   test("Announce[SimplePlan] produces a header + per-task bullet summary"):
-    val plan = SimplePlan(List(
-      Task("feat-a", "Add feature A", "do A"),
-      Task("feat-b", "Add feature B", "do B")
-    ))
+    val plan = SimplePlan(
+      epicId = "feat-pair",
+      tasks = List(
+        Task("Add feature A", "do A"),
+        Task("Add feature B", "do B")
+      )
+    )
     val msg = summon[orca.Announce[SimplePlan]].message(plan)
       .getOrElse(fail("expected a non-empty announce message"))
     assert(
-      msg.startsWith("Planned 2 tasks on branch 'feat-a'"),
+      msg.startsWith("Planned 2 tasks on branch 'feat-pair'"),
       s"expected the header; got: $msg"
     )
     assert(msg.contains("- Add feature A"), s"missing task A; got: $msg")
     assert(msg.contains("- Add feature B"), s"missing task B; got: $msg")
 
   test("Announce[SimplePlan] returns None for an empty plan (no Step emitted)"):
-    assertEquals(summon[orca.Announce[SimplePlan]].message(SimplePlan(Nil)), None)
+    assertEquals(
+      summon[orca.Announce[SimplePlan]].message(SimplePlan("empty", Nil)),
+      None
+    )

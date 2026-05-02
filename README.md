@@ -35,19 +35,20 @@ flow(OrcaArgs(args)):
   val (sessionId, plan) = stage("Creating a development plan"):
     claude.resultAs[SimplePlan].interactive(userPrompt)
 
+  // Single branch for the whole epic; tasks become commits on it.
+  git.createBranch(plan.epicId)
+
   for task <- plan.tasks do
-    stage(s"Implement task: ${task.shortSummary}"):
-      // TODO: there should be a single branch per the entire prompt. So the SimplePlan (and likewise ExtendedPlan) should contain a `epicId` which should be a kebab-case identifier (maybe express this in types as well?) The Task then should only have: title (instead of shortSummary), description, completed (as now).
-      git.createBranch(task.name)
+    stage(s"Implement task: ${task.title}"):
       claude.continueSession(sessionId, task.description)
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
-        task = task.shortSummary,
+        task = task.title,
         lintCommand = Some("sbt scalafmtCheckAll test")
       )
-      git.commit(s"Implement ${task.shortSummary}")
+      git.commit(s"Implement ${task.title}")
 ```
 
 ```bash
@@ -107,13 +108,14 @@ for full regression coverage every iteration.
 Common types you'll see in flow scripts. All `derives JsonData`, so the agent
 can generate them as structured output via `claude.resultAs[T]`:
 
-- **`orca.plan.SimplePlan(tasks)`** — in-memory list of tasks the agent
-  generates in one round-trip.
-- **`orca.plan.ExtendedPlan`** — markdown-backed plan persisted to a file
-  (`epic.md` by convention) for resumable runs.
-- **`orca.plan.Task(name, shortSummary, description, completed?)`** — shared by
-  both plan variants. `name` doubles as the git branch in simple plans and the
-  `## Task: <name>` header in extended plans.
+- **`orca.plan.SimplePlan(epicId, tasks)`** — in-memory list of tasks the agent
+  generates in one round-trip. `epicId` is a kebab-case identifier used as the
+  git branch name for the whole plan.
+- **`orca.plan.ExtendedPlan(epicId, tasks)`** — markdown-backed plan persisted
+  to a file (`epic.md` by convention) for resumable runs.
+- **`orca.plan.Task(title, description, completed?)`** — shared by both plan
+  variants. `title` is the human-readable label shown in the event log and used
+  as the `## Task: <title>` markdown header in extended plans.
 - **`orca.bug.BugTriage`** / **`orca.bug.BugReportMatch`** — the agent's
   decision on whether a bug can be reproduced as a unit test, and whether a CI
   failure matches the report.

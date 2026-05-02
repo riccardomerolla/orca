@@ -54,8 +54,8 @@ flow(OrcaArgs(args)):
 
   // 3. Switch to the plan's branch (creating if needed). Idempotent
   // on resume.
-  stage(s"Checkout branch '${plan.branchName}'"):
-    git.checkoutOrCreate(plan.branchName)
+  stage(s"Checkout branch '${plan.epicId}'"):
+    git.checkoutOrCreate(plan.epicId)
 
   // 4. Iterate from the first incomplete task. We open a session
   // once and continue it across tasks so the agent retains context.
@@ -87,7 +87,7 @@ flow(OrcaArgs(args)):
   var currentPlan = plan
   while currentPlan.firstIncomplete.isDefined do
     val task = currentPlan.firstIncomplete.get
-    stage(s"Implement task: ${task.name}"):
+    stage(s"Implement task: ${task.title}"):
       val _ = claude.continueSession(sessionId, task.description)
       // Format before review so reviewers don't waste turns on
       // style nits the toolchain would fix automatically. Spotless
@@ -99,10 +99,10 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = reviewers,
-        task = task.name
+        task = task.title
       )
-      ExtendedPlan.persistComplete(planFile, task.name)
-      git.commit(s"task: ${task.name}")
+      ExtendedPlan.persistComplete(planFile, task.title)
+      git.commit(s"task: ${task.title}")
     currentPlan = ExtendedPlan.parse(os.read(planFile))
 
   // 5. Documentation pass — update relevant docs based on what
