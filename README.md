@@ -33,11 +33,14 @@ import orca.review.{defaultReviewers, reviewAndFixLoop}
 import ox.either.orThrow
 
 flow(OrcaArgs(args)):
-  // Plan.from wraps userPrompt with PlanPrompts.Planning so the agent stays
-  // in plan-only mode this turn. Returns the session id so the implementer
-  // turns below run on the same context.
+  // Plan.interactive.from opens a conversation the user can drive
+  // (clarifying questions, refinements). Swap for Plan.autonomous.from
+  // for a single agentic turn, no human in the loop. Both wrap the user
+  // prompt with PlanPrompts.Planning so the agent stays in plan-only
+  // mode and return the session id so the implementer turns below run
+  // on the same context.
   val (sessionId, plan) = stage("Creating a development plan"):
-    Plan.from(userPrompt, claude)
+    Plan.interactive.from(userPrompt, claude)
 
   // Single branch for the whole epic; tasks become commits on it.
   // git.createBranch returns Either[BranchAlreadyExists, Unit]; .orThrow
@@ -104,9 +107,15 @@ Planning utilities, available via `import orca.plan.*`:
 
 | Method | Use |
 |---|---|
-| `Plan.from(userPrompt, llm, instructions?)` | Interactive planning round-trip. Returns the session id + a `Plan` so the caller can `continueSession` on the same context when implementing each task. |
-| `Plan.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition: parse `file` if it exists (resume), otherwise generate the markdown via `llm` and write it. |
+| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns the session id + a `Plan` so the caller can `continueSession` on the same context when implementing each task. |
+| `Plan.autonomous.from(userPrompt, llm, instructions?)` | Same shape as `interactive.from` but the planning runs as a single agentic turn, no human in the loop. |
+| `Plan.interactive.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition with interactive generation: parse `file` if it exists (resume), otherwise drive the planner conversationally and persist the result as markdown. |
+| `Plan.autonomous.loadOrGenerate(file, userPrompt, llm, instructions?)` | Same, but generation is autonomous. |
 | `Plan.persistComplete(file, title)` | Mark one task complete on disk. |
+
+Picking interactive vs autonomous is visible at the call site rather than
+hidden behind a parameter default — `Plan.interactive.*` and `Plan.autonomous.*`
+are sibling namespaces with the same method shapes.
 
 Review utilities, available via `import orca.review.*`:
 
@@ -132,7 +141,7 @@ different string, or compose with the default to extend it:
 ```scala
 import orca.plan.{Plan, PlanPrompts}
 
-Plan.from(
+Plan.interactive.from(
   userPrompt,
   claude,
   instructions = PlanPrompts.Planning + "\n\nPrioritise observability tasks first."
@@ -140,7 +149,7 @@ Plan.from(
 ```
 
 Where the defaults live:
-- `orca.plan.PlanPrompts` — `Planning`, `Generate`
+- `orca.plan.PlanPrompts` — `Planning`
 - `orca.review.ReviewPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `defaultReviewers`)
@@ -155,8 +164,10 @@ Common types you'll see in flow scripts. All `derives JsonData`, so the agent
 can generate them as structured output via `claude.resultAs[T]`:
 
 - **`orca.plan.Plan(epicId, tasks)`** — list of tasks the agent generates in
-  one round-trip; the same type backs both in-memory use (`Plan.from`) and the
-  markdown-persisted resume path (`Plan.loadOrGenerate`). `epicId` is a
+  one round-trip; the same type backs both in-memory use (`Plan.interactive.from` /
+  `Plan.autonomous.from`) and the markdown-persisted resume path
+  (`Plan.interactive.loadOrGenerate` / `Plan.autonomous.loadOrGenerate`).
+  `epicId` is a
   kebab-case identifier used as the git branch name for the whole plan.
 - **`orca.plan.Task(title, description, completed?)`** — `title` is the
   human-readable label shown in the event log and used as the

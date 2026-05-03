@@ -48,17 +48,15 @@ Status: [x]
   `Status: [x]` checkbox, and a free-form prompt body.
 - `[ ]` is pending, `[x]` is complete.
 
-The schema description is exposed as
-`orca.plan.extended.Plan.SchemaDescription` so flows that want to
-splice it into their own custom planner prompt can.
-
 ## Stages
 
-1. **Acquiring epic** — `Plan.loadOrGenerate(file, prompt, llm)`:
+1. **Acquiring epic** — `Plan.autonomous.loadOrGenerate(file, prompt, llm)`:
    - File exists → parse and reuse (logs a Step that the file is
      being reused, including how many tasks are already complete).
-   - File missing → ask the LLM to produce the epic in the schema,
-     write it to disk, return.
+   - File missing → ask the LLM to produce a `Plan` (structured),
+     render it to markdown, write to disk, return.
+   - Swap to `Plan.interactive.loadOrGenerate` if you want the
+     planner to run as a conversation rather than a single turn.
 2. **Ensure clean working tree** — `git.ensureClean(...)`. Stashes
    any pending changes so the flow doesn't tear them up; recovery
    is `git stash pop`.

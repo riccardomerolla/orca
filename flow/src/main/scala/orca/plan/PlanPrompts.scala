@@ -6,15 +6,16 @@ package orca.plan
   * one of these defaults if you only want to extend the boilerplate:
   *
   * {{{
-  * plan(userPrompt, claude,
+  * Plan.interactive.from(userPrompt, claude,
   *   instructions = PlanPrompts.Planning + "\n\nFocus on observability tasks first.")
   * }}}
   */
 object PlanPrompts:
 
-  /** Used by [[plan]] for the interactive planning round-trip. Tells the agent
-    * that this turn is plan-only and the implementation comes later — without
-    * this guard the model frequently slides into editing files mid-plan.
+  /** Used by `Plan.interactive.*` and `Plan.autonomous.*` to brief the planner
+    * agent. The boilerplate keeps the model from sliding into editing files
+    * mid-plan — without it agents frequently start writing code during the
+    * planning turn, which is the implementer's job.
     */
   val Planning: String =
     """Your job in this turn is to produce a development plan only — a
@@ -22,15 +23,3 @@ object PlanPrompts:
       |any files, do NOT write any code, and do NOT run build / test
       |commands. The plan is an outline; the implementation happens in
       |a separate later turn, task by task.""".stripMargin
-
-  /** Used by [[Plan.loadOrGenerate]] to brief the planner LLM that it's
-    * generating the on-disk markdown directly. References
-    * [[Plan.SchemaDescription]] inline so callers who override this string can
-    * still rely on the format spec.
-    */
-  val Generate: String =
-    s"""Produce a development plan in the markdown format below.
-       |Reply with ONLY the markdown — no surrounding prose, no
-       |code fences.
-       |
-       |${Plan.SchemaDescription}""".stripMargin

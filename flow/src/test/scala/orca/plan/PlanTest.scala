@@ -147,9 +147,11 @@ class PlanTest extends munit.FunSuite:
         |""".stripMargin
     intercept[PlanParseException](Plan.parse(bad))
 
-  // --- loadOrGenerate / persistComplete — covers the resume path ---
+  // --- autonomous.loadOrGenerate / persistComplete — resume path ---
 
-  test("loadOrGenerate parses and reuses an existing file (no LLM call)"):
+  test(
+    "autonomous.loadOrGenerate parses and reuses an existing file (no LLM call)"
+  ):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[orca.OrcaEvent]](Nil)
     val listener = new orca.OrcaListener:
@@ -161,8 +163,8 @@ class PlanTest extends munit.FunSuite:
     val tmp = os.temp(suffix = ".md")
     os.write.over(tmp, sample)
     val llm =
-      new ExplodingLlm("loadOrGenerate must not call ask when file exists")
-    val plan = Plan.loadOrGenerate(tmp, "ignored", llm)
+      new ExplodingLlm("loadOrGenerate must not call the LLM when file exists")
+    val plan = Plan.autonomous.loadOrGenerate(tmp, "ignored", llm)
     assertEquals(plan.epicId, "add-divide-method")
     assert(
       seen.get().exists {
@@ -171,15 +173,19 @@ class PlanTest extends munit.FunSuite:
       }
     )
 
-  test("loadOrGenerate writes a new file when none exists"):
+  test("autonomous.loadOrGenerate writes a new file when none exists"):
     given orca.FlowContext =
       new orca.TestFlowContext(new orca.EventDispatcher(Nil))
     val target = os.temp.dir() / "dev.md"
-    val plan =
-      Plan.loadOrGenerate(target, "Add a divide method", new CannedLlm(sample))
+    val expected = Plan.parse(sample)
+    val plan = Plan.autonomous.loadOrGenerate(
+      target,
+      "Add a divide method",
+      new CannedPlanLlm(expected)
+    )
     assert(os.exists(target))
-    assertEquals(plan.epicId, "add-divide-method")
-    assertEquals(Plan.parse(os.read(target)), plan)
+    assertEquals(plan, expected)
+    assertEquals(Plan.parse(os.read(target)), expected)
 
   test("persistComplete updates the on-disk plan"):
     val tmp = os.temp(suffix = ".md")

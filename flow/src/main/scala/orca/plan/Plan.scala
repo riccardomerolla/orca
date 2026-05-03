@@ -17,17 +17,22 @@ import orca.{
   * as the git branch name).
   *
   * The same type covers two usage shapes:
-  *   - **In-memory** — `Plan.from(userPrompt, llm)` returns one. The flow
-  *     iterates `tasks` and forgets the plan when it exits.
-  *   - **Markdown-backed** — `Plan.loadOrGenerate(file, userPrompt, llm)` and
-  *     `Plan.persistComplete(file, title)` round-trip the plan through a `##
-  *     Task: …` markdown file so a flow that crashes mid-loop can resume
-  *     without re-planning. The on-disk format is parsed/rendered by
-  *     [[Plan.parse]] / [[Plan.render]].
+  *   - **In-memory** — `Plan.interactive.from` / `Plan.autonomous.from` return
+  *     one. The flow iterates `tasks` and forgets the plan when it exits.
+  *   - **Markdown-backed** — `Plan.interactive.loadOrGenerate` /
+  *     `Plan.autonomous.loadOrGenerate`, plus `Plan.persistComplete`,
+  *     round-trip the plan through a `## Task: …` markdown file so a flow that
+  *     crashes mid-loop can resume without re-planning. The on-disk format is
+  *     parsed/rendered by [[Plan.parse]] / [[Plan.render]].
   *
-  * `derives JsonData` so the structured-output path works directly:
-  * `llm.resultAs[Plan].interactive(prompt)` returns a `Plan` without any
-  * caller-side serialization.
+  * Whether the planning round-trip lets the agent ask clarifying questions
+  * (`interactive`) or runs as a single agentic turn with no human in the loop
+  * (`autonomous`) is chosen by selecting the matching nested object — visible
+  * at the call site rather than hidden behind a parameter default.
+  *
+  * `derives JsonData` so the structured-output path works directly: the helper
+  * methods consume Orca's auto-generated JSON schema; no caller-side
+  * serialization is needed.
   */
 case class Plan(epicId: String, tasks: List[Task]) derives JsonData:
 
@@ -57,44 +62,61 @@ object Plan:
       val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
       s"$header\n$body"
 
-  /** Drive the planning round-trip: hand `userPrompt` to `llm` (interactively,
-    * so the agent can ask clarifying questions), append `instructions` so the
-    * agent knows this turn is plan-only, and parse the structured `Plan` back.
-    * Returns the session id alongside the plan so the caller can
-    * `continueSession` on the same context when implementing each task.
-    *
-    * The default `instructions` keep the agent from sliding into editing files
-    * mid-plan; override the parameter to retune the planner's brief.
+  /** Interactive planning helpers — the LLM call opens a conversation the user
+    * can drive (clarifying questions, refinements) before producing the plan.
+    * Both `from` and `loadOrGenerate` return the resulting `Plan`; `from` also
+    * surfaces the session id so the caller can `continueSession` against the
+    * same context when implementing each task.
     */
-  def from[B <: Backend](
-      userPrompt: String,
-      llm: LlmTool[B],
-      instructions: String = PlanPrompts.Planning
-  )(using FlowContext): (SessionId[B], Plan) =
-    llm.resultAs[Plan].interactive(s"$userPrompt\n\n$instructions")
+  object interactive:
+    def from[B <: Backend](
+        userPrompt: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.Planning
+    )(using FlowContext): (SessionId[B], Plan) =
+      llm.resultAs[Plan].interactive(s"$userPrompt\n\n$instructions")
 
-  /** Idempotent plan acquisition. If `file` already exists, parse and return it
-    * (and log a Step explaining we're reusing it). Otherwise, ask `llm` to
-    * produce a plan in the markdown schema, write it to `file`, and return the
-    * parsed result.
-    *
-    * The reuse path is the resume contract: a flow that crashed mid-loop can be
-    * re-run without re-planning from scratch and without losing the per-task
-    * `[x]` progress markers the previous run committed.
-    *
-    * Override `instructions` to phrase the planner brief differently — the
-    * default tells the agent to produce ONLY markdown matching
-    * [[SchemaDescription]].
-    *
-    * Parse failures throw [[PlanParseException]] — the caller decides whether
-    * to delete the file and retry or surface the error.
+    def loadOrGenerate(
+        file: os.Path,
+        userPrompt: String,
+        llm: LlmTool[?],
+        instructions: String = PlanPrompts.Planning
+    )(using FlowContext): Plan =
+      loadOrGenerateImpl(
+        file,
+        () => llm.resultAs[Plan].interactive(s"$userPrompt\n\n$instructions")._2
+      )
+
+  /** Autonomous planning helpers — a single agentic turn, no human in the loop.
+    * Sibling of [[interactive]]; the choice between the two is visible at the
+    * call site (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`).
     */
-  def loadOrGenerate(
-      file: os.Path,
-      userPrompt: String,
-      llm: LlmTool[?],
-      instructions: String = PlanPrompts.Generate
-  )(using ctx: FlowContext): Plan =
+  object autonomous:
+    def from[B <: Backend](
+        userPrompt: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.Planning
+    )(using FlowContext): (SessionId[B], Plan) =
+      llm.resultAs[Plan].startSession(s"$userPrompt\n\n$instructions")
+
+    def loadOrGenerate(
+        file: os.Path,
+        userPrompt: String,
+        llm: LlmTool[?],
+        instructions: String = PlanPrompts.Planning
+    )(using FlowContext): Plan =
+      loadOrGenerateImpl(
+        file,
+        () => llm.resultAs[Plan].autonomous(s"$userPrompt\n\n$instructions")
+      )
+
+  /** Common load-or-generate body: read+log on resume, otherwise call
+    * `generate` and persist its result. The two public variants differ only in
+    * which LLM-call shape they pass for `generate` (interactive vs autonomous).
+    */
+  private def loadOrGenerateImpl(file: os.Path, generate: () => Plan)(using
+      ctx: FlowContext
+  ): Plan =
     if os.exists(file) then
       val parsed = parse(os.read(file))
       ctx.emit(
@@ -104,10 +126,9 @@ object Plan:
       )
       parsed
     else
-      val markdown = llm.ask(s"$userPrompt\n\n$instructions")
-      val parsed = parse(markdown.trim)
-      os.write.over(file, render(parsed), createFolders = true)
-      parsed
+      val plan = generate()
+      os.write.over(file, render(plan), createFolders = true)
+      plan
 
   /** Mark the task with `title` complete in the plan stored at `file`. Reads
     * the file, applies the change, writes it back. Use after a task is
@@ -117,42 +138,6 @@ object Plan:
     val current = parse(os.read(file))
     val updated = current.markComplete(title)
     os.write.over(file, render(updated))
-
-  /** The markdown schema description handed to the planner LLM so it generates
-    * plans we can parse. Public so flow scripts can reference it when composing
-    * a custom `instructions` string for [[loadOrGenerate]].
-    */
-  val SchemaDescription: String =
-    """A development plan is a markdown document with this exact
-      |structure:
-      |
-      |    # Plan: <epicId>
-      |
-      |    ## Task: <title>
-      |    Status: [ ]
-      |
-      |    <prompt body — the instruction the implementor agent
-      |    receives for this task. Free-form prose, may span
-      |    multiple paragraphs and use markdown.>
-      |
-      |    ## Task: <title>
-      |    Status: [ ]
-      |
-      |    <prompt body>
-      |
-      |Rules:
-      |  - The first H1 must be `# Plan: <epicId>`. The epic id is
-      |    lowercase kebab-case, no spaces — used as the git branch
-      |    name for the whole plan.
-      |  - Each task is an H2 of the form `## Task: <title>` where
-      |    `title` is a short human-readable label.
-      |  - Each task's first body line is `Status: [ ]` (pending) or
-      |    `Status: [x]` (done). When generating a fresh plan, set
-      |    every task to `[ ]`.
-      |  - The prompt body follows the Status line, separated by a
-      |    blank line. It runs until the next `## Task:` heading or
-      |    end of file.
-      |""".stripMargin
 
   /** Parse a plan from its markdown representation. Strict — throws
     * [[PlanParseException]] on any deviation from the schema. CRLF line endings

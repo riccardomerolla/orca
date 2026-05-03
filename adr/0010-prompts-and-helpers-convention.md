@@ -10,7 +10,7 @@ Orca ships two kinds of LLM-using surface:
 
 2. **Domain helpers** — flow-script-friendly functions that bundle a
    domain-specific multi-step pattern with a default LLM brief: planning
-   (`Plan.from`, `Plan.loadOrGenerate`), review (`reviewAndFixLoop`,
+   (`Plan.interactive.*`, `Plan.autonomous.*`), review (`reviewAndFixLoop`,
    `lint`, `ReviewerSelector.llmDriven`), the canonical reviewer set
    (`defaultReviewers`).
 
@@ -80,7 +80,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
   the `XxxPrompts` val instead of duplicating it.
 - The 01-simple example collapses from a multi-line inline `planningPrompt`
   + manual `claude.resultAs[Plan].interactive(...)` to a one-line
-  `Plan.from(userPrompt, claude)`.
+  `Plan.interactive.from(userPrompt, claude)`.
 
 **Negative**
 
@@ -93,9 +93,11 @@ For every domain helper that bundles an LLM brief, follow this pattern:
 
 ## Implementation notes
 
-Companion-object helpers (`Plan.from`, `Plan.loadOrGenerate`) versus free
-functions (`reviewAndFixLoop`, `lint`) is a judgement call: when the helper's
-return type is a domain type defined nearby, putting it on the companion
-reads naturally; when it's a generic operation that *uses* multiple types,
+Companion-object helpers (`Plan.interactive.from`, `Plan.autonomous.from`,
+`Plan.interactive.loadOrGenerate`, `Plan.autonomous.loadOrGenerate`) versus
+free functions (`reviewAndFixLoop`, `lint`) is a judgement call: when the
+helper's return type is a domain type defined nearby, putting it on the
+companion reads naturally; when it's a generic operation that *uses* multiple
+types,
 keep it as a free function. Both forms participate in the same prompt
 convention.

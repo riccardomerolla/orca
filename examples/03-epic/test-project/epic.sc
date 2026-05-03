@@ -45,7 +45,7 @@ flow(OrcaArgs(args)):
   // 1. Epic: generate or reuse. The Step inside `loadOrGenerate`
   // tells the user when an existing file is being reused.
   val plan = stage("Acquiring epic"):
-    Plan.loadOrGenerate(planFile, userPrompt, claude.opus)
+    Plan.autonomous.loadOrGenerate(planFile, userPrompt, claude.opus)
 
   // 2. Make sure the working tree is clean before we touch it. If
   // it's dirty, stash so the user can recover with `git stash pop`

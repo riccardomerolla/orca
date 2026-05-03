@@ -1,6 +1,7 @@
 package orca.plan
 
 import orca.{
+  AgentInput,
   Announce,
   Backend,
   JsonData,
@@ -10,14 +11,15 @@ import orca.{
   SessionId
 }
 
-/** Test double that returns a canned string from `ask`. The other methods
-  * aren't exercised by the extended-plan tests; they throw to make accidental
-  * use loud.
+/** Test double whose `resultAs[Plan].autonomous` returns a pre-built `Plan`.
+  * Other call shapes throw so accidental use surfaces immediately. The plan is
+  * the only structured payload Plan-related tests need; supporting just that
+  * shape keeps the fixture small.
   */
-private[plan] class CannedLlm(reply: String)
+private[plan] class CannedPlanLlm(plan: Plan)
     extends LlmTool[Backend.ClaudeCode.type]:
   val name: String = "stub"
-  def ask(prompt: String, config: LlmConfig = LlmConfig.default): String = reply
+  def ask(p: String, c: LlmConfig = LlmConfig.default): String = ???
   def startSession(p: String, c: LlmConfig = LlmConfig.default) = ???
   def continueSession(
       s: SessionId[Backend.ClaudeCode.type],
@@ -27,7 +29,30 @@ private[plan] class CannedLlm(reply: String)
   def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
   def withName(n: String): LlmTool[Backend.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] = ???
+
+  def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+    new LlmCall[Backend.ClaudeCode.type, O]:
+      def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
+          AgentInput[I]
+      ): O = plan.asInstanceOf[O]
+      def startSession[I: AgentInput](
+          input: I,
+          config: LlmConfig = LlmConfig.default
+      ): (SessionId[Backend.ClaudeCode.type], O) = ???
+      def continueSession[I: AgentInput](
+          sessionId: SessionId[Backend.ClaudeCode.type],
+          input: I,
+          config: LlmConfig = LlmConfig.default
+      ): O = ???
+      def interactive[I: AgentInput](
+          input: I,
+          config: LlmConfig = LlmConfig.default
+      ): (SessionId[Backend.ClaudeCode.type], O) = ???
+      def continueInteractive[I: AgentInput](
+          sessionId: SessionId[Backend.ClaudeCode.type],
+          input: I,
+          config: LlmConfig = LlmConfig.default
+      ): O = ???
 
 /** Test double that throws on every method — used to assert that a code path
   * doesn't call the LLM.

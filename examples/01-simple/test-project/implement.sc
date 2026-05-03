@@ -26,11 +26,13 @@ import ox.either.orThrow
 
 flow(OrcaArgs(args)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
-  // `Plan.from` wraps the user prompt with `PlanPrompts.Planning` so the
-  // agent stays in plan-only mode; the implementation belongs to step 3.
-  // Pass `instructions = ...` to retune the planner's brief.
+  // `Plan.interactive.from` opens a conversation the user can drive
+  // (clarifying questions, refinements) before producing the plan; swap
+  // for `Plan.autonomous.from` for a single agentic turn with no human
+  // in the loop. Both wrap the user prompt with `PlanPrompts.Planning`
+  // to keep the agent in plan-only mode.
   val (sessionId, plan) = stage("Creating a development plan"):
-    Plan.from(userPrompt, claude)
+    Plan.interactive.from(userPrompt, claude)
 
   // 2. Single branch for the whole epic; tasks become commits on it.
   stage(s"Branch: ${plan.epicId}"):
