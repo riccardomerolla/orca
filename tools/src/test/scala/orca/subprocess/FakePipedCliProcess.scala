@@ -1,6 +1,6 @@
 package orca.subprocess
 
-import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.{
   AtomicBoolean,
   AtomicInteger,

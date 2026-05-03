@@ -237,6 +237,11 @@ def reviewAndFixLoop[B <: Backend](
   // threaded so visibility isn't a concern.
   var history: List[ReviewBatch] = Nil
 
+  def filterByConfidence(result: ReviewResult): ReviewResult =
+    ReviewResult(issues =
+      result.issues.filter(_.confidence >= confidenceThreshold)
+    )
+
   def evaluate(): ReviewResult =
     val active = reviewerSelection(history, reviewers)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
@@ -246,15 +251,20 @@ def reviewAndFixLoop[B <: Backend](
           s"Running ${orca.pluralize(totalAgents, "review agent")}"
         )
       )
+    // Apply the confidence filter before display so what's shown matches
+    // what the fixer receives — otherwise low-confidence issues are listed
+    // per-reviewer but silently dropped from the fix payload.
     val reviewerOutcomes: List[(LlmTool[?], ReviewResult)] =
       par(
         active.map(r =>
-          () => r -> r.resultAs[ReviewResult].autonomous.run(task)
+          () =>
+            r -> filterByConfidence(
+              r.resultAs[ReviewResult].autonomous.run(task)
+            )
         )
       ).toList
     val batch = ReviewBatch(reviewerOutcomes)
     history = batch :: history
-    // Surface each reviewer's outcome with provenance.
     reviewerOutcomes.foreach: (reviewer, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(reviewer.name, result)))
     val lintResult =
@@ -262,12 +272,10 @@ def reviewAndFixLoop[B <: Backend](
         .zip(lintLlm)
         .toList
         .map: (cmd, llm) =>
-          "lint" -> lint(cmd, llm)
+          "lint" -> filterByConfidence(lint(cmd, llm))
     lintResult.foreach: (name, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
-    val all = batch.allIssues ++ lintResult.flatMap(_._2.issues)
-    val kept = all.filter(_.confidence >= confidenceThreshold)
-    ReviewResult(issues = kept)
+    ReviewResult(issues = batch.allIssues ++ lintResult.flatMap(_._2.issues))
 
   def fix(issues: List[ReviewIssue]): FixOutcome =
     coder

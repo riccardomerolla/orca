@@ -1,6 +1,5 @@
 package orca.subprocess
 
-import scala.concurrent.duration.DurationInt
 import java.util.concurrent.{Executors, TimeUnit}
 
 class FakePipedCliProcessTest extends munit.FunSuite:
@@ -33,7 +32,8 @@ class FakePipedCliProcessTest extends munit.FunSuite:
       p.enqueueStdout("arrived")
       val result = future.get(500, TimeUnit.MILLISECONDS)
       assertEquals(result, "arrived")
-    finally pool.shutdownNow()
+    finally
+      val _ = pool.shutdownNow()
 
   test("sendSigInt marks dead and closes both output streams"):
     val p = new FakePipedCliProcess()

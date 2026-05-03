@@ -41,9 +41,10 @@ class TerminalInteractionTest extends munit.FunSuite:
       )
     )
     val lines = output.split('\n').toList
-    val headerLine = lines
-      .find(_.contains("Issue summary"))
-      .getOrElse(fail(s"missing Step header line; got: $lines"))
+    assert(
+      lines.exists(_.contains("Issue summary")),
+      s"missing Step header line; got: $lines"
+    )
     val locationLine = lines
       .find(_.contains("at src/Foo.scala:10"))
       .getOrElse(fail(s"missing location line; got: $lines"))

@@ -28,9 +28,6 @@ you might need to publish the library locally first, see below):
 //> using jvm 21
 
 import orca.{*, given}
-import orca.plan.Plan
-import orca.review.{defaultReviewers, reviewAndFixLoop}
-import ox.either.orThrow
 
 flow(OrcaArgs(args)):
   // Plan.interactive.from opens a conversation the user can drive
@@ -151,7 +148,7 @@ Plan.interactive.from(
 
 Where the defaults live:
 - `orca.plan.PlanPrompts` — `Planning`
-- `orca.review.ReviewPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
+- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `defaultReviewers`)
 
