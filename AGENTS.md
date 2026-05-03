@@ -98,18 +98,40 @@ outside of `os.temp.dir()`.
 
 ## Conventions
 
+### Scala style
+
 - Braceless syntax; explicit return types on every public member.
-- No class-level `var`s; mutable state is confined to method bodies or
+- No class-level `var`s; mutable state stays in method bodies or
   `AtomicReference`-guarded test helpers.
+- Opaque-type aliases for domain string labels (e.g. `Title`, `SessionId`).
+- Recoverable failures return `Either[E, T]` where `E <: OrcaFlowException`;
+  system failures throw. Use Ox's `.orThrow` at the call site when the
+  failure case is genuinely unexpected.
+- `ox.par(seq)` for parallel fan-out, not manual `supervised { fork(…) }`.
+
+### Code style
+
+- Use proper packaging — related functionality lives in one package.
+- Scaladoc describes contract and intent; implementation notes go in inline
+  `//` comments alongside the code.
 - Tests target exactly one scenario each.
+
+### Library
+
+- Tool event sinks take `OrcaListener` (default `OrcaListener.noop`);
+  `EventDispatcher` extends `OrcaListener` so wiring sites pass the
+  dispatcher directly.
+- Domain helpers that bundle an LLM brief follow
+  [ADR 0010](adr/0010-prompts-and-helpers-convention.md): sibling
+  `XxxPrompts` object + `instructions: String = …` parameter.
 - Subprocesses launched from a tool **must** capture stderr — go through
   [`subprocess.QuietProc.call`](tools/src/main/scala/orca/subprocess/QuietProc.scala)
   or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
   and tear the spinner row.
 
-The `direct-style-scala` plugin codifies these; re-reading its chapters
-before a non-trivial change is recommended.
+The `direct-style-scala` plugin codifies the Scala-style bullets; re-reading
+its chapters before a non-trivial change is recommended.
 
 ## Publishing locally
 
