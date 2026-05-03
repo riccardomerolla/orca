@@ -2,8 +2,8 @@ package orca.plan
 
 import orca.{JsonData, Title}
 
-/** A single task in a development plan, shared by [[SimplePlan]] (in- memory)
-  * and [[ExtendedPlan]] (markdown-backed).
+/** A single task in a [[Plan]]. The same type covers both the in-memory
+  * (`Plan.from`) and markdown-backed (`Plan.loadOrGenerate`) shapes.
   *
   *   - `title` is the one-line human-readable label rendered in the event log
   *     and used as the `## Task: …` markdown section header.

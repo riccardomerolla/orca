@@ -20,26 +20,17 @@
   */
 
 import orca.{*, given}
-import orca.plan.SimplePlan
+import orca.plan.Plan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
 import ox.either.orThrow
 
 flow(OrcaArgs(args)):
-  // 1. Break the user's prompt into concrete subtasks, interactively. The
-  // wrapper prompt makes the boundary explicit: this turn produces a plan,
-  // it does NOT touch the codebase. Without it the agent tends to start
-  // editing files mid-planning; the implementation belongs to step 3.
-  val planningPrompt =
-    s"""$userPrompt
-       |
-       |Your job in this turn is to produce a development plan only — a
-       |list of tasks broken down to a useful granularity. Do NOT edit
-       |any files, do NOT write any code, and do NOT run build / test
-       |commands. The plan is an outline; the implementation happens in
-       |a separate later turn, task by task.""".stripMargin
-
+  // 1. Break the user's prompt into concrete subtasks, interactively.
+  // `Plan.from` wraps the user prompt with `PlanPrompts.Planning` so the
+  // agent stays in plan-only mode; the implementation belongs to step 3.
+  // Pass `instructions = ...` to retune the planner's brief.
   val (sessionId, plan) = stage("Creating a development plan"):
-    claude.resultAs[SimplePlan].interactive(planningPrompt)
+    Plan.from(userPrompt, claude)
 
   // 2. Single branch for the whole epic; tasks become commits on it.
   stage(s"Branch: ${plan.epicId}"):

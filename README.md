@@ -28,12 +28,12 @@ you might need to publish the library locally first, see below):
 //> using jvm 21
 
 import orca.{*, given}
-import orca.plan.SimplePlan
+import orca.plan.Plan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
 
 flow(OrcaArgs(args)):
   val (sessionId, plan) = stage("Creating a development plan"):
-    claude.resultAs[SimplePlan].interactive(userPrompt)
+    Plan.from(userPrompt, claude)
 
   // Single branch for the whole epic; tasks become commits on it.
   git.createBranch(plan.epicId).orThrow
@@ -92,12 +92,20 @@ Top-level, available via `import orca.*`:
 | `stage(name)(body)` | Wrap an operation in a named stage. Emits `StageStarted`/`StageCompleted` and shows in the status-bar breadcrumb. |
 | `fail(message)` | Abort the current stage with an error. |
 
+Planning utilities, available via `import orca.plan.*`:
+
+| Method | Use |
+|---|---|
+| `Plan.from(userPrompt, llm, instructions?)` | Interactive planning round-trip. Returns the session id + a `Plan` so the caller can `continueSession` on the same context when implementing each task. |
+| `Plan.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition: parse `file` if it exists (resume), otherwise generate the markdown via `llm` and write it. |
+| `Plan.persistComplete(file, title)` | Mark one task complete on disk. |
+
 Review utilities, available via `import orca.review.*`:
 
 | Method | Use |
 |---|---|
-| `lint(command, llm)` | Run a shell lint, hand the output to `llm`, parse as `ReviewResult`. |
-| `reviewAndFixLoop(coder, sessionId, reviewers, task, lintCommand?, ...)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to `coder` to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
+| `lint(command, llm, instructions?)` | Run a shell lint, hand the output to `llm`, parse as `ReviewResult`. |
+| `reviewAndFixLoop(coder, sessionId, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to `coder` to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
 | `defaultReviewers(base)` | Five canonical reviewer agents (performance, readability, test-coverage, code-functionality, abstraction) layered on top of `base`. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
@@ -106,19 +114,45 @@ the default (`ReviewerSelector.onlyPreviouslyReporting`) re-runs only the
 reviewers that found something last round. Pass `ReviewerSelector.allEveryRound`
 for full regression coverage every iteration.
 
+### Customising prompts
+
+Every domain helper that bundles an LLM brief takes the prompt as a
+default-valued `instructions: String` parameter; the default value lives on a
+sibling `XxxPrompts` object in the same package. Override by passing a
+different string, or compose with the default to extend it:
+
+```scala
+import orca.plan.{Plan, PlanPrompts}
+
+Plan.from(
+  userPrompt,
+  claude,
+  instructions = PlanPrompts.Planning + "\n\nPrioritise observability tasks first."
+)
+```
+
+Where the defaults live:
+- `orca.plan.PlanPrompts` — `Planning`, `Generate`
+- `orca.review.ReviewPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
+- `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
+  list to swap or extend `defaultReviewers`)
+
+The lower-level per-call wrappers (autonomous/interactive/retry) are a
+separate layer — replace the whole set via `flow(prompts = ...)`. See ADR
+[0010](adr/0010-prompts-and-helpers-convention.md) for the full convention.
+
 ## Data structures
 
 Common types you'll see in flow scripts. All `derives JsonData`, so the agent
 can generate them as structured output via `claude.resultAs[T]`:
 
-- **`orca.plan.SimplePlan(epicId, tasks)`** — in-memory list of tasks the agent
-  generates in one round-trip. `epicId` is a kebab-case identifier used as the
-  git branch name for the whole plan.
-- **`orca.plan.ExtendedPlan(epicId, tasks)`** — markdown-backed plan persisted
-  to a file (`epic.md` by convention) for resumable runs.
-- **`orca.plan.Task(title, description, completed?)`** — shared by both plan
-  variants. `title` is the human-readable label shown in the event log and used
-  as the `## Task: <title>` markdown header in extended plans.
+- **`orca.plan.Plan(epicId, tasks)`** — list of tasks the agent generates in
+  one round-trip; the same type backs both in-memory use (`Plan.from`) and the
+  markdown-persisted resume path (`Plan.loadOrGenerate`). `epicId` is a
+  kebab-case identifier used as the git branch name for the whole plan.
+- **`orca.plan.Task(title, description, completed?)`** — `title` is the
+  human-readable label shown in the event log and used as the
+  `## Task: <title>` markdown header when persisted.
 - **`orca.bug.BugTriage`** / **`orca.bug.BugReportMatch`** — the agent's
   decision on whether a bug can be reproduced as a unit test, and whether a CI
   failure matches the report.

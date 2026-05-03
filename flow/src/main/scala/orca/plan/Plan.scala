@@ -1,51 +1,90 @@
 package orca.plan
 
-import orca.{FlowContext, LlmTool, OrcaEvent, Title}
+import orca.{
+  Announce,
+  Backend,
+  FlowContext,
+  JsonData,
+  LlmTool,
+  OrcaEvent,
+  SessionId,
+  Title,
+  given
+}
 
-/** A markdown-backed plan persisted to a file (typically `epic.md`) so resuming
-  * a flow doesn't re-plan from scratch. `epicId` is the kebab-case identifier
-  * the runtime uses as the git branch name.
+/** A development plan: an ordered list of [[Task]]s the agent will work
+  * through, all on a single branch named by `epicId` (kebab-case, used directly
+  * as the git branch name).
   *
-  * On-disk format (the renderer round-trips it; the parser is strict because we
-  * control the writer):
+  * The same type covers two usage shapes:
+  *   - **In-memory** — `Plan.from(userPrompt, llm)` returns one. The flow
+  *     iterates `tasks` and forgets the plan when it exits.
+  *   - **Markdown-backed** — `Plan.loadOrGenerate(file, userPrompt, llm)` and
+  *     `Plan.persistComplete(file, title)` round-trip the plan through a `##
+  *     Task: …` markdown file so a flow that crashes mid-loop can resume
+  *     without re-planning. The on-disk format is parsed/rendered by
+  *     [[Plan.parse]] / [[Plan.render]].
   *
-  * {{{
-  * # Plan: <epicId>
-  *
-  * ## Task: <title>
-  * Status: [ ]
-  *
-  * <prompt body, free-form, until the next ## Task or EOF>
-  *
-  * ## Task: <title>
-  * Status: [x]
-  *
-  * <prompt body>
-  * }}}
+  * `derives JsonData` so the structured-output path works directly:
+  * `llm.resultAs[Plan].interactive(prompt)` returns a `Plan` without any
+  * caller-side serialization.
   */
-case class ExtendedPlan(epicId: String, tasks: List[Task]):
+case class Plan(epicId: String, tasks: List[Task]) derives JsonData:
 
   /** Mark the task with the given `title` complete, leaving the others
     * untouched. Returns the same plan if no task matches.
     */
-  def markComplete(title: Title): ExtendedPlan =
+  def markComplete(title: Title): Plan =
     copy(tasks = tasks.map(t => if t.title == title then t.markComplete else t))
 
-  /** First task whose `completed` flag is false, in declaration order. None
+  /** First task whose `completed` flag is false, in declaration order. `None`
     * means the plan is fully done.
     */
   def firstIncomplete: Option[Task] = tasks.find(!_.completed)
 
-object ExtendedPlan:
+object Plan:
+
+  /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
+    * picture; a planning failure is more useful as an explicit `fail(...)` from
+    * the script.
+    */
+  given Announce[Plan] = Announce.from: plan =>
+    if plan.tasks.isEmpty then ""
+    else
+      val plural = if plan.tasks.size == 1 then "" else "s"
+      val header =
+        s"Planned ${plan.tasks.size} task$plural on branch '${plan.epicId}':"
+      val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
+      s"$header\n$body"
+
+  /** Drive the planning round-trip: hand `userPrompt` to `llm` (interactively,
+    * so the agent can ask clarifying questions), append `instructions` so the
+    * agent knows this turn is plan-only, and parse the structured `Plan` back.
+    * Returns the session id alongside the plan so the caller can
+    * `continueSession` on the same context when implementing each task.
+    *
+    * The default `instructions` keep the agent from sliding into editing files
+    * mid-plan; override the parameter to retune the planner's brief.
+    */
+  def from[B <: Backend](
+      userPrompt: String,
+      llm: LlmTool[B],
+      instructions: String = PlanPrompts.Planning
+  )(using FlowContext): (SessionId[B], Plan) =
+    llm.resultAs[Plan].interactive(s"$userPrompt\n\n$instructions")
 
   /** Idempotent plan acquisition. If `file` already exists, parse and return it
     * (and log a Step explaining we're reusing it). Otherwise, ask `llm` to
-    * produce a plan in the schema, write it to `file`, and return the parsed
-    * result.
+    * produce a plan in the markdown schema, write it to `file`, and return the
+    * parsed result.
     *
     * The reuse path is the resume contract: a flow that crashed mid-loop can be
     * re-run without re-planning from scratch and without losing the per-task
     * `[x]` progress markers the previous run committed.
+    *
+    * Override `instructions` to phrase the planner brief differently — the
+    * default tells the agent to produce ONLY markdown matching
+    * [[SchemaDescription]].
     *
     * Parse failures throw [[PlanParseException]] — the caller decides whether
     * to delete the file and retry or surface the error.
@@ -53,8 +92,9 @@ object ExtendedPlan:
   def loadOrGenerate(
       file: os.Path,
       userPrompt: String,
-      llm: LlmTool[?]
-  )(using ctx: FlowContext): ExtendedPlan =
+      llm: LlmTool[?],
+      instructions: String = PlanPrompts.Generate
+  )(using ctx: FlowContext): Plan =
     if os.exists(file) then
       val parsed = parse(os.read(file))
       ctx.emit(
@@ -64,15 +104,7 @@ object ExtendedPlan:
       )
       parsed
     else
-      val markdown = llm.ask(
-        s"""$userPrompt
-           |
-           |Produce a development plan in the markdown format below.
-           |Reply with ONLY the markdown — no surrounding prose, no
-           |code fences.
-           |
-           |$SchemaDescription""".stripMargin
-      )
+      val markdown = llm.ask(s"$userPrompt\n\n$instructions")
       val parsed = parse(markdown.trim)
       os.write.over(file, render(parsed), createFolders = true)
       parsed
@@ -86,9 +118,9 @@ object ExtendedPlan:
     val updated = current.markComplete(title)
     os.write.over(file, render(updated))
 
-  /** The schema description we hand to the planner LLM so it generates plans we
-    * can parse. Kept as a constant so flows can reference it without copying
-    * the format definition.
+  /** The markdown schema description handed to the planner LLM so it generates
+    * plans we can parse. Public so flow scripts can reference it when composing
+    * a custom `instructions` string for [[loadOrGenerate]].
     */
   val SchemaDescription: String =
     """A development plan is a markdown document with this exact
@@ -126,19 +158,19 @@ object ExtendedPlan:
     * [[PlanParseException]] on any deviation from the schema. CRLF line endings
     * and a leading BOM are normalised first.
     */
-  def parse(markdown: String): ExtendedPlan =
+  def parse(markdown: String): Plan =
     val normalised = markdown.stripPrefix("﻿").replace("\r\n", "\n")
     val lines = normalised.linesIterator.toList
     val epicId = parseHeader(lines)
     val taskBlocks = splitTaskBlocks(lines)
     if taskBlocks.isEmpty then throw PlanParseException("Plan has no tasks")
-    ExtendedPlan(epicId, taskBlocks.map(parseTask))
+    Plan(epicId, taskBlocks.map(parseTask))
 
   /** Render a plan back into the on-disk format. Output round-trips through
     * [[parse]] without information loss; we use this to write the file when
     * first generated and again when a task's status flips.
     */
-  def render(plan: ExtendedPlan): String =
+  def render(plan: Plan): String =
     val header = s"# Plan: ${plan.epicId}\n"
     val body = plan.tasks
       .map: t =>

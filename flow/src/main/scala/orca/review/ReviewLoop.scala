@@ -159,12 +159,14 @@ object ReviewerSelector:
     * mid-loop, so re-querying the model would just burn tokens for the same
     * answer.
     *
-    * Pick a cheap model (e.g. `claude.haiku`); the request is small.
+    * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
+    * `instructions` to retune the selection brief.
     */
   def llmDriven(
       llm: LlmTool[?],
       taskTitle: Title,
-      changedFiles: List[String]
+      changedFiles: List[String],
+      instructions: String = ReviewPrompts.SelectReviewers
   ): ReviewerSelector =
     var cached: Option[List[String]] = None
     (_, all) =>
@@ -176,7 +178,7 @@ object ReviewerSelector:
               taskTitle = taskTitle,
               changedFiles = changedFiles,
               availableReviewers = all.map(_.name),
-              instructions = SelectReviewersInstructions
+              instructions = instructions
             )
           )
           .names
@@ -190,14 +192,6 @@ private case class ReviewerSelectionRequest(
     availableReviewers: List[String],
     instructions: String
 ) derives JsonData
-
-private val SelectReviewersInstructions: String =
-  """Pick the subset of `availableReviewers` whose dimension is most
-    |relevant to this task — judging by the title and the changed
-    |files. Skip reviewers whose dimension clearly doesn't apply (e.g.
-    |a test-coverage reviewer when no production code changed). Reply
-    |with a SelectedReviewers containing only names from
-    |`availableReviewers`.""".stripMargin
 
 private case class FixRequest(
     instructions: String,
@@ -224,7 +218,8 @@ def reviewAndFixLoop[B <: Backend](
     confidenceThreshold: Double = 0.7,
     reviewerSelection: ReviewerSelector =
       ReviewerSelector.onlyPreviouslyReporting,
-    maxIterations: Int = 10
+    maxIterations: Int = 10,
+    fixInstructions: String = ReviewPrompts.Fix
 )(using ctx: FlowContext): IgnoredIssues =
   // Threaded across iterations via the closure: each evaluate appends
   // its batch and the selector reads back over the list. Method-scope
@@ -263,7 +258,7 @@ def reviewAndFixLoop[B <: Backend](
       .resultAs[FixOutcome]
       .continueSession(
         sessionId,
-        FixRequest(FixInstructions, issues),
+        FixRequest(fixInstructions, issues),
         LlmConfig.default
       )
 
@@ -276,27 +271,16 @@ def reviewAndFixLoop[B <: Backend](
       maxIterations = maxIterations
     )
 
-/** Prompt sent alongside `FixRequest` so the fixing agent knows what the loop
-  * expects: every issue must be classified either as fixed (with its title
-  * listed under `fixed`) or as ignored with a brief reason. The loop uses the
-  * `fixed` count to decide whether re-evaluating is worth the round-trip.
-  */
-private val FixInstructions: String =
-  """For each review comment below: fix it directly in the codebase
-    |if you can, then list its title under `fixed`. Otherwise — when
-    |the issue is environmental (missing tooling, network), out of
-    |scope for this task, or a false positive — list its title and a
-    |brief reason under `ignored`. Every input issue should appear in
-    |exactly one of the two lists.""".stripMargin
-
 /** Run `command` via a login shell, capture both stdout and stderr, and hand
   * the combined output to `llm` to summarize as a `ReviewResult`. An empty
   * output short-circuits to `ReviewResult.empty` so clean runs skip the
-  * round-trip to the LLM.
+  * round-trip to the LLM. Override `instructions` when the lint produces
+  * unusual shapes the default phrasing doesn't fit.
   */
 def lint(
     command: String,
-    llm: LlmTool[?]
+    llm: LlmTool[?],
+    instructions: String = ReviewPrompts.SummarizeLint
 )(using FlowContext): ReviewResult =
   val proc = os
     .proc("bash", "-c", command)
@@ -306,12 +290,4 @@ def lint(
   else
     llm
       .resultAs[ReviewResult]
-      .autonomous(
-        s"""Summarize the following lint output into a ReviewResult. Each
-           |distinct issue should produce a ReviewIssue; use reasonable
-           |confidence based on how actionable the message is.
-           |
-           |Lint output:
-           |$output
-           |""".stripMargin
-      )
+      .autonomous(s"$instructions\n\nLint output:\n$output")
