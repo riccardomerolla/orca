@@ -31,6 +31,15 @@ class InboundMessageTest extends munit.FunSuite:
     assertEquals(r.usage, Usage(10L, 20L, Some(BigDecimal("0.003"))))
     assertEquals(r.isError, false)
 
+  test("result surfaces the resolved model id when present"):
+    val msg = InboundMessage.parse(
+      """{"type":"result","subtype":"success","session_id":"sid-1","model":"claude-opus-4-7"}"""
+    )
+    assertEquals(
+      msg.asInstanceOf[InboundMessage.Result].model,
+      Some("claude-opus-4-7")
+    )
+
   test("control_request delegates body parsing to ControlRequestBody"):
     val msg = InboundMessage.parse(
       """{"type":"control_request","request_id":"req-7","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"path":"/tmp/x"}}}"""

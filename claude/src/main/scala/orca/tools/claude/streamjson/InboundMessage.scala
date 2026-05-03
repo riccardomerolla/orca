@@ -27,7 +27,8 @@ private[claude] enum InboundMessage:
       output: Option[String],
       structuredOutput: Option[String],
       usage: Usage,
-      isError: Boolean
+      isError: Boolean,
+      model: Option[String]
   )
   case ControlRequest(requestId: String, body: ControlRequestBody)
   case StreamEvent(payload: StreamEventPayload)
@@ -75,7 +76,8 @@ private[claude] object InboundMessage:
         outputTokens = wire.usage.flatMap(_.output_tokens).getOrElse(0L),
         cost = wire.total_cost_usd
       ),
-      isError = wire.is_error.getOrElse(false)
+      isError = wire.is_error.getOrElse(false),
+      model = wire.model
     )
 
   private def parseControlRequest(line: String): InboundMessage =
@@ -119,7 +121,8 @@ private[claude] object InboundMessage:
       structured_output: Option[RawJson] = None,
       usage: Option[UsageWire] = None,
       total_cost_usd: Option[BigDecimal] = None,
-      is_error: Option[Boolean] = None
+      is_error: Option[Boolean] = None,
+      model: Option[String] = None
   ) derives ConfiguredJsonValueCodec
 
   private case class ControlRequestWire(request_id: String, request: RawJson)

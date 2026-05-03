@@ -80,6 +80,25 @@ class CodexBackendTest extends munit.FunSuite:
     assertEquals(result.usage.inputTokens, 100L)
     assertEquals(result.usage.outputTokens, 25L)
 
+  test("runHeadless surfaces the model id reported on thread.started"):
+    val p = new FakePipedCliProcess()
+    p.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-m","model":"gpt-5"}"""
+    )
+    p.enqueueStdout("""{"type":"turn.started"}""")
+    p.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"hi"}}"""
+    )
+    p.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    p.closeStdout()
+    p.closeStderr()
+    p.sendSigInt()
+    val backend = new CodexBackend(new SpawnStubCliRunner(List(p)))
+    val result = backend.runHeadless("q", LlmConfig.default, os.temp.dir())
+    assertEquals(result.model, Some("gpt-5"))
+
   test("runHeadless throws when codex exits without turn.completed"):
     val p = new FakePipedCliProcess()
     p.enqueueStdout("""{"type":"thread.started","thread_id":"thr-x"}""")

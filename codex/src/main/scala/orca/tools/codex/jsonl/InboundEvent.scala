@@ -13,8 +13,10 @@ import orca.Usage
   * types collapse to [[Unknown]] so protocol drift doesn't crash the pipeline.
   */
 private[codex] enum InboundEvent:
-  /** First event in a session — carries the thread / session id. */
-  case ThreadStarted(threadId: String)
+  /** First event in a session — carries the thread / session id and (when codex
+    * includes it on the wire) the resolved model id.
+    */
+  case ThreadStarted(threadId: String, model: Option[String])
   case TurnStarted
   case TurnCompleted(usage: Usage)
   case ItemStarted(item: Item)
@@ -57,7 +59,7 @@ private[codex] object InboundEvent:
 
   private def parseThreadStarted(line: String): InboundEvent =
     val wire = readFromString[ThreadStartedWire](line)
-    ThreadStarted(wire.thread_id)
+    ThreadStarted(wire.thread_id, wire.model)
 
   private def parseTurnCompleted(line: String): InboundEvent =
     val wire = readFromString[TurnCompletedWire](line)
@@ -103,8 +105,10 @@ private[codex] object InboundEvent:
   private case class TopEnvelope(`type`: String)
       derives ConfiguredJsonValueCodec
 
-  private case class ThreadStartedWire(thread_id: String)
-      derives ConfiguredJsonValueCodec
+  private case class ThreadStartedWire(
+      thread_id: String,
+      model: Option[String] = None
+  ) derives ConfiguredJsonValueCodec
 
   private case class UsageWire(
       input_tokens: Option[Long] = None,

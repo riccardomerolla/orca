@@ -60,6 +60,7 @@ private[codex] class CodexConversation(
   import StreamConversation.Outcome
 
   private val sessionIdRef = new AtomicReference[String]("")
+  private val modelRef = new AtomicReference[Option[String]](None)
 
   /** The most recent agent_message text the model produced. See the class
     * scaladoc for why we synthesise rather than receive.
@@ -108,12 +109,14 @@ private[codex] class CodexConversation(
   // --- Per-event dispatch ---
 
   private def handle(event: InboundEvent): Unit = event match
-    case InboundEvent.ThreadStarted(threadId) => sessionIdRef.set(threadId)
-    case InboundEvent.TurnStarted             => ()
-    case InboundEvent.TurnCompleted(usage)    => handleTurnCompleted(usage)
-    case InboundEvent.ItemStarted(item)       => handleItemStarted(item)
-    case InboundEvent.ItemCompleted(item)     => handleItemCompleted(item)
-    case InboundEvent.Unknown(_)              =>
+    case InboundEvent.ThreadStarted(threadId, model) =>
+      sessionIdRef.set(threadId)
+      modelRef.set(model)
+    case InboundEvent.TurnStarted          => ()
+    case InboundEvent.TurnCompleted(usage) => handleTurnCompleted(usage)
+    case InboundEvent.ItemStarted(item)    => handleItemStarted(item)
+    case InboundEvent.ItemCompleted(item)  => handleItemCompleted(item)
+    case InboundEvent.Unknown(_)           =>
       // Forward-compat: codex may add new top-level event types; drop
       // them silently rather than rendering ✖.
       ()
@@ -169,7 +172,8 @@ private[codex] class CodexConversation(
     val result = LlmResult(
       sessionId = SessionId[Backend.Codex.type](sessionIdRef.get()),
       output = lastAgentMessage.get(),
-      usage = usage
+      usage = usage,
+      model = modelRef.get()
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 

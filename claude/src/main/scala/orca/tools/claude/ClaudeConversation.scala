@@ -74,9 +74,17 @@ private[claude] class ClaudeConversation(
     case InboundMessage.SystemInit(sid)        => sessionIdRef.set(sid)
     case InboundMessage.AssistantTurn(content) => handleAssistantTurn(content)
     case InboundMessage.UserTurn(content)      => handleUserTurn(content)
-    case InboundMessage.Result(_, sid, output, structured, usage, isError) =>
+    case InboundMessage.Result(
+          _,
+          sid,
+          output,
+          structured,
+          usage,
+          isError,
+          model
+        ) =>
       if isError then handleResultError(output)
-      else handleResult(sid, output, structured, usage)
+      else handleResult(sid, output, structured, usage, model)
     case InboundMessage.ControlRequest(reqId, body) =>
       handleControlRequest(reqId, body)
     case InboundMessage.StreamEvent(payload) =>
@@ -128,12 +136,14 @@ private[claude] class ClaudeConversation(
       sid: String,
       output: Option[String],
       structured: Option[String],
-      usage: Usage
+      usage: Usage,
+      model: Option[String]
   ): Unit =
     val result = LlmResult(
       sessionId = SessionId[Backend.ClaudeCode.type](sid),
       output = structured.orElse(output).getOrElse(""),
-      usage = usage
+      usage = usage,
+      model = model
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 

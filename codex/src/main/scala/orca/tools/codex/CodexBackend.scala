@@ -155,14 +155,13 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
   ): Either[String, LlmResult[Backend.Codex.type]] =
     val stderrBuf: AtomicReference[Vector[String]] =
       AtomicReference(Vector.empty)
-    val stderrThread = new Thread(
-      () =>
-        try
-          process.stderrLines.foreach: line =>
-            if isReportableStderr(line) then
-              val _ = stderrBuf.updateAndGet(_ :+ line.trim)
-        catch case _: Throwable => (), "codex-headless-stderr"
-    )
+    val drainStderr: Runnable = () =>
+      try
+        process.stderrLines.foreach: line =>
+          if isReportableStderr(line) then
+            val _ = stderrBuf.updateAndGet(_ :+ line.trim)
+      catch case _: Throwable => ()
+    val stderrThread = new Thread(drainStderr, "codex-headless-stderr")
     stderrThread.setDaemon(true)
     stderrThread.start()
 
@@ -240,10 +239,11 @@ private case class HeadlessAccumulator(
     threadId: String,
     lastMessage: String,
     usage: Usage,
-    sawTurnCompleted: Boolean
+    sawTurnCompleted: Boolean,
+    model: Option[String]
 ):
   def absorb(event: InboundEvent): HeadlessAccumulator = event match
-    case InboundEvent.ThreadStarted(id) => copy(threadId = id)
+    case InboundEvent.ThreadStarted(id, m) => copy(threadId = id, model = m)
     case InboundEvent.TurnCompleted(u) =>
       copy(usage = u, sawTurnCompleted = true)
     case InboundEvent.ItemCompleted(Item.AgentMessage(_, text)) =>
@@ -254,9 +254,10 @@ private case class HeadlessAccumulator(
     LlmResult(
       sessionId = SessionId[Backend.Codex.type](threadId),
       output = lastMessage,
-      usage = usage
+      usage = usage,
+      model = model
     )
 
 private object HeadlessAccumulator:
   val empty: HeadlessAccumulator =
-    HeadlessAccumulator("", "", Usage.empty, sawTurnCompleted = false)
+    HeadlessAccumulator("", "", Usage.empty, sawTurnCompleted = false, None)
