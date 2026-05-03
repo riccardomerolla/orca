@@ -22,7 +22,7 @@ class DefaultCodexTool(
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
-    val name: String = "codex"
+    val name: String = "general"
 ) extends AbstractDefaultLlmTool[Backend.Codex.type, CodexTool](
       backend,
       config,
