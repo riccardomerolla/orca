@@ -78,7 +78,7 @@ class TerminalInteraction(
         showCurrentBreadcrumb()
       case OrcaEvent.ToolUse(tool, args) =>
         appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
-      case OrcaEvent.TokensUsed(_, _) =>
+      case OrcaEvent.TokensUsed(_, _, _) =>
         () // Token accounting is owned by CostTracker.
       case OrcaEvent.Step(message) =>
         // Multi-line `message` (e.g. a wrapped review comment with

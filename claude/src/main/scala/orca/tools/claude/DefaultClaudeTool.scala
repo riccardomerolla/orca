@@ -81,7 +81,7 @@ class DefaultClaudeTool(
       workDir,
       events,
       interaction,
-      defaultModel = name
+      agentName = name
     )
 
   private def withModel(model: String): ClaudeTool =
@@ -116,7 +116,8 @@ class DefaultClaudeTool(
       effective: LlmConfig,
       result: orca.LlmResult[Backend.ClaudeCode.type]
   ): Unit =
-    // Prefer the model the response actually reports (most precise);
-    // fall back to a pinned config model, then to the tool's own name.
-    val bucket = result.model.orElse(effective.model).getOrElse(name)
-    events.onEvent(OrcaEvent.TokensUsed(bucket, result.usage))
+    // `agent` is always the tool's name; `model` prefers the model the
+    // response actually reports (most precise) and falls back to whatever
+    // the caller pinned in config. Stays None when neither is known.
+    val model = result.model.orElse(effective.model)
+    events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage))

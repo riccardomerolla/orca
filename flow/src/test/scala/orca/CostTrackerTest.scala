@@ -2,90 +2,53 @@ package orca
 
 class CostTrackerTest extends munit.FunSuite:
 
+  private def tokens(
+      agent: String,
+      model: Option[String],
+      u: Usage
+  ): OrcaEvent.TokensUsed = OrcaEvent.TokensUsed(agent, model, u)
+
   test("starts at zero and ignores non-TokensUsed events"):
     val tracker = new CostTracker
     tracker.onEvent(OrcaEvent.StageStarted("x"))
     tracker.onEvent(OrcaEvent.Step("hi"))
     assertEquals(tracker.total, Usage.empty)
 
-  test("accumulates input and output tokens across multiple TokensUsed events"):
+  test("total sums every TokensUsed event regardless of agent or model"):
     val tracker = new CostTracker
-    tracker.onEvent(
-      OrcaEvent.TokensUsed(
-        "m1",
-        Usage(100L, 50L, Some(BigDecimal("0.01")))
-      )
-    )
-    tracker.onEvent(
-      OrcaEvent.TokensUsed(
-        "m1",
-        Usage(30L, 20L, Some(BigDecimal("0.005")))
-      )
-    )
-    assertEquals(
-      tracker.total,
-      Usage(130L, 70L, Some(BigDecimal("0.015")))
-    )
+    tracker.onEvent(tokens("claude", Some("opus"), Usage(100L, 50L, None)))
+    tracker.onEvent(tokens("performance", Some("haiku"), Usage(30L, 20L, None)))
+    assertEquals(tracker.total, Usage(130L, 70L, None))
 
-  test("cost stays defined even when some events omit the cost"):
+  test("perAgent groups by LlmTool name"):
     val tracker = new CostTracker
-    tracker.onEvent(
-      OrcaEvent.TokensUsed(
-        "m1",
-        Usage(10L, 5L, Some(BigDecimal("0.002")))
-      )
-    )
-    tracker.onEvent(OrcaEvent.TokensUsed("m1", Usage(1L, 1L, None)))
-    assertEquals(tracker.total.cost, Some(BigDecimal("0.002")))
+    tracker.onEvent(tokens("claude", Some("opus"), Usage(10L, 5L, None)))
+    tracker.onEvent(tokens("performance", Some("opus"), Usage(20L, 15L, None)))
+    tracker.onEvent(tokens("claude", Some("haiku"), Usage(3L, 2L, None)))
+    assertEquals(tracker.perAgent("claude"), Usage(13L, 7L, None))
+    assertEquals(tracker.perAgent("performance"), Usage(20L, 15L, None))
 
-  test("cost is picked up when it first appears on a later event"):
+  test("perModel groups by reported model id, with None as its own bucket"):
     val tracker = new CostTracker
-    tracker.onEvent(OrcaEvent.TokensUsed("m1", Usage(10L, 5L, None)))
-    tracker.onEvent(
-      OrcaEvent.TokensUsed(
-        "m1",
-        Usage(1L, 1L, Some(BigDecimal("0.003")))
-      )
-    )
-    assertEquals(tracker.total.cost, Some(BigDecimal("0.003")))
+    tracker.onEvent(tokens("claude", Some("opus"), Usage(10L, 5L, None)))
+    tracker.onEvent(tokens("performance", Some("opus"), Usage(20L, 15L, None)))
+    tracker.onEvent(tokens("claude", None, Usage(3L, 2L, None)))
+    assertEquals(tracker.perModel(Some("opus")), Usage(30L, 20L, None))
+    assertEquals(tracker.perModel(None), Usage(3L, 2L, None))
 
-  test("cost is None only when every event omits cost"):
+  test("summary renders both axes; missing models surface as `(unknown)`"):
     val tracker = new CostTracker
-    tracker.onEvent(OrcaEvent.TokensUsed("m1", Usage(10L, 5L, None)))
-    tracker.onEvent(OrcaEvent.TokensUsed("m1", Usage(1L, 1L, None)))
-    assertEquals(tracker.total.cost, None)
-
-  test("summary lists each model's tokens, sorted by name, no costs"):
-    val tracker = new CostTracker
-    tracker.onEvent(
-      OrcaEvent.TokensUsed("m1", Usage(100L, 50L, Some(BigDecimal("0.0123"))))
-    )
-    tracker.onEvent(OrcaEvent.TokensUsed("a-model", Usage(7L, 3L, None)))
-    assertEquals(
-      tracker.summary,
-      "a-model: 7 in, 3 out\nm1: 100 in, 50 out"
-    )
+    tracker.onEvent(tokens("claude", Some("opus"), Usage(10L, 5L, None)))
+    tracker.onEvent(tokens("performance", None, Usage(7L, 3L, None)))
+    val expected =
+      """By agent:
+        |  claude: 10 in, 5 out
+        |  performance: 7 in, 3 out
+        |
+        |By model:
+        |  (unknown): 7 in, 3 out
+        |  opus: 10 in, 5 out""".stripMargin
+    assertEquals(tracker.summary, expected)
 
   test("summary is empty when nothing has been recorded"):
     assertEquals(new CostTracker().summary, "")
-
-  test("perModel breaks the running total down by model name"):
-    val tracker = new CostTracker
-    tracker.onEvent(
-      OrcaEvent.TokensUsed("haiku", Usage(10L, 5L, None))
-    )
-    tracker.onEvent(
-      OrcaEvent.TokensUsed("opus", Usage(20L, 15L, None))
-    )
-    tracker.onEvent(
-      OrcaEvent.TokensUsed("haiku", Usage(3L, 2L, None))
-    )
-    val breakdown = tracker.perModel
-    assertEquals(breakdown("haiku"), Usage(13L, 7L, None))
-    assertEquals(breakdown("opus"), Usage(20L, 15L, None))
-    assertEquals(tracker.total, Usage(33L, 22L, None))
-
-  test("calls without a pinned model fall back to the tool-name bucket"):
-    val tracker = new CostTracker
-    tracker.onEvent(OrcaEvent.TokensUsed("claude", Usage(5L, 2L, None)))
-    assertEquals(tracker.perModel("claude"), Usage(5L, 2L, None))

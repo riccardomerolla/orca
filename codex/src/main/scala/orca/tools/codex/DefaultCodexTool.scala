@@ -79,7 +79,7 @@ class DefaultCodexTool(
       workDir,
       events,
       interaction,
-      defaultModel = name
+      agentName = name
     )
 
   private def withModel(model: String): CodexTool =
@@ -111,5 +111,5 @@ class DefaultCodexTool(
       effective: LlmConfig,
       result: orca.LlmResult[Backend.Codex.type]
   ): Unit =
-    val bucket = result.model.orElse(effective.model).getOrElse(name)
-    events.onEvent(OrcaEvent.TokensUsed(bucket, result.usage))
+    val model = result.model.orElse(effective.model)
+    events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage))

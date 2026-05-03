@@ -92,7 +92,10 @@ class OrcaOverridesTest extends munit.FunSuite:
       extraListeners = List(tracker)
     ) {
       summon[FlowContext]
-        .emit(OrcaEvent.TokensUsed("test-model", Usage(10L, 5L, None)))
+        .emit(
+          OrcaEvent
+            .TokensUsed("test-agent", Some("test-model"), Usage(10L, 5L, None))
+        )
     }
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.
     assertEquals(tracker.total, Usage(10L, 5L, None))

@@ -11,13 +11,20 @@ enum OrcaEvent:
     */
   case Step(message: String)
 
-  /** Token usage for a single LLM call. `model` is always a real, non-empty
-    * identifier — when the caller didn't pin a specific model via
-    * `LlmConfig.model`, the emitter substitutes the owning tool's
-    * `LlmTool.name` ("claude", "codex"). Listeners and trackers can key on it
-    * directly without an `Option`/unknown fallback.
+  /** Token usage for a single LLM call, attributed along two independent axes:
+    *
+    *   - `agent` is the [[LlmTool.name]] that issued the call. For reviewer
+    *     agents this carries the reviewer identity (`abstraction`,
+    *     `performance`, …); for the main coding agent it's `claude` / `codex`
+    *     (or whatever the script renamed it to via `withName`).
+    *   - `model` is the concrete model the backend reports it actually served
+    *     the call with. `None` when the response didn't carry it and no model
+    *     was pinned via `LlmConfig.model`.
+    *
+    * `CostTracker` summarises usage along both axes — by-agent shows where the
+    * tokens were spent, by-model shows which models cost what.
     */
-  case TokensUsed(model: String, usage: Usage)
+  case TokensUsed(agent: String, model: Option[String], usage: Usage)
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
     * the verbatim text the agent produced (typically JSON); `summary` is the

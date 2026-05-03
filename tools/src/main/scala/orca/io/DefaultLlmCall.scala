@@ -36,12 +36,12 @@ class DefaultLlmCall[B <: Backend, O](
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
-    /** Used as the model identifier on `OrcaEvent.TokensUsed` when
-      * `LlmConfig.model` isn't pinned — typically the owning `LlmTool.name`
-      * ("claude", "codex"). Always a real string so `CostTracker` doesn't have
-      * to deal with an `<unknown>` bucket.
+    /** Used as the `agent` axis on `OrcaEvent.TokensUsed` — typically the
+      * owning `LlmTool.name`, which carries the reviewer identity for tools
+      * renamed via `withName`. The `model` axis is read from the response (or
+      * the pinned config); this name is the always-present agent identifier.
       */
-    defaultModel: String
+    agentName: String
 )(using jd: JsonData[O], announce: Announce[O])
     extends LlmCall[B, O]:
 
@@ -119,7 +119,8 @@ class DefaultLlmCall[B <: Backend, O](
         case None => backend.runHeadless(promptText, effective, workDir)
       events.onEvent(
         OrcaEvent.TokensUsed(
-          result.model.orElse(effective.model).getOrElse(defaultModel),
+          agentName,
+          result.model.orElse(effective.model),
           result.usage
         )
       )
@@ -176,7 +177,8 @@ class DefaultLlmCall[B <: Backend, O](
     // authoritative to emit at cancel time.
     events.onEvent(
       OrcaEvent.TokensUsed(
-        result.model.orElse(effective.model).getOrElse(defaultModel),
+        agentName,
+        result.model.orElse(effective.model),
         result.usage
       )
     )

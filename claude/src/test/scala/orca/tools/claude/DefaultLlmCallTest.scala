@@ -102,7 +102,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       workDir = os.pwd,
       events = orca.OrcaListener.noop,
       interaction = stubInteraction,
-      defaultModel = "claude"
+      agentName = "claude"
     )
 
   test(
@@ -176,7 +176,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       workDir = os.pwd,
       events = (e: orca.OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
       interaction = stubInteraction,
-      defaultModel = "claude"
+      agentName = "claude"
     )
     supervised:
       val _ = call.autonomous("anything")
@@ -201,7 +201,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
         workDir = os.pwd,
         events = (e: orca.OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
         interaction = stubInteraction,
-        defaultModel = "claude"
+        agentName = "claude"
       ).autonomous("anything")
       val structured = seen.get().collect {
         case orca.OrcaEvent.StructuredResult(raw, summary) => (raw, summary)

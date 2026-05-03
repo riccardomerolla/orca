@@ -89,7 +89,8 @@ flow(OrcaArgs(args)):
   while currentPlan.firstIncomplete.isDefined do
     val task = currentPlan.firstIncomplete.get
     stage(s"Implement task: ${task.title}"):
-      val _ = claude.continueSession(sessionId, task.description)
+      stage("Implementation"):
+        val _ = claude.continueSession(sessionId, task.description)
       // Format before review so reviewers don't waste turns on
       // style nits the toolchain would fix automatically. Spotless
       // is wired into the seed pom.

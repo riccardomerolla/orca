@@ -42,7 +42,8 @@ flow(OrcaArgs(args)):
   // original implementation and any follow-up fixes.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):
-      claude.continueSession(sessionId, task.description)
+      stage("Implementation"):
+        claude.continueSession(sessionId, task.description)
 
       reviewAndFixLoop(
         coder = claude,
