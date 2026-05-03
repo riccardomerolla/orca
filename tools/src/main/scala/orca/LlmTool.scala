@@ -52,6 +52,7 @@ trait LlmTool[B <: Backend]:
 
   def withConfig(config: LlmConfig): LlmTool[B]
   def withSystemPrompt(prompt: String): LlmTool[B]
+  def withName(name: String): LlmTool[B]
 
 trait ClaudeTool extends LlmTool[Backend.ClaudeCode.type]:
   /** Returns a variant of this tool that pins the Claude model for subsequent

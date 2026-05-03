@@ -102,7 +102,7 @@ Review utilities, available via `import orca.review.*`:
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
 `reviewAndFixLoop` accepts a `reviewerSelection: ReviewerSelector` parameter;
-the default (`ReviewerSelector.onlyChangedDimensions`) re-runs only the
+the default (`ReviewerSelector.onlyPreviouslyReporting`) re-runs only the
 reviewers that found something last round. Pass `ReviewerSelector.allEveryRound`
 for full regression coverage every iteration.
 

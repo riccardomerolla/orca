@@ -50,10 +50,16 @@ def flow(
   val effectiveInteraction = interaction.getOrElse(
     new TerminalInteraction(workDir = Some(workDir))
   )
+  // Always tally token usage; print the summary on exit (success or failure)
+  // so the user sees what was spent before the process terminates. Callers
+  // can still pass their own CostTracker via `extraListeners` for other uses
+  // — it'll observe the same events independently.
+  val costTracker = new CostTracker
   try
     supervised:
-      val dispatcher =
-        new EventDispatcher(effectiveInteraction.listeners ++ extraListeners)
+      val dispatcher = new EventDispatcher(
+        effectiveInteraction.listeners ++ List(costTracker) ++ extraListeners
+      )
       val ctx = DefaultFlowContext.withDefaults(
         userPrompt = args.userPrompt,
         dispatcher = dispatcher,
@@ -74,4 +80,6 @@ def flow(
     // diagnostics.
     case NonFatal(e) =>
       if debug then e.printStackTrace()
+      costTracker.printSummary()
       System.exit(1)
+  costTracker.printSummary()

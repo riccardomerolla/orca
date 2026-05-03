@@ -12,18 +12,26 @@ import orca.{
 
 class DefaultReviewersTest extends munit.FunSuite:
 
-  /** LlmTool that records every `withSystemPrompt` call and delegates the rest
-    * so tests can inspect which system prompts defaultReviewers layers on.
+  /** LlmTool that records every `withSystemPrompt` call into a shared buffer
+    * (so renamed copies still feed the same record) and otherwise behaves as a
+    * no-op stub. `withName` returns a fresh instance carrying the new name so
+    * `defaultReviewers` can tag each reviewer.
     */
-  private class RecordingTool extends LlmTool[Backend.ClaudeCode.type]:
-    val name = "base"
-    var systemPromptsSeen: List[String] = Nil
+  private class RecordingTool(
+      val name: String = "base",
+      systemPromptsSeen: collection.mutable.ListBuffer[String] =
+        collection.mutable.ListBuffer.empty
+  ) extends LlmTool[Backend.ClaudeCode.type]:
+    def seen: List[String] = systemPromptsSeen.toList
     def ask(p: String, c: LlmConfig = LlmConfig.default): String = ""
     def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] =
-      systemPromptsSeen = p :: systemPromptsSeen
+      val _ = systemPromptsSeen += p
       this
-    def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] = ???
+    def withName(n: String): LlmTool[Backend.ClaudeCode.type] =
+      new RecordingTool(n, systemPromptsSeen)
+    def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+      ???
     def startSession(
         p: String,
         c: LlmConfig = LlmConfig.default
@@ -53,7 +61,7 @@ class DefaultReviewersTest extends munit.FunSuite:
   test("each reviewer layers its canonical system prompt onto the base tool"):
     val base = new RecordingTool
     val _ = defaultReviewers(base)
-    val seen = base.systemPromptsSeen.reverse
+    val seen = base.seen
     assertEquals(
       seen,
       List(

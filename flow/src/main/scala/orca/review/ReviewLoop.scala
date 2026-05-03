@@ -12,7 +12,7 @@ import orca.{
   given
 }
 import orca.io.TextWrap
-import ox.{fork, supervised}
+import ox.par
 
 /** What the fixing agent reports back per iteration: the titles of issues it
   * actually fixed in the code, and the issues it chose not to fix along with a
@@ -142,7 +142,7 @@ object ReviewerSelector:
     * consistently-quiet reviewers; the trade-off is that a reviewer who'd catch
     * a regression introduced by a fix won't see the fix.
     */
-  val onlyChangedDimensions: ReviewerSelector = (history, all) =>
+  val onlyPreviouslyReporting: ReviewerSelector = (history, all) =>
     history.headOption match
       case None        => all
       case Some(batch) => batch.reviewersWithIssues
@@ -152,6 +152,52 @@ object ReviewerSelector:
     * more than tokens.
     */
   val allEveryRound: ReviewerSelector = (_, all) => all
+
+  /** Asks `llm` to pick which reviewers are worth running for a given task. The
+    * selection is computed on the first call (when `all` is known) and cached
+    * for subsequent iterations — `taskTitle` and `changedFiles` don't change
+    * mid-loop, so re-querying the model would just burn tokens for the same
+    * answer.
+    *
+    * Pick a cheap model (e.g. `claude.haiku`); the request is small.
+    */
+  def llmDriven(
+      llm: LlmTool[?],
+      taskTitle: Title,
+      changedFiles: List[String]
+  ): ReviewerSelector =
+    var cached: Option[List[String]] = None
+    (_, all) =>
+      val names = cached.getOrElse:
+        val picked = llm
+          .resultAs[SelectedReviewers]
+          .autonomous(
+            ReviewerSelectionRequest(
+              taskTitle = taskTitle,
+              changedFiles = changedFiles,
+              availableReviewers = all.map(_.name),
+              instructions = SelectReviewersInstructions
+            )
+          )
+          .names
+        cached = Some(picked)
+        picked
+      SelectedReviewers(names).pick(all)
+
+private case class ReviewerSelectionRequest(
+    taskTitle: Title,
+    changedFiles: List[String],
+    availableReviewers: List[String],
+    instructions: String
+) derives JsonData
+
+private val SelectReviewersInstructions: String =
+  """Pick the subset of `availableReviewers` whose dimension is most
+    |relevant to this task — judging by the title and the changed
+    |files. Skip reviewers whose dimension clearly doesn't apply (e.g.
+    |a test-coverage reviewer when no production code changed). Reply
+    |with a SelectedReviewers containing only names from
+    |`availableReviewers`.""".stripMargin
 
 private case class FixRequest(
     instructions: String,
@@ -177,7 +223,7 @@ def reviewAndFixLoop[B <: Backend](
     lintCommand: Option[String] = None,
     confidenceThreshold: Double = 0.7,
     reviewerSelection: ReviewerSelector =
-      ReviewerSelector.onlyChangedDimensions,
+      ReviewerSelector.onlyPreviouslyReporting,
     maxIterations: Int = 10
 )(using ctx: FlowContext): IgnoredIssues =
   // Threaded across iterations via the closure: each evaluate appends
@@ -196,10 +242,9 @@ def reviewAndFixLoop[B <: Backend](
         )
       )
     val reviewerOutcomes: List[(LlmTool[?], ReviewResult)] =
-      supervised:
-        active
-          .map(r => r -> fork(r.resultAs[ReviewResult].autonomous(task)))
-          .map((r, f) => r -> f.join())
+      par(
+        active.map(r => () => r -> r.resultAs[ReviewResult].autonomous(task))
+      ).toList
     val batch = ReviewBatch(reviewerOutcomes)
     history = batch :: history
     // Surface each reviewer's outcome with provenance.

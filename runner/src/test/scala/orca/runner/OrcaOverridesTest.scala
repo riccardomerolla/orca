@@ -36,7 +36,11 @@ class OrcaOverridesTest extends munit.FunSuite:
       def write(path: String, content: String): Unit = ()
       def list(glob: String): List[String] = List("custom")
     var observed: String = ""
-    flow(args = OrcaArgs(), fs = Some(fake), interaction = Some(silentInteraction)) {
+    flow(
+      args = OrcaArgs(),
+      fs = Some(fake),
+      interaction = Some(silentInteraction)
+    ) {
       observed = fs.read("ignored")
     }
     assertEquals(observed, "canned content")
@@ -49,6 +53,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def opus = this
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
       def ask(prompt: String, config: LlmConfig = LlmConfig.default): String =
         s"echo: $prompt"
       def startSession(
@@ -60,9 +65,14 @@ class OrcaOverridesTest extends munit.FunSuite:
           p: String,
           c: LlmConfig = LlmConfig.default
       ): String = ???
-      def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] = ???
+      def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+        ???
     var observed: String = ""
-    flow(args = OrcaArgs(), claude = Some(fakeClaude), interaction = Some(silentInteraction)) {
+    flow(
+      args = OrcaArgs(),
+      claude = Some(fakeClaude),
+      interaction = Some(silentInteraction)
+    ) {
       observed = summon[FlowContext].claude.ask("hi")
     }
     assertEquals(observed, "echo: hi")
@@ -76,7 +86,11 @@ class OrcaOverridesTest extends munit.FunSuite:
         animated = false
       )
     val tracker = new CostTracker
-    flow(args = OrcaArgs(), interaction = Some(interaction), extraListeners = List(tracker)) {
+    flow(
+      args = OrcaArgs(),
+      interaction = Some(interaction),
+      extraListeners = List(tracker)
+    ) {
       summon[FlowContext]
         .emit(OrcaEvent.TokensUsed("test-model", Usage(10L, 5L, None)))
     }

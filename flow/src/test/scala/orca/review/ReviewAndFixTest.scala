@@ -68,6 +68,7 @@ class FakeLlmTool(
   ): String = ""
   def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
+  def withName(n: String): LlmTool[Backend.ClaudeCode.type] = this
 
 class ReviewAndFixTest extends munit.FunSuite:
 
@@ -159,3 +160,32 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = "multi"
     )
     assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))
+
+  test("ReviewerSelector.llmDriven asks the LLM once and caches"):
+    val perf = new FakeLlmTool(name = "performance")
+    val style = new FakeLlmTool(name = "readability")
+    val coverage = new FakeLlmTool(name = "test-coverage")
+    val all = List(perf, style, coverage)
+    // Single reply — if the selector calls the LLM more than once the iterator
+    // will throw NoSuchElement on the second call, failing the test.
+    val picker = new FakeLlmTool(
+      name = "picker",
+      promptOutputs =
+        List(SelectedReviewers(List("performance", "test-coverage")))
+    )
+    val select = ReviewerSelector.llmDriven(
+      llm = picker,
+      taskTitle = Title("optimize hot path"),
+      changedFiles = List("src/Cache.scala")
+    )
+    assertEquals(
+      select(Nil, all).map(_.name),
+      List("performance", "test-coverage")
+    )
+    // Second call with a populated history (matches what reviewAndFixLoop would
+    // pass on iteration 2) reuses the cached selection — no second LLM call.
+    val fakeBatch = ReviewBatch(Nil)
+    assertEquals(
+      select(List(fakeBatch), all).map(_.name),
+      List("performance", "test-coverage")
+    )

@@ -31,10 +31,9 @@ class DefaultClaudeTool(
     prompts: Prompts,
     workDir: os.Path,
     emit: OrcaEvent => Unit,
-    interaction: Interaction
+    interaction: Interaction,
+    val name: String = "claude"
 ) extends ClaudeTool:
-
-  val name: String = "claude"
 
   def haiku: ClaudeTool = withModel("claude-haiku-4-5")
   def sonnet: ClaudeTool = withModel("claude-sonnet-4-6")
@@ -45,6 +44,8 @@ class DefaultClaudeTool(
 
   def withSystemPrompt(prompt: String): ClaudeTool =
     copy(config = config.copy(systemPrompt = Some(prompt)))
+
+  def withName(newName: String): ClaudeTool = copy(name = newName)
 
   def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
     val effective = effectiveConfig(callConfig)
@@ -91,9 +92,18 @@ class DefaultClaudeTool(
       prompts: Prompts = prompts,
       workDir: os.Path = workDir,
       emit: OrcaEvent => Unit = emit,
-      interaction: Interaction = interaction
+      interaction: Interaction = interaction,
+      name: String = name
   ): DefaultClaudeTool =
-    new DefaultClaudeTool(backend, config, prompts, workDir, emit, interaction)
+    new DefaultClaudeTool(
+      backend,
+      config,
+      prompts,
+      workDir,
+      emit,
+      interaction,
+      name
+    )
 
   private def effectiveConfig(callConfig: LlmConfig): LlmConfig =
     // Call-level config overrides tool-level values where the call explicitly

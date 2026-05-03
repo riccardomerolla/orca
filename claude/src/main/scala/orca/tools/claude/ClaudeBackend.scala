@@ -127,6 +127,10 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
   ): LlmResult[Backend.ClaudeCode.type] =
     val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
     val args = ClaudeArgs.headless(prompt, config, systemPromptFile, resume)
+    // Retries for transient failures live one layer up in DefaultLlmCall —
+    // it wraps every structured call in `retry(effective.retrySchedule)`.
+    // Plain ask/startSession/continueSession callers skip that loop by
+    // design (raw-text path; the caller decides the retry policy).
     val result = cli.run(args, cwd = workDir)
     if result.exitCode != 0 then
       val diagnostic =

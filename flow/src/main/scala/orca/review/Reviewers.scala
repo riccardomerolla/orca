@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{Announce, Backend, JsonData, LlmCall, LlmConfig, LlmTool, SessionId}
+import orca.{Backend, LlmTool}
 
 /** Canonical system prompts for the reviewers the library ships with. Exposed
   * so callers can tune or extend the set without rewriting the defaults.
@@ -50,54 +50,17 @@ object ReviewerPrompts:
       |near-verbatim, lower when the refactor is stylistic.
       |""".stripMargin
 
-/** LlmTool shim that overrides `name` but delegates every other call to a
-  * wrapped tool. Useful for tagging a base tool with a reviewer identity so
-  * `SelectedReviewers.pick` can filter the list by name.
-  */
-private[orca] class NamedLlmTool[B <: Backend](
-    override val name: String,
-    delegate: LlmTool[B]
-) extends LlmTool[B]:
-  def ask(prompt: String, config: LlmConfig = LlmConfig.default): String =
-    delegate.ask(prompt, config)
-  def startSession(
-      prompt: String,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[B], String) = delegate.startSession(prompt, config)
-  def continueSession(
-      sessionId: SessionId[B],
-      prompt: String,
-      config: LlmConfig = LlmConfig.default
-  ): String = delegate.continueSession(sessionId, prompt, config)
-  def withConfig(config: LlmConfig): LlmTool[B] =
-    new NamedLlmTool(name, delegate.withConfig(config))
-  def withSystemPrompt(prompt: String): LlmTool[B] =
-    new NamedLlmTool(name, delegate.withSystemPrompt(prompt))
-  def resultAs[O: JsonData: Announce]: LlmCall[B, O] = delegate.resultAs[O]
-
 /** Pre-configured reviewer agents built atop the supplied base tool. Each
   * reviewer has its own `name` and system prompt; callers pass them (or a
   * subset via `SelectedReviewers.pick`) to `reviewAndFixLoop`.
   */
-def defaultReviewers[B <: Backend](base: LlmTool[B]): List[LlmTool[B]] = List(
-  new NamedLlmTool(
-    "performance",
-    base.withSystemPrompt(ReviewerPrompts.Performance)
-  ),
-  new NamedLlmTool(
-    "readability",
-    base.withSystemPrompt(ReviewerPrompts.Readability)
-  ),
-  new NamedLlmTool(
-    "test-coverage",
-    base.withSystemPrompt(ReviewerPrompts.TestCoverage)
-  ),
-  new NamedLlmTool(
-    "code-functionality",
-    base.withSystemPrompt(ReviewerPrompts.CodeFunctionality)
-  ),
-  new NamedLlmTool(
-    "abstraction",
-    base.withSystemPrompt(ReviewerPrompts.Abstraction)
+def defaultReviewers[B <: Backend](base: LlmTool[B]): List[LlmTool[B]] =
+  def reviewer(name: String, prompt: String): LlmTool[B] =
+    base.withSystemPrompt(prompt).withName(name)
+  List(
+    reviewer("performance", ReviewerPrompts.Performance),
+    reviewer("readability", ReviewerPrompts.Readability),
+    reviewer("test-coverage", ReviewerPrompts.TestCoverage),
+    reviewer("code-functionality", ReviewerPrompts.CodeFunctionality),
+    reviewer("abstraction", ReviewerPrompts.Abstraction)
   )
-)

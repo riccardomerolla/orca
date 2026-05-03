@@ -26,10 +26,9 @@ class DefaultCodexTool(
     prompts: Prompts,
     workDir: os.Path,
     emit: OrcaEvent => Unit,
-    interaction: Interaction
+    interaction: Interaction,
+    val name: String = "codex"
 ) extends CodexTool:
-
-  val name: String = "codex"
 
   /** Pin the cheap-and-fast model variant. The literal model id matches what's
     * available in the installed `codex-cli` (gpt-5.4-mini in 0.125.0); newer
@@ -43,6 +42,8 @@ class DefaultCodexTool(
 
   def withSystemPrompt(prompt: String): CodexTool =
     copy(config = config.copy(systemPrompt = Some(prompt)))
+
+  def withName(newName: String): CodexTool = copy(name = newName)
 
   def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
     val effective = effectiveConfig(callConfig)
@@ -89,9 +90,18 @@ class DefaultCodexTool(
       prompts: Prompts = prompts,
       workDir: os.Path = workDir,
       emit: OrcaEvent => Unit = emit,
-      interaction: Interaction = interaction
+      interaction: Interaction = interaction,
+      name: String = name
   ): DefaultCodexTool =
-    new DefaultCodexTool(backend, config, prompts, workDir, emit, interaction)
+    new DefaultCodexTool(
+      backend,
+      config,
+      prompts,
+      workDir,
+      emit,
+      interaction,
+      name
+    )
 
   private def effectiveConfig(callConfig: LlmConfig): LlmConfig =
     if callConfig eq LlmConfig.default then config else callConfig
