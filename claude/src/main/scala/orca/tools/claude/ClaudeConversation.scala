@@ -47,6 +47,12 @@ private[claude] class ClaudeConversation(
 
   private val sessionIdRef = new AtomicReference[String]("")
 
+  /** Captured from the `system.init` message so `handleResult` can fall back to
+    * it when the `result` message itself doesn't carry the resolved model id.
+    * Some Claude CLI versions emit it in one but not both.
+    */
+  private val initModelRef = new AtomicReference[Option[String]](None)
+
   /** Set whenever a delta arrives in the current turn, cleared when the full
     * turn message lands. Lets `handleAssistantTurn` tell "partials already
     * streamed" from "partials disabled upstream".
@@ -71,7 +77,9 @@ private[claude] class ClaudeConversation(
   // --- Per-message dispatch ---
 
   private def handle(msg: InboundMessage): Unit = msg match
-    case InboundMessage.SystemInit(sid)        => sessionIdRef.set(sid)
+    case InboundMessage.SystemInit(sid, model) =>
+      sessionIdRef.set(sid)
+      initModelRef.set(model)
     case InboundMessage.AssistantTurn(content) => handleAssistantTurn(content)
     case InboundMessage.UserTurn(content)      => handleUserTurn(content)
     case InboundMessage.Result(
@@ -143,7 +151,9 @@ private[claude] class ClaudeConversation(
       sessionId = SessionId[Backend.ClaudeCode.type](sid),
       output = structured.orElse(output).getOrElse(""),
       usage = usage,
-      model = model
+      // Fall back to the model claude announced in system.init when the
+      // result message omits it.
+      model = model.orElse(initModelRef.get())
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 

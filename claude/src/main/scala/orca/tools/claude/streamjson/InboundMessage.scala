@@ -12,7 +12,11 @@ import orca.Usage
   * crash the pipeline.
   */
 private[claude] enum InboundMessage:
-  case SystemInit(sessionId: String)
+  /** First message of a session — claude announces the resolved session id and
+    * (typically) the model id here. The `model` is a defensive fallback for the
+    * [[Result]] message's own `model` field; when both are present they agree.
+    */
+  case SystemInit(sessionId: String, model: Option[String])
   case AssistantTurn(content: List[ContentBlock])
   case UserTurn(content: List[ContentBlock])
 
@@ -53,7 +57,8 @@ private[claude] object InboundMessage:
 
   private def parseSystem(line: String): InboundMessage =
     val wire = readFromString[SystemWire](line)
-    if wire.subtype == "init" then SystemInit(wire.session_id.getOrElse(""))
+    if wire.subtype == "init" then
+      SystemInit(wire.session_id.getOrElse(""), wire.model)
     else Unknown(s"system.${wire.subtype}")
 
   private def parseAssistant(line: String): InboundMessage =
@@ -98,7 +103,8 @@ private[claude] object InboundMessage:
 
   private case class SystemWire(
       subtype: String,
-      session_id: Option[String] = None
+      session_id: Option[String] = None,
+      model: Option[String] = None
   ) derives ConfiguredJsonValueCodec
 
   private case class InnerMessage(content: List[RawJson] = Nil)

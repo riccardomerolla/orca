@@ -8,7 +8,16 @@ class InboundMessageTest extends munit.FunSuite:
     val msg = InboundMessage.parse(
       """{"type":"system","subtype":"init","session_id":"sid-1"}"""
     )
-    assertEquals(msg, InboundMessage.SystemInit("sid-1"))
+    assertEquals(msg, InboundMessage.SystemInit("sid-1", None))
+
+  test("system/init also surfaces the resolved model id when present"):
+    val msg = InboundMessage.parse(
+      """{"type":"system","subtype":"init","session_id":"sid-1","model":"claude-sonnet-4-6"}"""
+    )
+    assertEquals(
+      msg,
+      InboundMessage.SystemInit("sid-1", Some("claude-sonnet-4-6"))
+    )
 
   test("assistant turn decodes every content block into the domain enum"):
     val msg = InboundMessage.parse(
