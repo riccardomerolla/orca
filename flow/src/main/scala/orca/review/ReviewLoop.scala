@@ -199,6 +199,18 @@ private case class FixRequest(
     issues: List[ReviewIssue]
 ) derives JsonData
 
+/** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
+  * `history` is consulted by [[ReviewerSelector]]; `sessions` maps a reviewer's
+  * name to the opaque `SessionId` from its first `startSession` call (erased to
+  * `AnyRef`; re-cast to the reviewer's own `SessionId[RB]` on read).
+  */
+private case class ReviewLoopState(
+    history: List[ReviewBatch],
+    sessions: Map[String, AnyRef]
+)
+private object ReviewLoopState:
+  val empty: ReviewLoopState = ReviewLoopState(Nil, Map.empty)
+
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues above `confidenceThreshold` to `coder` via `continueSession`, and
   * loop. Each iteration's reviewer set is picked by `reviewerSelection`; the
@@ -244,50 +256,85 @@ def reviewAndFixLoop[B <: Backend](
       "the per-reviewer session map is keyed by name"
   )
   val effectiveDiff = initialDiff.getOrElse(ctx.git.diff())
-  // Threaded across iterations via the closure: each evaluate appends
-  // its batch and the selector reads back over the list. Method-scope
-  // var allowed by the project's FP conventions; the loop is single-
-  // threaded so visibility isn't a concern.
-  var history: List[ReviewBatch] = Nil
 
-  // Per-reviewer SessionId, keyed by reviewer name. The SessionId carries
-  // a backend phantom type that varies per reviewer; we erase to AnyRef on
-  // store and re-cast on read using the reviewer's own backend witness.
-  // The cast is sound because `name → backend` is fixed for the lifetime
-  // of the loop (enforced by the uniqueness precondition above), so the
-  // entry retrieved with a given reviewer's `RB` was written under that
-  // same `RB`. ConcurrentHashMap because reviewers fan out via `par` —
-  // different entries are written from different threads on the first
-  // iteration.
-  val reviewerSessions =
-    new java.util.concurrent.ConcurrentHashMap[String, AnyRef]()
+  // All loop state lives in one immutable case class threaded through
+  // a method-scope `var`. Within an iteration reviewers fan out via
+  // `par`, but the parallel forks read a stable snapshot and the
+  // var is reassigned exactly once after they all return — so no
+  // concurrent mutation, no `mutable.Map`, no `ConcurrentHashMap`.
+  var state: ReviewLoopState = ReviewLoopState.empty
 
   def filterByConfidence(result: ReviewResult): ReviewResult =
     ReviewResult(issues =
       result.issues.filter(_.confidence >= confidenceThreshold)
     )
 
-  /** Run a reviewer for one iteration. The first call starts a session and pins
-    * the reviewer to the captured diff; subsequent calls resume the session
-    * with a re-review prompt so the reviewer keeps continuity across iterations
-    * and stays scoped to the original change set.
+  /** Run one reviewer iteration against an immutable sessions snapshot. Returns
+    * the review result plus, on a reviewer's first call, the new `(name,
+    * SessionId)` entry that the caller should fold into the next state. Pure
+    * with respect to its inputs — no side effects on shared state — which lets
+    * the caller run many of these in parallel.
+    *
+    * The cast on the existing entry is sound because `name → backend` is fixed
+    * for the lifetime of the loop (enforced by the uniqueness precondition
+    * above): the entry retrieved with a given reviewer's `RB` was written under
+    * that same `RB`.
     */
-  def reviewWithSession[RB <: Backend](r: LlmTool[RB]): ReviewResult =
+  def reviewWithSession[RB <: Backend](
+      r: LlmTool[RB],
+      sessions: Map[String, AnyRef]
+  ): (ReviewResult, Option[(String, AnyRef)]) =
     val call = r.resultAs[ReviewResult].autonomous
-    Option(reviewerSessions.get(r.name)) match
+    sessions.get(r.name) match
       case Some(stored) =>
         val sid = stored.asInstanceOf[SessionId[RB]]
-        call.continueSession(sid, ReviewLoopPrompts.ReReview)
+        (call.continueSession(sid, ReviewLoopPrompts.ReReview), None)
       case None =>
         val (sid, result) =
           call.startSession(
             ReviewLoopPrompts.initialReview(task, effectiveDiff)
           )
-        reviewerSessions.put(r.name, sid.asInstanceOf[AnyRef])
-        result
+        (result, Some(r.name -> sid.asInstanceOf[AnyRef]))
+
+  /** A single reviewer's contribution from one parallel pass: identity,
+    * filtered result, and any new session entry the caller should fold in. The
+    * `AnyRef` payload is the `SessionId[RB]` for the `LlmTool[RB]` in the first
+    * slot — re-cast on read keyed by reviewer name.
+    */
+  type ReviewerOutcome =
+    (LlmTool[?], ReviewResult, Option[(String, AnyRef)])
+
+  /** Run all `active` reviewers concurrently against the same snapshot, then
+    * fold the new session entries into a fresh state and emit per-reviewer Step
+    * events. Splits the parallel + sequential phases so state is touched only
+    * after every fork has returned.
+    */
+  def runReviewers(
+      active: List[LlmTool[?]],
+      snapshot: ReviewLoopState
+  ): (List[(LlmTool[?], ReviewResult)], ReviewLoopState) =
+    val outcomes: List[ReviewerOutcome] =
+      par(
+        active.map: r =>
+          () =>
+            val (result, entry) = reviewWithSession(r, snapshot.sessions)
+            (r, filterByConfidence(result), entry)
+      ).toList
+    val newSessions = outcomes.foldLeft(snapshot.sessions):
+      case (acc, (_, _, Some(entry))) => acc + entry
+      case (acc, _)                   => acc
+    val results = outcomes.map((r, res, _) => (r, res))
+    val batch = ReviewBatch(results)
+    val nextState = ReviewLoopState(
+      history = batch :: snapshot.history,
+      sessions = newSessions
+    )
+    results.foreach: (reviewer, result) =>
+      ctx.emit(OrcaEvent.Step(formatReviewerOutcome(reviewer.name, result)))
+    (results, nextState)
 
   def evaluate(): ReviewResult =
-    val active = reviewerSelection(history, reviewers)
+    val active = reviewerSelection(state.history, reviewers)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(
@@ -298,14 +345,8 @@ def reviewAndFixLoop[B <: Backend](
     // Apply the confidence filter before display so what's shown matches
     // what the fixer receives — otherwise low-confidence issues are listed
     // per-reviewer but silently dropped from the fix payload.
-    val reviewerOutcomes: List[(LlmTool[?], ReviewResult)] =
-      par(
-        active.map(r => () => r -> filterByConfidence(reviewWithSession(r)))
-      ).toList
-    val batch = ReviewBatch(reviewerOutcomes)
-    history = batch :: history
-    reviewerOutcomes.foreach: (reviewer, result) =>
-      ctx.emit(OrcaEvent.Step(formatReviewerOutcome(reviewer.name, result)))
+    val (results, nextState) = runReviewers(active, state)
+    state = nextState
     val lintResult =
       lintCommand
         .zip(lintLlm)
@@ -314,7 +355,9 @@ def reviewAndFixLoop[B <: Backend](
           "lint" -> filterByConfidence(lint(cmd, llm))
     lintResult.foreach: (name, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
-    ReviewResult(issues = batch.allIssues ++ lintResult.flatMap(_._2.issues))
+    ReviewResult(issues =
+      results.flatMap(_._2.issues) ++ lintResult.flatMap(_._2.issues)
+    )
 
   def fix(issues: List[ReviewIssue]): FixOutcome =
     coder
