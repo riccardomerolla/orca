@@ -238,11 +238,15 @@ def reviewAndFixLoop[B <: Backend](
       ReviewerSelector.onlyPreviouslyReporting,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
-    /** Diff handed to each reviewer in its initial prompt. Defaults to the
-      * working-tree diff vs HEAD captured at the start of the loop, so
-      * reviewers stay scoped to the changes the fix-and-review pass should
-      * cover. Pass an explicit value to override (e.g. for tests, or when the
-      * change set has already been committed).
+    /** Override the diff handed to each reviewer in its initial prompt.
+      * Defaults to `ctx.git.diff()` re-sampled at the start of every iteration:
+      * a reviewer that joins the active set on iteration N (e.g. picked up by
+      * an `onlyPreviouslyReporting` selector after N-1 silent rounds) sees the
+      * working tree as it stands then, including the fixes from earlier
+      * iterations. Reviewers that already have a session simply
+      * `continueSession` and don't get the diff again — their session has the
+      * original framing. Pass `Some(...)` to pin the diff (tests, or when the
+      * change set has already been committed and `git.diff()` would be empty).
       */
     initialDiff: Option[String] = None
 )(using ctx: FlowContext): IgnoredIssues =
@@ -255,7 +259,11 @@ def reviewAndFixLoop[B <: Backend](
     "reviewAndFixLoop: reviewer names must be unique — " +
       "the per-reviewer session map is keyed by name"
   )
-  val effectiveDiff = initialDiff.getOrElse(ctx.git.diff())
+  // Sampled per iteration in `runReviewers`. A constant override skips
+  // the git call; the default thunk shells out fresh each iteration so a
+  // newly-active reviewer sees the latest diff rather than the
+  // loop-start one.
+  def sampleDiff(): String = initialDiff.getOrElse(ctx.git.diff())
 
   // All loop state lives in one immutable case class threaded through
   // a method-scope `var`. Within an iteration reviewers fan out via
@@ -275,6 +283,11 @@ def reviewAndFixLoop[B <: Backend](
     * with respect to its inputs — no side effects on shared state — which lets
     * the caller run many of these in parallel.
     *
+    * `currentDiff` is the working-tree diff sampled by the caller at the start
+    * of this iteration; only consumed on a reviewer's first call. Reviewers
+    * with an existing session ignore it and continue from their original
+    * framing.
+    *
     * The cast on the existing entry is sound because `name → backend` is fixed
     * for the lifetime of the loop (enforced by the uniqueness precondition
     * above): the entry retrieved with a given reviewer's `RB` was written under
@@ -282,7 +295,8 @@ def reviewAndFixLoop[B <: Backend](
     */
   def reviewWithSession[RB <: Backend](
       r: LlmTool[RB],
-      sessions: Map[String, AnyRef]
+      sessions: Map[String, AnyRef],
+      currentDiff: String
   ): (ReviewResult, Option[(String, AnyRef)]) =
     val call = r.resultAs[ReviewResult].autonomous
     sessions.get(r.name) match
@@ -292,7 +306,7 @@ def reviewAndFixLoop[B <: Backend](
       case None =>
         val (sid, result) =
           call.startSession(
-            ReviewLoopPrompts.initialReview(task, effectiveDiff)
+            ReviewLoopPrompts.initialReview(task, currentDiff)
           )
         (result, Some(r.name -> sid.asInstanceOf[AnyRef]))
 
@@ -308,16 +322,24 @@ def reviewAndFixLoop[B <: Backend](
     * fold the new session entries into a fresh state and emit per-reviewer Step
     * events. Splits the parallel + sequential phases so state is touched only
     * after every fork has returned.
+    *
+    * The diff is sampled once per call so all first-time reviewers in this
+    * iteration see the same payload — `git.diff()` from a parallel fork would
+    * also be safe (the working tree is stable during the read-only fan-out) but
+    * pre-sampling avoids redundant shell-outs.
     */
   def runReviewers(
       active: List[LlmTool[?]],
       snapshot: ReviewLoopState
   ): (List[(LlmTool[?], ReviewResult)], ReviewLoopState) =
+    val needsDiff = active.exists(r => !snapshot.sessions.contains(r.name))
+    val currentDiff = if needsDiff then sampleDiff() else ""
     val outcomes: List[ReviewerOutcome] =
       par(
         active.map: r =>
           () =>
-            val (result, entry) = reviewWithSession(r, snapshot.sessions)
+            val (result, entry) =
+              reviewWithSession(r, snapshot.sessions, currentDiff)
             (r, filterByConfidence(result), entry)
       ).toList
     val newSessions = outcomes.foldLeft(snapshot.sessions):
