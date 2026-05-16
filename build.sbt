@@ -92,8 +92,9 @@ lazy val runner = (project in file("runner"))
   )
 
 lazy val orcaRoot = (project in file("."))
-  .aggregate(tools, flow, claude, codex, runner)
+  .settings(commonSettings)
   .settings(
     publish / skip := true,
     name := "orca-root"
   )
+  .aggregate(tools, flow, claude, codex, runner)
