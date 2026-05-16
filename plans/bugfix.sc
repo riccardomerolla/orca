@@ -1,4 +1,4 @@
-//> using dep "com.virtuslab::orca:0.1.0-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.1.0-SNAPSHOT"
 //> using repository ivy2Local
 //> using jvm 21
 

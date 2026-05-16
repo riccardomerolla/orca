@@ -1,9 +1,8 @@
+import com.softwaremill.SbtSoftwareMillCommon.commonSmlBuildSettings
+import com.softwaremill.Publish.ossPublishSettings
 import Dependencies.*
 
 ThisBuild / scalaVersion := V.scala
-ThisBuild / organization := "com.virtuslab"
-ThisBuild / version := "0.1.0-SNAPSHOT"
-ThisBuild / versionScheme := Some("early-semver")
 
 ThisBuild / scalacOptions ++= Seq(
   "-release",
@@ -18,9 +17,30 @@ ThisBuild / scalacOptions ++= Seq(
 
 ThisBuild / javacOptions ++= Seq("--release", "21")
 
-lazy val commonSettings = Seq(
+lazy val commonSettings = commonSmlBuildSettings ++ ossPublishSettings ++ Seq(
+  organization := "org.virtuslab",
+  versionScheme := Some("semver-spec"),
   libraryDependencies ++= Seq(munit),
-  testFrameworks += new TestFramework("munit.Framework")
+  testFrameworks += new TestFramework("munit.Framework"),
+  homepage := Some(url("https://github.com/VirtusLab/orca")),
+  organizationHomepage := Some(url("https://virtuslab.com")),
+  licenses := Seq(
+    "Apache 2.0" -> url("http://www.apache.org/licenses/LICENSE-2.0")
+  ),
+  scmInfo := Some(
+    ScmInfo(
+      url("https://github.com/VirtusLab/orca"),
+      "scm:git:git@github.com:VirtusLab/orca.git"
+    )
+  ),
+  developers := List(
+    Developer(
+      id = "virtuslab",
+      name = "VirtusLab",
+      email = "info@virtuslab.com",
+      url = url("https://virtuslab.com")
+    )
+  )
 )
 
 lazy val tools = (project in file("tools"))
@@ -74,6 +94,6 @@ lazy val runner = (project in file("runner"))
 lazy val orcaRoot = (project in file("."))
   .aggregate(tools, flow, claude, codex, runner)
   .settings(
-    name := "orca-root",
-    publish / skip := true
+    publish / skip := true,
+    name := "orca-root"
   )

@@ -241,7 +241,7 @@ Ship it.
 | 10.3 | README | Project overview, quickstart, installation, link to design doc. | |
 | 10.4 | End-to-end CI test | CI job that `publishLocal` → runs an example `.sc` with a mocked backend → verifies output. | |
 
-**Exit criteria**: Library published to Maven Central. `//> using dep "com.virtuslab::orca:0.1"` works. README and examples exist.
+**Exit criteria**: Library published to Maven Central. `//> using dep "org.virtuslab::orca:0.1"` works. README and examples exist.
 
 ---
 

@@ -7,7 +7,7 @@ Deterministic agentic software development.
 Orca is a Scala library for defining and executing development workflows — planning, coding, review, fix, create PR — as composable, type-safe scripts. The actual coding, reviews, and LLM interactions are delegated to backends (Claude Code, Codex). Orca provides the orchestration: structured I/O, session management, autonomous and interactive execution, and tool integrations (with Slack and other channels on the roadmap).
 
 ```scala
-//> using dep "com.virtuslab::orca:0.1"
+//> using dep "org.virtuslab::orca:0.1"
 //> using jvm 21
 import orca.{*, given}
 
@@ -398,14 +398,14 @@ cd orca && sbt ~publishLocal
 scala-cli run --ttl 0 my-flow.sc
 ```
 
-Script: `//> using repository ivy2Local` + `//> using dep com.virtuslab::orca:0.1-SNAPSHOT`. `--ttl 0` defeats Coursier's cache. Production: Maven Central.
+Script: `//> using repository ivy2Local` + `//> using dep org.virtuslab::orca:0.1-SNAPSHOT`. `--ttl 0` defeats Coursier's cache. Production: Maven Central.
 
 ## Example flow
 
 Full development lifecycle — plan, code, lint, review, PR, CI fix loop, ignored issues:
 
 ```scala
-//> using dep "com.virtuslab::orca:0.1"
+//> using dep "org.virtuslab::orca:0.1"
 //> using jvm 21
 import orca.{*, given}
 

@@ -17,14 +17,17 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     20.minutes
 
   /** Memoise the publishLocal step across the suite's tests — every script here
-    * links against the same `0.1.0-SNAPSHOT`, so re-publishing once per test
-    * would just multiply the slowest step. The fixture runs once per suite,
-    * fails fast if sbt fails, and feeds the resolved repo root into each test
-    * that needs it.
+    * links against the same dynver-computed version, so re-publishing once per
+    * test would just multiply the slowest step. The fixture runs once per
+    * suite, fails fast if sbt fails, and exposes both the repo root and the
+    * published version (read back from sbt because dynver derives it from git
+    * state rather than a static literal).
     */
-  private val publishedRepo = new munit.Fixture[os.Path]("publishedRepo"):
-    private var resolved: os.Path = null
-    override def apply(): os.Path = resolved
+  case class Published(repoRoot: os.Path, version: String)
+
+  private val publishedRepo = new munit.Fixture[Published]("publishedRepo"):
+    private var resolved: Published = null
+    override def apply(): Published = resolved
     override def beforeAll(): Unit =
       val repoRoot = findRepoRoot()
       val publishResult = os
@@ -35,7 +38,15 @@ class ScalaCliSmokeTest extends munit.FunSuite:
         0,
         s"publishLocal failed: ${publishResult.err.text()}"
       )
-      resolved = repoRoot
+      val versionResult = os
+        .proc("sbt", "--error", "print version")
+        .call(cwd = repoRoot, check = false)
+      assertEquals(
+        versionResult.exitCode,
+        0,
+        s"reading version failed: ${versionResult.err.text()}"
+      )
+      resolved = Published(repoRoot, versionResult.out.text().trim)
 
   override def munitFixtures: Seq[munit.AnyFixture[?]] = Seq(publishedRepo)
 
@@ -44,18 +55,19 @@ class ScalaCliSmokeTest extends munit.FunSuite:
   ):
     val scriptDir = os.temp.dir()
     val script = scriptDir / "hello.sc"
+    val version = publishedRepo().version
     os.write(
       script,
-      """//> using scala 3.3.6
-        |//> using repository ivy2Local
-        |//> using dep com.virtuslab::orca:0.1.0-SNAPSHOT
-        |//> using jvm 21
-        |
-        |import orca.{*, given}
-        |
-        |flow(args = OrcaArgs("smoke test")):
-        |  println(s"userPrompt=$userPrompt")
-        |""".stripMargin
+      s"""//> using scala 3.3.6
+         |//> using repository ivy2Local
+         |//> using dep org.virtuslab::orca:$version
+         |//> using jvm 21
+         |
+         |import orca.{*, given}
+         |
+         |flow(args = OrcaArgs("smoke test")):
+         |  println(s"userPrompt=$$userPrompt")
+         |""".stripMargin
     )
 
     val runResult = os
@@ -86,7 +98,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     */
   for relPath <- examples do
     test(s"example $relPath compiles via scala-cli"):
-      val repoRoot = publishedRepo()
+      val repoRoot = publishedRepo().repoRoot
       val scriptPath = repoRoot / "examples" / os.RelPath(relPath)
       val result = os
         .proc("scala-cli", "compile", scriptPath.toString)
