@@ -1,5 +1,6 @@
 import com.softwaremill.SbtSoftwareMillCommon.commonSmlBuildSettings
-import com.softwaremill.Publish.ossPublishSettings
+import com.softwaremill.Publish.{ossPublishSettings, updateDocs}
+import com.softwaremill.UpdateVersionInDocs
 import Dependencies.*
 
 ThisBuild / scalaVersion := V.scala
@@ -95,6 +96,33 @@ lazy val orcaRoot = (project in file("."))
   .settings(commonSettings)
   .settings(
     publish / skip := true,
-    name := "orca-root"
+    name := "orca-root",
+    // Chain two passes so both coord forms get bumped: sbt-style
+    // `"org" %% "name" % "ver"` (the stock `UpdateVersionInDocs`) and scala-cli
+    // `using dep "org::name:ver"` (the form Orca's flow scripts and READMEs
+    // actually use today).
+    updateDocs := {
+      val log = sLog.value
+      val org = organization.value
+      val ver = version.value
+      val sbtCoords =
+        UpdateVersionInDocs(log, org, ver, List(file("README.md")))
+      val scalaCliCoords = UpdateScalaCliVersionInDocs(
+        log,
+        org,
+        ver,
+        List(
+          file("README.md"),
+          file("AGENTS.md"),
+          file("plans"),
+          file("examples")
+        )
+      )
+      (sbtCoords ++ scalaCliCoords).distinct
+    },
+    // Subprojects inherit the stock `UpdateVersionInDocs`-backed `updateDocs`
+    // from ossPublishSettings; disable aggregation so `release` doesn't also
+    // invoke each of them (they'd noisily warn about missing `doc`/`docs`).
+    updateDocs / aggregate := false
   )
   .aggregate(tools, flow, claude, codex, runner)
