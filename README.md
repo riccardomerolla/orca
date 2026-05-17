@@ -23,7 +23,7 @@ Save this as `implement.sc` and run it with your task (until Orca is published,
 you might need to publish the library locally first, see below):
 
 ```scala
-//> using dep "org.virtuslab::orca:0.0.1"
+//> using dep "org.virtuslab::orca:0.0.2"
 //> using repository ivy2Local
 //> using jvm 21
 

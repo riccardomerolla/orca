@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.1"
+//> using dep "org.virtuslab::orca:0.0.2"
 //> using repository ivy2Local
 //> using jvm 21
 
