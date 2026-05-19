@@ -1,4 +1,4 @@
-package orca
+package orca.util
 
 /** One place that knows which `ORCA_*` debug environment variables exist. The
   * flags are read once at object initialization (env vars don't change
@@ -9,7 +9,7 @@ package orca
   * terminal-rendering specific; this object covers only the debug/diagnostic
   * switches that more than one module reads.
   */
-object OrcaDebug:
+private[orca] object OrcaDebug:
 
   /** `ORCA_DEBUG=1` — print full JVM stack traces on errors that the stage
     * machinery would otherwise format. Read by [[orca.flow]].

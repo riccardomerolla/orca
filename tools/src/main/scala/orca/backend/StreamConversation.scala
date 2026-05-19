@@ -2,7 +2,8 @@ package orca.backend
 
 import orca.llm.BackendTag
 import orca.subprocess.PipedCliProcess
-import orca.{OrcaDebug, OrcaFlowException, OrcaInteractiveCancelled}
+import orca.util.OrcaDebug
+import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
