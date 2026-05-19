@@ -1,5 +1,8 @@
 package orca
 
+import orca.tools.fs.FsTool
+import orca.tools.git.GitTool
+import orca.tools.github.GitHubTool
 import orca.llm.{ClaudeTool, CodexTool}
 
 // Top-level accessors that resolve against the ambient FlowContext.

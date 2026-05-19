@@ -2,6 +2,9 @@ package orca
 
 import _root_.orca.backend.Interaction
 import _root_.orca.events.{CostTracker, EventDispatcher, OrcaListener}
+import _root_.orca.tools.fs.FsTool
+import _root_.orca.tools.git.GitTool
+import _root_.orca.tools.github.GitHubTool
 import _root_.orca.io.DefaultPrompts
 import _root_.orca.llm.{ClaudeTool, CodexTool, Prompts}
 import _root_.orca.runner.DefaultFlowContext

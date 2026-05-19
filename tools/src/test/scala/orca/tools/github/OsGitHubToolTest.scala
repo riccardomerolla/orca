@@ -1,16 +1,16 @@
 package orca.tools.github
 
-import orca.{
+import orca.tools.github.{
   BuildOutcome,
   BuildTimedOut,
   Comment,
   Issue,
   IssueHandle,
   NoCommitsToPr,
-  OrcaFlowException,
   PrAlreadyExists,
   PrHandle
 }
+import orca.{OrcaFlowException}
 import orca.subprocess.{CliResult, StubCliRunner}
 import ox.either.orThrow
 

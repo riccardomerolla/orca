@@ -1,12 +1,10 @@
 package orca
 
-import orca.events.{
-  CostTracker,
-  EventDispatcher,
-  OrcaEvent,
-  OrcaListener,
-  Usage
-}
+import orca.events.{EventDispatcher, OrcaEvent}
+import orca.llm.{ClaudeTool, CodexTool}
+import orca.tools.fs.FsTool
+import orca.tools.git.GitTool
+import orca.tools.github.GitHubTool
 
 /** Minimal FlowContext stub for unit-testing stage/fail and other helpers that
   * only touch `emit` + `userPrompt`. Tool accessors are lazy so merely

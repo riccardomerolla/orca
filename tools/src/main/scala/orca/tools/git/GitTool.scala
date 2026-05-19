@@ -1,4 +1,6 @@
-package orca
+package orca.tools.git
+
+import orca.OrcaFlowException
 
 case class CommitInfo(hash: String, message: String, author: String)
 

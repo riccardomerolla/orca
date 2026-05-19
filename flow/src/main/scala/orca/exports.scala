@@ -35,4 +35,12 @@ export orca.review.{
   ReviewIssue,
   ReviewResult
 }
+export orca.tools.github.{
+  BuildOutcome,
+  BuildStatus,
+  Comment,
+  Issue,
+  IssueHandle,
+  PrHandle
+}
 export ox.either.orThrow

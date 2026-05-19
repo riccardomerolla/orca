@@ -1,4 +1,4 @@
-package orca
+package orca.tools.fs
 
 /** Filesystem adapter usable from flow scripts — the handle behind the `fs`
   * accessor. Reads, writes, and globs files against the flow's working

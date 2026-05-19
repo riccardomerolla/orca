@@ -1,13 +1,14 @@
 package orca.tools.git
 
-import orca.events.{OrcaEvent, OrcaListener}
-import orca.{
+import orca.tools.git.{
   BranchAlreadyExists,
   BranchNotFound,
   NothingToCommit,
   WorktreeAddFailed,
   WorktreeNotFound
 }
+import orca.events.{OrcaEvent, OrcaListener}
+
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
 

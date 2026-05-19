@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.tools.fs.{FsTool}
 import orca.llm.{
   Announce,
   AutonomousTextCall,
@@ -12,7 +13,7 @@ import orca.llm.{
 }
 import orca.events.{CostTracker, OrcaEvent, Usage}
 import _root_.orca.runner.terminal.TerminalInteraction
-import orca.{FlowContext, FsTool, fs, flow, OrcaArgs}
+import orca.{FlowContext, fs, flow, OrcaArgs}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 

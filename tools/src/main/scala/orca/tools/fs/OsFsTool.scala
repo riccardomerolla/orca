@@ -1,7 +1,6 @@
 package orca.tools.fs
 
-import orca.FsTool
-
+import orca.tools.fs.{FsTool}
 import java.nio.file.FileSystems
 
 /** `FsTool` implementation backed by os-lib. Path resolution and glob semantics

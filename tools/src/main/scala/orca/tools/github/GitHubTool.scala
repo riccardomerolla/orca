@@ -1,4 +1,6 @@
-package orca
+package orca.tools.github
+
+import orca.OrcaFlowException
 
 import scala.concurrent.duration.FiniteDuration
 
