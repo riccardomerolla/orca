@@ -81,6 +81,32 @@ All tool methods throw on failure (e.g., `git push` fails → exception). Flow a
 
 ## Architecture
 
+### Package layout
+
+The library is organised so `import orca.{*, given}` exposes only the names
+flow scripts actually write. Everything else lives in a sub-package that
+implementers and advanced callers opt into explicitly.
+
+| Package | Contents |
+|---|---|
+| `orca` | Flow DSL — `flow`, `stage`, `fail`, accessors (`claude`, `codex`, `git`, `gh`, `fs`, `userPrompt`), `OrcaArgs`, `FlowContext`, `OrcaFlowException`, `OrcaInteractiveCancelled`, `OrcaDebug`. Plus a thin `exports.scala` re-exporting the user surface from sub-packages. |
+| `orca.events` | Flow-wide event log: `OrcaEvent`, `OrcaListener`, `EventDispatcher`, `CostTracker`, `Usage`. |
+| `orca.llm` | LLM call API: `LlmTool` / `ClaudeTool` / `CodexTool` / `LlmCall`, `LlmConfig`, `AutoApprove`, `UnapprovedPolicy`, `BackendTag`, `SessionId`, `JsonData`, `Announce`, `AgentInput`, `Prompts`. |
+| `orca.backend` | LLM SPI (implemented per backend, never named in scripts): `LlmBackend`, `LlmResult`, `Conversation`, `ConversationEvent` (+ `ApprovalDecision`), `Interaction`. |
+| `orca.tools.git`, `orca.tools.github`, `orca.tools.fs` | Tool traits (`GitTool`, `GitHubTool`, `FsTool`) co-located with their default `Os*` implementations. User-facing data types from `orca.tools.github` (`Issue`, `IssueHandle`, `PrHandle`, `Comment`, `BuildStatus`, `BuildOutcome`) are re-exported from `orca`. |
+| `orca.plan`, `orca.bug`, `orca.review` | Higher-level workflow APIs and their domain types. The user-callable entry points are re-exported from `orca`. |
+| `orca.io`, `orca.subprocess` | Internal helpers (default prompts, CLI runner, schema generation, stream parsing); not part of the user surface. |
+| `orca.tools.{claude, codex}` | Concrete LLM backend implementations. |
+
+`orca/exports.scala` re-exports the user-facing subset of every sub-package
+into the root `orca` namespace, so the standard `import orca.{*, given}`
+continues to pick up `LlmTool`, `Plan`, `IssueHandle`, etc. without
+sub-package imports. Sub-packages exist for navigability and to keep the
+root namespace focused. Backend authors writing a new `LlmBackend` import
+`orca.backend.*`; channel authors writing a new `Interaction` import
+`orca.backend.{Conversation, ...}`; flow scripts import nothing more than
+`orca.{*, given}`.
+
 ### Tool traits
 
 ```scala
