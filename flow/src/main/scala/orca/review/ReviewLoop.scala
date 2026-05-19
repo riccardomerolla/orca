@@ -195,12 +195,15 @@ private case class FixRequest(
 
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` maps a reviewer's
-  * name to the opaque `SessionId` from its first `startSession` call (erased to
-  * `AnyRef`; re-cast to the reviewer's own `SessionId[RB]` on read).
+  * name to the opaque `SessionId` from its first `startSession` call. The
+  * stored value is tag-erased (`SessionId.Untyped`) because different reviewers
+  * may run on different backends — recover the concrete `SessionId[RB]` with
+  * `.as[RB]` at read time, keyed by reviewer name. See [[reviewWithSession]]
+  * for the invariant that makes the recovery safe.
   */
 private case class ReviewLoopState(
     history: List[ReviewBatch],
-    sessions: Map[String, AnyRef]
+    sessions: Map[String, SessionId.Untyped]
 )
 private object ReviewLoopState:
   val empty: ReviewLoopState = ReviewLoopState(Nil, Map.empty)
@@ -282,35 +285,34 @@ def reviewAndFixLoop[B <: BackendTag](
     * with an existing session ignore it and continue from their original
     * framing.
     *
-    * The cast on the existing entry is sound because `name → backend` is fixed
+    * The `stored.as[RB]` recovery is sound because `name → backend` is fixed
     * for the lifetime of the loop (enforced by the uniqueness precondition
     * above): the entry retrieved with a given reviewer's `RB` was written under
     * that same `RB`.
     */
   def reviewWithSession[RB <: BackendTag](
       r: LlmTool[RB],
-      sessions: Map[String, AnyRef],
+      sessions: Map[String, SessionId.Untyped],
       currentDiff: String
-  ): (ReviewResult, Option[(String, AnyRef)]) =
+  ): (ReviewResult, Option[(String, SessionId.Untyped)]) =
     val call = r.resultAs[ReviewResult].autonomous
     sessions.get(r.name) match
       case Some(stored) =>
-        val sid = stored.asInstanceOf[SessionId[RB]]
-        (call.continueSession(sid, ReviewLoopPrompts.ReReview), None)
+        (call.continueSession(stored.as[RB], ReviewLoopPrompts.ReReview), None)
       case None =>
         val (sid, result) =
           call.startSession(
             ReviewLoopPrompts.initialReview(task, currentDiff)
           )
-        (result, Some(r.name -> sid.asInstanceOf[AnyRef]))
+        (result, Some(r.name -> SessionId.Untyped.from(sid)))
 
   /** A single reviewer's contribution from one parallel pass: identity,
     * filtered result, and any new session entry the caller should fold in. The
-    * `AnyRef` payload is the `SessionId[RB]` for the `LlmTool[RB]` in the first
-    * slot — re-cast on read keyed by reviewer name.
+    * `SessionId.Untyped` payload is the `SessionId[RB]` for the `LlmTool[RB]`
+    * in the first slot — re-cast on read keyed by reviewer name.
     */
   type ReviewerOutcome =
-    (LlmTool[?], ReviewResult, Option[(String, AnyRef)])
+    (LlmTool[?], ReviewResult, Option[(String, SessionId.Untyped)])
 
   /** Run all `active` reviewers concurrently against the same snapshot, then
     * fold the new session entries into a fresh state and emit per-reviewer Step
