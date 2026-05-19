@@ -2,13 +2,7 @@ package orca.plan
 
 import orca.plan.Title
 import orca.llm.{JsonData}
-import orca.events.{
-  CostTracker,
-  EventDispatcher,
-  OrcaEvent,
-  OrcaListener,
-  Usage
-}
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,

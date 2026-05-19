@@ -1,6 +1,5 @@
 package orca.tools.github
 
-import orca.tools.github.{PrHandle}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against the real `gh` CLI. Gated on the `ORCA_INTEGRATION`

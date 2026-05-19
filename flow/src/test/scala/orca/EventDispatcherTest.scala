@@ -1,12 +1,6 @@
 package orca
 
-import orca.events.{
-  CostTracker,
-  EventDispatcher,
-  OrcaEvent,
-  OrcaListener,
-  Usage
-}
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
 import java.util.concurrent.atomic.AtomicReference
 

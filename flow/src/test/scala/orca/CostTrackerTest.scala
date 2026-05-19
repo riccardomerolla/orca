@@ -1,12 +1,6 @@
 package orca
 
-import orca.events.{
-  CostTracker,
-  EventDispatcher,
-  OrcaEvent,
-  OrcaListener,
-  Usage
-}
+import orca.events.{CostTracker, OrcaEvent, Usage}
 
 class CostTrackerTest extends munit.FunSuite:
 

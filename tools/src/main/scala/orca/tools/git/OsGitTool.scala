@@ -1,18 +1,7 @@
 package orca.tools.git
 
-import orca.tools.git.{
-  BranchAlreadyExists,
-  BranchNotFound,
-  CommitInfo,
-  GitTool,
-  NothingToCommit,
-  PushRejected,
-  Worktree,
-  WorktreeAddFailed,
-  WorktreeNotFound
-}
+import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.{OrcaFlowException}
 import orca.subprocess.QuietProc
 import ox.either.orThrow
 

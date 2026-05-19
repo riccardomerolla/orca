@@ -5,6 +5,8 @@ import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.retry
 
+private case class FailedAttempt(response: String, parserError: String)
+
 /** Default implementation of [[LlmCall]] for any backend.
   *
   * The trait splits into `autonomous` and `interactive` sibling objects so the
@@ -20,8 +22,6 @@ import ox.resilience.retry
   *     user steering. No retry: the user is steering, and a parse failure on
   *     the final payload is more useful surfaced than silently relaunched.
   */
-private case class FailedAttempt(response: String, parserError: String)
-
 class DefaultLlmCall[B <: BackendTag, O](
     backend: LlmBackend[B],
     effectiveConfig: LlmConfig => LlmConfig,

@@ -1,19 +1,6 @@
 package orca.tools.github
 
-import orca.tools.github.{
-  BuildOutcome,
-  BuildStatus,
-  BuildTimedOut,
-  Comment,
-  GitHubTool,
-  Issue,
-  IssueHandle,
-  NoCommitsToPr,
-  PrAlreadyExists,
-  PrCreateFailed,
-  PrHandle
-}
-import orca.{OrcaFlowException}
+import orca.OrcaFlowException
 import orca.subprocess.CliRunner
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{

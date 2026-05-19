@@ -1,12 +1,5 @@
 package orca.tools.git
 
-import orca.tools.git.{
-  BranchAlreadyExists,
-  BranchNotFound,
-  NothingToCommit,
-  WorktreeAddFailed,
-  WorktreeNotFound
-}
 import orca.events.{OrcaEvent, OrcaListener}
 
 import ox.either.orThrow

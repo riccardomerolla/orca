@@ -1,6 +1,6 @@
 package orca
 
-import orca.llm.{AgentInput, JsonData, given}
+import orca.llm.{AgentInput, JsonData}
 
 case class User(name: String, age: Int) derives JsonData
 

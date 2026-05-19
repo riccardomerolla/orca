@@ -1,6 +1,5 @@
 package orca
 
-import orca.OrcaFlowException
 import mainargs.{Flag, ParserForClass, arg}
 
 /** Parsed command-line arguments for the `orca` entry point. */
