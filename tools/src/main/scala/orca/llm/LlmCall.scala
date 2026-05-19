@@ -5,7 +5,48 @@ import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.retry
 
-private case class FailedAttempt(response: String, parserError: String)
+/** Structured-output gateway — obtained via `tool.resultAs[O]`. Splits the
+  * autonomous-vs-interactive choice into two sibling objects so the call site
+  * always shows which mode it picked.
+  */
+trait LlmCall[B <: BackendTag, O]:
+  def autonomous: AutonomousLlmCall[B, O]
+  def interactive: InteractiveLlmCall[B, O]
+
+/** Autonomous structured calls — single agentic turn, no human in the loop.
+  * `run` returns just `O`; `startSession` / `continueSession` retain the
+  * session id alongside `O` so callers can continue the same context.
+  */
+trait AutonomousLlmCall[B <: BackendTag, O]:
+  def run[I: AgentInput](
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): O
+  def startSession[I: AgentInput](
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): (SessionId[B], O)
+  def continueSession[I: AgentInput](
+      sessionId: SessionId[B],
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): O
+
+/** Interactive structured calls — open a conversation the user can drive
+  * (clarifying questions, refinements) before the agent produces the final
+  * structured `O`. No `run` because an interactive call without a session id to
+  * follow up on doesn't make sense — the conversation IS the session.
+  */
+trait InteractiveLlmCall[B <: BackendTag, O]:
+  def startSession[I: AgentInput](
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): (SessionId[B], O)
+  def continueSession[I: AgentInput](
+      sessionId: SessionId[B],
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): O
 
 /** Default implementation of [[LlmCall]] for any backend.
   *
@@ -173,3 +214,5 @@ class DefaultLlmCall[B <: BackendTag, O](
     val parsed = ResponseParser.parse[O](result.output)
     emitStructuredResult(result.output, parsed)
     (result.sessionId, parsed)
+
+private case class FailedAttempt(response: String, parserError: String)

@@ -108,6 +108,28 @@ root namespace focused. Backend authors writing a new `LlmBackend` import
 `orca.backend.{Conversation, ...}`; flow scripts import nothing more than
 `orca.{*, given}`.
 
+### Trait + canonical default: one file
+
+A trait and its single canonical implementation share one file, named after
+the trait. Examples in this codebase: `LlmCall.scala` contains
+`trait LlmCall` + `class DefaultLlmCall`; `FsTool.scala` contains
+`trait FsTool` + `class OsFsTool`; `GitTool.scala` / `GitHubTool.scala` /
+`Prompts.scala` follow the same shape.
+
+This rule applies when:
+1. Exactly one usable implementation lives in the same module as the trait.
+2. The implementation is a final, ready-to-instantiate class — not an
+   abstract base, not scaffolding.
+
+Conventional names for the default: `Default*` (pure-Scala) or `Os*`
+(OS-backed).
+
+Split into separate files when a second peer implementation appears
+(`ClaudeBackend` + `CodexBackend`), when the implementation lives in a
+different module from the trait (`Interaction` in `tools` vs.
+`TerminalInteraction` in `runner`), or when the "implementation" is an
+abstract base others extend (`StreamConversation`, `AbstractDefaultLlmTool`).
+
 ### Tool traits
 
 ```scala
