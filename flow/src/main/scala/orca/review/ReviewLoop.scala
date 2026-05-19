@@ -296,21 +296,31 @@ def reviewAndFixLoop[B <: BackendTag](
     // Apply the confidence filter before display so what's shown matches
     // what the fixer receives — otherwise low-confidence issues are listed
     // per-reviewer but silently dropped from the fix payload.
-    val (results, nextState) = runReviewers(active, state)
-    state = nextState
-    val lintResult =
-      lintCommand
-        .zip(lintLlm)
-        .toList
-        .map: (cmd, llm) =>
+    //
+    // Reviewers and lint run concurrently when both are present — `par` joins
+    // on the slowest of the two branches, so wall time is max(reviewers,
+    // lint) rather than their sum. The snapshot capture is defensive: `state`
+    // is a class-level var only the main thread writes, but reading it into
+    // a val before the parallel fork keeps that contract explicit.
+    val snapshot = state
+    val ((results, nextState), lintResult) =
+      lintCommand.zip(lintLlm) match
+        case Some((cmd, llm)) =>
           // Group lint tokens under the same `reviewer: …` prefix as the
           // dimension reviewers; the renamed copy stays local to this call.
           val labelled = llm.withName("reviewer: lint")
-          "reviewer: lint" -> filterByConfidence(lint(cmd, labelled))
+          val (r, l) = par(
+            runReviewers(active, snapshot),
+            "reviewer: lint" -> filterByConfidence(lint(cmd, labelled))
+          )
+          (r, Some(l))
+        case None =>
+          (runReviewers(active, snapshot), None)
+    state = nextState
     lintResult.foreach: (name, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
     ReviewResult(issues =
-      results.flatMap(_._2.issues) ++ lintResult.flatMap(_._2.issues)
+      results.flatMap(_._2.issues) ++ lintResult.toList.flatMap(_._2.issues)
     )
 
   def fix(issues: List[ReviewIssue]): FixOutcome =

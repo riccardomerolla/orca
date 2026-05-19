@@ -273,3 +273,69 @@ class ReviewAndFixTest extends munit.FunSuite:
       select(List(fakeBatch), all).map(_.name),
       List("performance", "test-coverage")
     )
+
+  test("lint runs concurrently with reviewers (deterministic via latch)"):
+    given FlowContext = ctx
+    // Two-party rendezvous: each branch counts down on entry and awaits the
+    // other. If the loop runs them sequentially the second branch never
+    // starts (first is blocked on await) — the awaits time out and the test
+    // fails. Concurrent execution releases both and proceeds.
+    val rendezvous = new java.util.concurrent.CountDownLatch(2)
+    val timeoutMs = 2000L
+
+    class RendezvousReviewer(label: String)
+        extends LlmTool[BackendTag.ClaudeCode.type]:
+      val name = label
+      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
+      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+        this
+      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+      def resultAs[O: JsonData: Announce]
+          : LlmCall[BackendTag.ClaudeCode.type, O] =
+        new LlmCall[BackendTag.ClaudeCode.type, O]:
+          val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
+            new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+              private def rendezvousThen(): O =
+                rendezvous.countDown()
+                val ok = rendezvous.await(
+                  timeoutMs,
+                  java.util.concurrent.TimeUnit.MILLISECONDS
+                )
+                if !ok then
+                  fail(
+                    s"$label timed out waiting for the other branch — " +
+                      "they ran sequentially"
+                  )
+                ReviewResult.empty.asInstanceOf[O]
+              def run[I: AgentInput](
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): O = rendezvousThen()
+              def startSession[I: AgentInput](
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): (SessionId[BackendTag.ClaudeCode.type], O) =
+                (
+                  SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
+                  rendezvousThen()
+                )
+              def continueSession[I: AgentInput](
+                  s: SessionId[BackendTag.ClaudeCode.type],
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): O = ???
+          def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
+            ???
+
+    val _ = reviewAndFixLoop(
+      coder = new FakeLlmTool("coder"),
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(new RendezvousReviewer("reviewer")),
+      task = "concurrency check",
+      // echo emits output so `lint` doesn't short-circuit on empty stdout
+      // and actually calls the (rendezvousing) LLM summariser.
+      lintCommand = Some("echo lint-output"),
+      lintLlm = Some(new RendezvousReviewer("lint")),
+      initialDiff = Some("")
+    )
