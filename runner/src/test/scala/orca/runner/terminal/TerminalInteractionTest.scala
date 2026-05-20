@@ -3,16 +3,28 @@ package orca.runner.terminal
 import orca.events.{OrcaEvent, Usage}
 import java.io.{ByteArrayOutputStream, PrintStream}
 
+/** These tests exercise the renderer's synchronous state-mutation behaviour,
+  * not the worker-thread plumbing. They go directly through
+  * `TerminalRendererState`, bypassing `TerminalInteraction`'s mailbox so the
+  * test reads output immediately rather than racing the worker thread.
+  */
 class TerminalInteractionTest extends munit.FunSuite:
 
   private def renderEvents(events: List[OrcaEvent]): String =
+    renderWith(animated = false, events)
+
+  private def renderWith(
+      animated: Boolean,
+      events: List[OrcaEvent]
+  ): String =
     val buf = new ByteArrayOutputStream()
-    val interaction = new TerminalInteraction(
+    val state = new TerminalRendererState(
       out = new PrintStream(buf),
       useColor = false,
-      animated = false
+      animated = animated,
+      workDir = None
     )
-    events.foreach(e => interaction.listeners.head.onEvent(e))
+    events.foreach(state.onEvent)
     buf.toString
 
   test("StageStarted prints a ▶ line; StageCompleted is silent in the log"):
@@ -88,29 +100,25 @@ class TerminalInteractionTest extends munit.FunSuite:
   test(
     "status bar shows only the innermost stage (no breadcrumb concatenation)"
   ):
-    val buf = new ByteArrayOutputStream()
-    val interaction = new TerminalInteraction(
-      out = new PrintStream(buf),
-      useColor = false,
-      animated = true
+    val rendered = renderWith(
+      animated = true,
+      List(
+        OrcaEvent.StageStarted(
+          "Implement task: very long task title that would dominate"
+        ),
+        OrcaEvent.StageStarted("Implementation")
+      )
     )
-    val listener = interaction.listeners.head
-    val outerName = "Implement task: very long task title that would dominate"
-    val innerName = "Implementation"
-    listener.onEvent(OrcaEvent.StageStarted(outerName))
-    listener.onEvent(OrcaEvent.StageStarted(innerName))
-    val rendered = buf.toString
     // Find the most recent status redraw — the bytes after the last
-    // ClearLine escape (`\r[2K`). Both names land in the event
-    // log via the `▶` lines, but the status bar should only pin the
-    // innermost.
-    val tail = rendered.split("\\[2K").last
+    // ClearLine escape (`\r[2K`). Both names land in the event log via
+    // the `▶` lines, but the status bar should only pin the innermost.
+    val tail = rendered.split("\\[2K").last
     assert(
-      tail.contains(innerName),
+      tail.contains("Implementation"),
       s"status bar should pin the innermost stage; tail was: '$tail'"
     )
     assert(
-      !tail.contains(outerName),
+      !tail.contains("very long task title"),
       s"outer stage title leaked into the status bar; tail was: '$tail'"
     )
 

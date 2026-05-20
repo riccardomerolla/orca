@@ -1,11 +1,13 @@
 package orca.runner.terminal
 
-import orca.llm.{BackendTag}
-import orca.events.{OrcaEvent, OrcaListener}
-
 import orca.backend.{Conversation, Interaction, LlmResult}
+import orca.events.{OrcaEvent, OrcaListener}
+import orca.llm.BackendTag
 
 import java.io.PrintStream
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.{CompletableFuture, LinkedBlockingQueue}
+import scala.util.control.NonFatal
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
   * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
@@ -25,6 +27,15 @@ import java.io.PrintStream
   * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8 default
   * charset the caller should pass a PrintStream constructed with `new
   * PrintStream(out, true, "UTF-8")`.
+  *
+  * Internally: a single daemon virtual thread serializes every access to the
+  * underlying [[TerminalRendererState]]. Listener events are submitted with
+  * `tell`-style fire-and-forget; `drive` submits an `ask`-style request and
+  * blocks the caller until the worker finishes the conversation. While `drive`
+  * runs, listener events queue and flush in order after it returns (which is
+  * fine — the conversation renderer owns the terminal during a driven session).
+  * [[close]] drains any pending submissions and joins the worker; the runtime
+  * calls it from `flow(...)` in `finally`.
   */
 class TerminalInteraction(
     out: PrintStream = System.err,
@@ -33,128 +44,82 @@ class TerminalInteraction(
     workDir: Option[os.Path] = None
 ) extends Interaction:
 
-  import TerminalInteraction.*
+  private val state =
+    new TerminalRendererState(out, useColor, animated, workDir)
 
-  private val depthCounter = new StageDepth
-  private val statusBar =
-    new StatusBar(out, useColor = useColor, animated = animated)
-  private val stages = new StageStack
-  // Protects the combined push/pop+show-status updates triggered by
-  // StageStarted / StageCompleted; emitted from parallel forks would
-  // otherwise race the var-backed StageDepth and StageStack.
-  // Step / Error / StructuredResult / ToolUse handlers route through the
-  // already-synchronized StatusBar.appendLog; they take stateLock only
-  // briefly to snapshot the indent so the indent and the printed text
-  // stay consistent across concurrent emits.
-  private val stateLock = new Object
-  private val listener = new TerminalListener
-  private val listenersList: List[OrcaListener] = List(listener)
+  /** Sealed task type for the worker mailbox: a `TerminalRendererState => Unit`
+    * thunk, or a sentinel that tells the worker to exit.
+    */
+  private sealed trait Task
+  private case class Run(f: TerminalRendererState => Unit) extends Task
+  private case object Stop extends Task
+
+  private val mailbox = new LinkedBlockingQueue[Task]()
+
+  private val closed = new AtomicBoolean(false)
+
+  private val worker: Thread = Thread
+    .ofVirtual()
+    .name("orca-terminal-renderer")
+    .start: () =>
+      var running = true
+      while running do
+        mailbox.take() match
+          case Stop => running = false
+          case Run(f) =>
+            try f(state)
+            catch
+              // Interrupt = wind down cleanly. Restore the interrupt flag
+              // so anything else on this thread observes it.
+              case _: InterruptedException =>
+                Thread.currentThread().interrupt()
+                running = false
+              // Recoverable renderer-side bug — log to stderr (best-effort,
+              // since stderr might be what we just failed to write to) and
+              // keep draining the mailbox so the flow can proceed to a clean
+              // shutdown. Fatal throwables (OOM, StackOverflow) propagate
+              // and let the JVM die loudly.
+              case NonFatal(t) =>
+                System.err.println(
+                  s"[orca-terminal-renderer] swallowed: $t"
+                )
+
+  private val listenersList: List[OrcaListener] = List: (e: OrcaEvent) =>
+    val _ = mailbox.put(Run(_.onEvent(e)))
 
   def listeners: List[OrcaListener] = listenersList
 
-  /** Drive a live conversation to completion. Delegates to
-    * [[TerminalConversationRenderer]] for the per-event rendering +
-    * approval-prompt machinery; this class retains responsibility for the
-    * ambient status bar and the `OrcaListener` surface.
+  /** Drive a live conversation to completion on the worker thread. Blocks the
+    * caller (the flow's main thread) until the conversation finishes; queued
+    * listener events behind this request will be processed afterwards.
+    *
+    * If the caller is interrupted while waiting, the `InterruptedException`
+    * propagates — the worker continues processing the conversation to its
+    * natural end (no fine-grained mid-render cancellation today; cancel via
+    * `Conversation.cancel` upstream if you need that).
     */
   def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
-    new TerminalConversationRenderer(
-      useColor = useColor,
-      statusBar = statusBar,
-      depth = depthCounter,
-      workDir = workDir,
-      structuredMode = conversation.outputSchema.isDefined
-    ).render(conversation)
+    val reply = new CompletableFuture[LlmResult[B]]()
+    val _ = mailbox.put(Run { st =>
+      try
+        val _ = reply.complete(st.driveConversation(conversation))
+      catch
+        case t: Throwable =>
+          val _ = reply.completeExceptionally(t)
+    })
+    try reply.get()
+    catch
+      case e: java.util.concurrent.ExecutionException =>
+        throw Option(e.getCause).getOrElse(e)
 
-  private class TerminalListener extends OrcaListener:
-    def onEvent(event: OrcaEvent): Unit = event match
-      case OrcaEvent.StageStarted(name) =>
-        stateLock.synchronized:
-          emitStepLine(name)
-          depthCounter.push()
-          stages.push(name)
-          showCurrentStage()
-      case OrcaEvent.StageCompleted(_, _) =>
-        // Stage completions don't print to the event log — starting
-        // the next event implicitly tells the user the previous one
-        // finished.
-        stateLock.synchronized:
-          depthCounter.pop()
-          stages.pop()
-          showCurrentStage()
-      case OrcaEvent.ToolUse(tool, args) =>
-        appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
-      case OrcaEvent.TokensUsed(_, _, _) =>
-        () // Token accounting is owned by CostTracker.
-      case OrcaEvent.Step(message) =>
-        // Multi-line `message` (e.g. a wrapped review comment with
-        // hanging-indented continuation lines) re-indents on each
-        // newline so the body stays aligned under the glyph.
-        emitStepLine(message)
-      case OrcaEvent.StructuredResult(_, summary) =>
-        // The conversation renderer suppresses the agent's streamed
-        // JSON when in structured mode; this event is what surfaces
-        // the result. We render only when an `Announce[O]` summary
-        // is provided — falling back to raw JSON would just reverse
-        // the suppression we did upstream. Types that want to stay
-        // visible without a typeclass-driven summary should define
-        // an `Announce[O]` that returns the desired text.
-        summary.foreach(emitStepLine)
-      case OrcaEvent.Error(message) =>
-        appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
-
-    /** A `▶` step line: magenta-bold glyph, neutral body. Matches the
-      * assistant-prose styling (magenta `●` + neutral text) so the dominant
-      * accent across the event log is consistent — stages, steps, and prose are
-      * all "primary content".
-      */
-    private def emitStepLine(message: String): Unit =
-      val glyph = paint(StepGlyphStyle, s"$StageStartGlyph ")
-      appendIndented(glyph + message)
-
-  /** Push the current innermost stage to the bar (or hide it when the stack is
-    * empty). Centralised so every push/pop site does the same thing —
-    * `startStatus(label)` for non-empty, `stopStatus()` for empty.
-    *
-    * Only the innermost stage label is shown so the bar stays compact even when
-    * outer stages carry long titles (e.g. an "Implement task: <full title>"
-    * wrapper). The full breadcrumb is preserved in the event log via the
-    * indented `▶ <stage>` lines, so context isn't lost.
+  /** Enqueue `Stop` behind any pending work and wait for the worker to drain
+    * and exit. Idempotent — repeated calls return immediately once the worker
+    * has stopped.
     */
-  private def showCurrentStage(): Unit =
-    stages.innermost match
-      case Some(label) => statusBar.startStatus(label)
-      case None        => statusBar.stopStatus()
-
-  /** Append a (possibly multi-line) block to the event log, prefixing the
-    * current stage indent on the first line and on every embedded `\n`. Mirrors
-    * `TerminalConversationRenderer.appendBlock` so all event-log writes share
-    * the same indent discipline.
-    *
-    * The indent is sampled under `stateLock` so it can't shift mid-emit if a
-    * concurrent StageStarted/StageCompleted is updating the depth counter. The
-    * actual write goes through `statusBar.appendLog`, which has its own
-    * synchronization, so two indented blocks from different threads land
-    * sequentially without interleaving.
-    */
-  private def appendIndented(text: String): Unit =
-    val indent = stateLock.synchronized(depthCounter.contentIndent)
-    statusBar.appendLog(indent + text.replace("\n", "\n" + indent))
-
-  private def paint(attr: fansi.Attrs, text: String): String =
-    Ansi.paint(useColor, attr, text)
-
-/** Stack of active stage names, head = most-recently-started. `innermost`
-  * returns the deepest stage (the most recently pushed), which is what the
-  * status bar surfaces; `None` means no stage is active. Not thread-safe on its
-  * own — `TerminalInteraction` guards all reads and writes under its
-  * `stateLock`.
-  */
-private class StageStack:
-  private var stack: List[String] = Nil
-  def push(name: String): Unit = stack = name :: stack
-  def pop(): Unit = stack = stack.drop(1)
-  def innermost: Option[String] = stack.headOption
+  override def close(): Unit =
+    if closed.compareAndSet(false, true) then
+      val _ = mailbox.put(Stop)
+      worker.join()
 
 object TerminalInteraction:
   val StageStartGlyph: String = "▶"

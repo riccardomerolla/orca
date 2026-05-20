@@ -20,3 +20,10 @@ trait Interaction:
     * failures.
     */
   def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B]
+
+  /** Release any background resources (worker threads, channels, etc.). The
+    * runtime calls this once after the flow body completes, regardless of
+    * success or failure. Default is a no-op; implementations that spawn a
+    * renderer thread or hold an open connection should override.
+    */
+  def close(): Unit = ()

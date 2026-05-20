@@ -68,6 +68,8 @@ def flow(
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
   // Tokens may have already been spent; the user deserves to see what.
+  // The nested finally also closes the interaction (drains the terminal
+  // renderer's mailbox + joins its worker thread).
   try
     try
       supervised:
@@ -95,7 +97,9 @@ def flow(
       case NonFatal(e) =>
         reportUncaught(e, debug)
         System.exit(1)
-  finally costTracker.printSummary()
+  finally
+    try effectiveInteraction.close()
+    finally costTracker.printSummary()
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only
