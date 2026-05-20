@@ -42,13 +42,19 @@ flow(OrcaArgs(args)):
   stage(s"Branch: ${plan.epicId}"):
     git.createBranch(plan.epicId).orThrow
 
-  // Per task: implement, review & fix, commit. We commit *after* the loop
-  // so the single commit captures both the original implementation and
-  // any follow-up fixes the reviewers triggered.
+  // Per task: implement, format, review & fix, commit. We commit *after*
+  // the loop so the single commit captures the original implementation,
+  // the auto-formatted result, and any follow-up fixes the reviewers
+  // triggered.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
         claude.autonomous.continueSession(sessionId, task.description)
+      // Format before review so reviewers don't burn turns on style nits
+      // the toolchain would fix automatically. Run after the agent
+      // writes — we don't want to demand pre-formatted code from the LLM.
+      stage("Format"):
+        val _ = os.proc("sbt", "scalafmtAll").call(check = false)
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
@@ -58,7 +64,7 @@ flow(OrcaArgs(args)):
         // ReviewerSelector.allEveryRound to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
-        lintCommand = Some("sbt scalafmtCheckAll test"),
+        lintCommand = Some("sbt test"),
         lintLlm = Some(claude.haiku)
       )
       git.commit(s"Implement ${task.title}").orThrow
