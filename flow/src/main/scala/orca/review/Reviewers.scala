@@ -28,24 +28,24 @@ object ReviewerPrompts:
     )
     Reviewer(slug, description, parsed.body)
 
-  val Abstraction: Reviewer = load("abstraction")
-  val BackendArchitect: Reviewer = load("backend-architect")
   val CodeFunctionality: Reviewer = load("code-functionality")
+  val CodeStructure: Reviewer = load("code-structure")
   val Performance: Reviewer = load("performance")
   val Readability: Reviewer = load("readability")
   val ScalaFp: Reviewer = load("scala-fp")
+  val Security: Reviewer = load("security")
   val Test: Reviewer = load("test")
 
   /** Every reviewer the library ships with. Order matches how `allReviewers`
     * configures them on the base tool.
     */
   val all: List[Reviewer] = List(
-    Performance,
-    Readability,
-    Test,
     CodeFunctionality,
-    Abstraction,
-    BackendArchitect,
+    Test,
+    Readability,
+    CodeStructure,
+    Performance,
+    Security,
     ScalaFp
   )
 
