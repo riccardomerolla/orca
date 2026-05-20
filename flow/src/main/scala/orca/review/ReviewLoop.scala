@@ -144,7 +144,11 @@ private object ReviewLoopState:
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues above `confidenceThreshold` to `coder` via `continueSession`, and
   * loop. Each iteration's reviewer set is picked by `reviewerSelection`; the
-  * default re-runs only reviewers that found issues last round.
+  * default uses `coder` as a cheap LLM picker that narrows the supplied
+  * reviewer list to just the dimensions relevant to this task (see
+  * [[ReviewerSelector.llmDriven]]). Pass
+  * `ReviewerSelector.onlyPreviouslyReporting` for the previous fixed-rule
+  * behaviour, or `ReviewerSelector.allEveryRound` to skip selection entirely.
   *
   * The fix step instructs the agent to report a `FixOutcome`: list the titles
   * of issues actually fixed in code under `fixed`, and anything not addressed
@@ -164,8 +168,12 @@ def reviewAndFixLoop[B <: BackendTag](
       */
     lintLlm: Option[LlmTool[?]] = None,
     confidenceThreshold: Double = 0.7,
-    reviewerSelection: ReviewerSelector =
-      ReviewerSelector.onlyPreviouslyReporting,
+    /** How the active reviewer set is chosen each iteration. Defaults to an
+      * [[ReviewerSelector.llmDriven]] selector wired against `coder` and
+      * `task`; the sentinel is resolved inside the body because default-arg
+      * expressions in the same param list can't reference earlier params.
+      */
+    reviewerSelection: ReviewerSelector = ReviewerSelector.LlmDrivenDefault,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt.
@@ -189,6 +197,19 @@ def reviewAndFixLoop[B <: BackendTag](
     "reviewAndFixLoop: reviewer names must be unique — " +
       "the per-reviewer session map is keyed by name"
   )
+  // Resolve the sentinel default: an `llmDriven` selector wired against the
+  // loop's `coder` and `task`. Same idiom as `LlmConfig.default` — a
+  // reference-equality check stands in for "caller didn't pass an explicit
+  // selector". Constructed once so its internal cache (one LLM call total)
+  // persists across iterations.
+  val effectiveSelection: ReviewerSelector =
+    if reviewerSelection eq ReviewerSelector.LlmDrivenDefault then
+      ReviewerSelector.llmDriven(
+        llm = coder,
+        taskTitle = Title(task),
+        changedFiles = Nil
+      )
+    else reviewerSelection
   // Sampled per iteration in `runReviewers`. A constant override skips
   // the git call; the default thunk shells out fresh each iteration so a
   // newly-active reviewer sees the latest diff rather than the
@@ -318,7 +339,7 @@ def reviewAndFixLoop[B <: BackendTag](
       (reviewerOutcomes, lintOutcome, nextState)
 
   def evaluate(): ReviewResult =
-    val active = reviewerSelection(state.history, reviewers)
+    val active = effectiveSelection(state.history, reviewers)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(

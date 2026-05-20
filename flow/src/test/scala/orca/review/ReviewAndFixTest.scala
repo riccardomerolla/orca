@@ -100,6 +100,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(silentReviewer),
       task = "do the thing",
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
     assertEquals(result, IgnoredIssues(Nil))
@@ -126,6 +127,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(reviewer),
       task = "build the widget",
       confidenceThreshold = 0.7,
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
     assertEquals(
@@ -162,6 +164,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(reviewerA, reviewerB),
       task = "multi",
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
     assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))
@@ -190,6 +193,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(reviewer),
       task = "never ending",
       maxIterations = 2,
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
     // If the loop had used `run` for the first call, the empty
@@ -239,6 +243,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(captureReviewer),
       task = "do thing",
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
     )
     val sent = capturedFirst.getOrElse(fail("startSession was never called"))
@@ -272,6 +277,40 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       select(List(fakeBatch), all).map(_.name),
       List("performance", "test-coverage")
+    )
+
+  test("the default reviewerSelection routes the picker call to `coder`"):
+    given FlowContext = ctx
+    val issueX = issue("only-x", confidence = 0.9)
+    val reviewerX = new FakeLlmTool(
+      name = "x",
+      promptOutputs = List(ReviewResult(List(issueX)))
+    )
+    val reviewerY = new FakeLlmTool(
+      name = "y"
+      // promptOutputs intentionally empty: if the picker mistakenly chose y,
+      // the loop would hit an empty iterator and throw.
+    )
+    val coder = new FakeLlmTool(
+      name = "coder",
+      // The first prompt-output is consumed by the LLM-driven selector
+      // picking just `x` (matching the supplied tool's name); the next is
+      // the fix step's FixOutcome.
+      promptOutputs = List(SelectedReviewers(List("x"))),
+      continueSessionOutputs =
+        List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
+    )
+    val result = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(reviewerX, reviewerY),
+      task = "default-picker check",
+      initialDiff = Some("")
+      // reviewerSelection deliberately omitted — exercising the default.
+    )
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("only-x"), "accepted"))
     )
 
   test("each agent's Step lands on listeners as it finishes, not at end"):
@@ -341,6 +380,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
         reviewers = List(slow, fast),
         task = "ordering check",
+        reviewerSelection = ReviewerSelector.allEveryRound,
         initialDiff = Some("")
       )
     )
@@ -424,5 +464,6 @@ class ReviewAndFixTest extends munit.FunSuite:
       // and actually calls the (rendezvousing) LLM summariser.
       lintCommand = Some("echo lint-output"),
       lintLlm = Some(new RendezvousReviewer("lint")),
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )

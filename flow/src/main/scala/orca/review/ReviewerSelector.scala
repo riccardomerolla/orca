@@ -13,10 +13,19 @@ type ReviewerSelector =
 
 object ReviewerSelector:
 
-  /** Default. First iteration runs every reviewer; subsequent rounds re-run
-    * only those that found something last round. Saves API spend on
-    * consistently-quiet reviewers; the trade-off is that a reviewer who'd catch
-    * a regression introduced by a fix won't see the fix.
+  /** Sentinel used as the default value for `reviewAndFixLoop`'s
+    * `reviewerSelection` parameter. Detected via reference equality and
+    * replaced inside the loop with an [[llmDriven]] selector wired against the
+    * loop's `coder` and `task`. Same idiom as `LlmConfig.default` — a stable
+    * singleton standing in for "use the loop's defaults".
+    */
+  val LlmDrivenDefault: ReviewerSelector = (_, all) => all
+
+  /** First iteration runs every reviewer; subsequent rounds re-run only those
+    * that found something last round. Saves API spend on consistently-quiet
+    * reviewers; the trade-off is that a reviewer who'd catch a regression
+    * introduced by a fix won't see the fix. Was the default before LLM-driven
+    * selection landed; pass explicitly when you want this behaviour back.
     */
   val onlyPreviouslyReporting: ReviewerSelector = (history, all) =>
     history.headOption match

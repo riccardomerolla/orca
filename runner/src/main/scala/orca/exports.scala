@@ -30,9 +30,11 @@ export orca.llm.{
 }
 export orca.plan.{BugReportMatch, BugTriage, Plan, Task, Title}
 export orca.review.{
+  allReviewers,
   defaultReviewers,
   fixLoop,
   lint,
+  minimalReviewers,
   reviewAndFixLoop,
   FixOutcome,
   ReviewIssue,

@@ -36,7 +36,9 @@ object ReviewerPrompts:
   val ScalaFp: Reviewer = load("scala-fp")
   val Test: Reviewer = load("test")
 
-  /** The full default set in the order `defaultReviewers` configures them. */
+  /** Every reviewer the library ships with. Order matches how `allReviewers`
+    * configures them on the base tool.
+    */
   val all: List[Reviewer] = List(
     Performance,
     Readability,
@@ -47,21 +49,55 @@ object ReviewerPrompts:
     ScalaFp
   )
 
-  /** Descriptions keyed by the prefixed tool name `defaultReviewers` produces
+  /** A small universally-applicable subset: correctness, test quality, clarity.
+    * Useful as a starting point when the full set is overkill — e.g. a flow
+    * that touches small diffs where performance/architecture concerns are
+    * rarely actionable. Pair with [[ReviewerSelector.llmDriven]] (the default
+    * in [[reviewAndFixLoop]]) to let the picker narrow further.
+    */
+  val minimal: List[Reviewer] = List(
+    CodeFunctionality,
+    Readability,
+    Test
+  )
+
+  /** Descriptions keyed by the prefixed tool name a builder produces
     * (`reviewer: <slug>`). [[ReviewerSelector.llmDriven]] consults this by
     * default so the picker LLM gets each reviewer's purpose alongside its name.
+    * Covers every shipped reviewer, regardless of which preset list was used to
+    * build the actual tools.
     */
   val descriptionsByToolName: Map[String, String] =
     all.map(r => s"reviewer: ${r.name}" -> r.description).toMap
 
-/** Pre-configured reviewer agents built atop the supplied base tool. Each
-  * reviewer has its own `name` and system prompt; callers pass them (or a
-  * subset via `SelectedReviewers.pick`) to `reviewAndFixLoop`.
+/** Build LlmTools for every reviewer the library ships with. The picker in
+  * [[ReviewerSelector.llmDriven]] (the default in [[reviewAndFixLoop]]) narrows
+  * the active set per task, so passing the full list isn't wasteful.
+  */
+def allReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
+  buildReviewers(base, ReviewerPrompts.all)
+
+/** Build LlmTools for the small universally-applicable subset
+  * ([[ReviewerPrompts.minimal]] — correctness, test quality, clarity). Pick
+  * this when the full set is overkill or the flow only touches small diffs.
+  */
+def minimalReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
+  buildReviewers(base, ReviewerPrompts.minimal)
+
+/** Alias for [[allReviewers]], kept for backward compatibility with existing
+  * flow scripts. New code should prefer the explicit name.
   */
 def defaultReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
-  // Names are prefixed with `reviewer: ` so the per-agent token breakdown
-  // groups every reviewer dimension together (matching `lint`, which the
-  // review loop labels `reviewer: lint`). The non-reviewer driver agent
-  // keeps its default name (`main`).
-  ReviewerPrompts.all.map: r =>
+  allReviewers(base)
+
+/** Layer each reviewer's system prompt onto the base tool and prefix the name
+  * with `reviewer: ` so the per-agent token breakdown groups every reviewer
+  * dimension together (matching `lint`, which the review loop labels `reviewer:
+  * lint`). The non-reviewer driver agent keeps its default name (`main`).
+  */
+private def buildReviewers[B <: BackendTag](
+    base: LlmTool[B],
+    reviewers: List[Reviewer]
+): List[LlmTool[B]] =
+  reviewers.map: r =>
     base.withSystemPrompt(r.systemPrompt).withName(s"reviewer: ${r.name}")

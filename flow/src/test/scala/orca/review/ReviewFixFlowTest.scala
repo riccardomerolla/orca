@@ -53,6 +53,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
       task = "optimize cache",
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
 
@@ -98,6 +99,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       reviewers = List(reviewer),
       task = "never ending",
       maxIterations = 2,
+      reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
     assert(
