@@ -102,6 +102,61 @@ class TerminalOutputStateTest extends munit.FunSuite:
     )
     assert(rendered.contains("…"), s"expected ellipsis; got: '$rendered'")
 
+  test("suspend buffers subsequent log calls; resume drains them in order"):
+    withBar(animated = false): (bar, buf) =>
+      bar.log("before-suspend")
+      bar.suspend()
+      val sizeAtSuspend = buf.size()
+      bar.log("during-1")
+      bar.log("during-2")
+      assertEquals(
+        buf.size(),
+        sizeAtSuspend,
+        "suspended log calls must not write to `out`"
+      )
+      bar.resume()
+      val out = buf.toString
+      assert(
+        out.contains("before-suspend"),
+        s"pre-suspend log lost; out: $out"
+      )
+      val drained = out.substring(out.indexOf("before-suspend"))
+      val d1 = drained.indexOf("during-1")
+      val d2 = drained.indexOf("during-2")
+      assert(d1 >= 0 && d2 >= 0, s"buffered logs missing on resume: $drained")
+      assert(d1 < d2, "buffered logs drained out of order")
+
+  test("suspend short-circuits tick: no spinner redraw between suspend/resume"):
+    withBar(animated = true): (bar, buf) =>
+      bar.setStatus(Some("running"))
+      bar.suspend()
+      val sizeAtSuspend = buf.size()
+      bar.tick()
+      bar.tick()
+      bar.tick()
+      assertEquals(
+        buf.size(),
+        sizeAtSuspend,
+        "tick must not draw while suspended"
+      )
+      bar.resume()
+      // Resume redraws the status row once.
+      val drawnAfterResume = buf.toString.substring(sizeAtSuspend)
+      assert(
+        drawnAfterResume.contains("running"),
+        s"resume should redraw the status; drawn: '$drawnAfterResume'"
+      )
+
+  test("close drains any pending suspended buffer"):
+    withBar(animated = false): (bar, buf) =>
+      bar.suspend()
+      bar.log("orphan-1")
+      bar.log("orphan-2")
+      bar.close()
+      val out = buf.toString
+      assert(out.contains("orphan-1"), s"buffered log lost on close: $out")
+      assert(out.contains("orphan-2"), s"buffered log lost on close: $out")
+
   test("stopStatus erases the status row in animated mode"):
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
