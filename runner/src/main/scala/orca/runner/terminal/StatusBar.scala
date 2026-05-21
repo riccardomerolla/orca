@@ -1,8 +1,9 @@
 package orca.runner.terminal
 
-import ox.{Ox, forever, forkDiscard}
+import ox.{Ox, forever, forkDiscard, sleep}
 
 import java.io.PrintStream
+import scala.concurrent.duration.DurationLong
 
 /** A persistent single-line status indicator at the bottom of the terminal,
   * with the event log accumulating above. The status line shows the current
@@ -118,7 +119,7 @@ private[terminal] object StatusBar:
     if animated then
       forkDiscard:
         forever:
-          Thread.sleep(framePeriodMs)
+          sleep(framePeriodMs.millis)
           bar.tick()
     bar
 
