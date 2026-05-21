@@ -207,17 +207,28 @@ private[orca] object StreamConversation:
     def cancelled[B <: BackendTag]: Outcome[B] = Cancelled[B]()
     def failed[B <: BackendTag](error: Throwable): Outcome[B] = Failed[B](error)
 
+  /** Default cap on in-flight unread `ConversationEvent`s. Producers block on
+    * `put` once full so backpressure flows back into the subprocess pipe
+    * (Claude pauses, OS pipe buffer fills, claude blocks). Picked empirically:
+    * large enough that a chatty turn doesn't stall, small enough that a slow
+    * consumer (user on a long readline) doesn't accumulate unbounded memory.
+    */
+  val DefaultEventQueueCapacity: Int = 1024
+
   /** Blocking queue + single-consumer iterator. `close()` signals end-of-stream
     * to whichever thread is iterating.
+    *
+    * Bounded by `capacity` (default [[DefaultEventQueueCapacity]]) so a slow
+    * consumer applies backpressure to the producer — `enqueue` uses `put`,
+    * which blocks once the queue is full.
     */
-  final class EventQueue:
-    private val queue = new LinkedBlockingQueue[Option[ConversationEvent]]()
+  final class EventQueue(capacity: Int = DefaultEventQueueCapacity):
+    private val queue =
+      new LinkedBlockingQueue[Option[ConversationEvent]](capacity)
 
-    def enqueue(event: ConversationEvent): Unit =
-      val _ = queue.offer(Some(event))
+    def enqueue(event: ConversationEvent): Unit = queue.put(Some(event))
 
-    def close(): Unit =
-      val _ = queue.offer(None)
+    def close(): Unit = queue.put(None)
 
     val iterator: Iterator[ConversationEvent] = new Iterator[ConversationEvent]:
       // Single-consumer per the Conversation contract; a plain `var`

@@ -7,14 +7,15 @@ import orca.events.{OrcaEvent, OrcaListener}
   *
   * `EventDispatcher` fans events out to listeners concurrently (see its
   * scaladoc), so this listener serialises its own mutable state (`StageStack`,
-  * `StageDepth`) with `lock.synchronized`. Output writes are fire-and-forget
-  * `tell`s to `TerminalOutput`, which is itself the serialisation point for
-  * `out`. The lock is held for microseconds while computing indent strings and
-  * updating stage state — never across an I/O call.
+  * `StageDepth`) with `lock.synchronized`. The lock guards **only** the state
+  * mutation + formatted-string computation — output tells happen after the lock
+  * releases, so a slow actor mailbox can't pin the lock and block body-thread
+  * reads of [[currentIndent]].
   *
-  * [[currentIndent]] returns the indent string under the same lock, so the
-  * conversation renderer (running on a different thread than this listener)
-  * gets a coherent value.
+  * Ordering: within one `onEvent` call, the (state mutation, format) + (tell)
+  * split preserves visible order — both happen on the same thread. Across
+  * concurrent `onEvent` calls from different dispatcher threads, mailbox
+  * arrival order matches lock-release order, which is what callers expect.
   */
 private[runner] class TerminalEventListener(
     output: TerminalOutput,
@@ -27,39 +28,52 @@ private[runner] class TerminalEventListener(
   private val depth = new StageDepth
   private val stages = new StageStack
 
-  def onEvent(event: OrcaEvent): Unit = lock.synchronized:
-    event match
-      case OrcaEvent.StageStarted(name) =>
-        emitStepLine(name)
+  def onEvent(event: OrcaEvent): Unit = event match
+    case OrcaEvent.StageStarted(name) =>
+      val (line, status) = lock.synchronized:
+        // Format the step line at the *current* depth (so the StageStarted
+        // marker aligns with the enclosing stage's content), then push.
+        val l = formatStepLine(name)
         depth.push()
         stages.push(name)
-        showCurrentStage()
-      case OrcaEvent.StageCompleted(_, _) =>
-        // Stage completions don't print to the event log — starting the next
-        // event implicitly tells the user the previous one finished.
+        (l, stages.innermost)
+      output.log(line)
+      output.setStatus(status)
+    case OrcaEvent.StageCompleted(_, _) =>
+      // Stage completions don't print to the event log — starting the next
+      // event implicitly tells the user the previous one finished.
+      val status = lock.synchronized:
         depth.pop()
         stages.pop()
-        showCurrentStage()
-      case OrcaEvent.ToolUse(tool, args) =>
-        appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
-      case OrcaEvent.TokensUsed(_, _, _) =>
-        () // Token accounting is owned by CostTracker.
-      case OrcaEvent.Step(message) =>
-        // Multi-line `message` (e.g. a wrapped review comment with
-        // hanging-indented continuation lines) re-indents on each newline so
-        // the body stays aligned under the glyph.
-        emitStepLine(message)
-      case OrcaEvent.StructuredResult(_, summary) =>
-        // The conversation renderer suppresses the agent's streamed JSON when
-        // in structured mode; this event is what surfaces the result. We
-        // render only when an `Announce[O]` summary is provided — falling
-        // back to raw JSON would just reverse the suppression we did
-        // upstream. Types that want to stay visible without a typeclass-
-        // driven summary should define an `Announce[O]` that returns the
-        // desired text.
-        summary.foreach(emitStepLine)
-      case OrcaEvent.Error(message) =>
-        appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
+        stages.innermost
+      output.setStatus(status)
+    case OrcaEvent.ToolUse(tool, args) =>
+      val line = lock.synchronized:
+        formatIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
+      output.log(line)
+    case OrcaEvent.TokensUsed(_, _, _) =>
+      () // Token accounting is owned by CostTracker.
+    case OrcaEvent.Step(message) =>
+      // Multi-line `message` (e.g. a wrapped review comment with
+      // hanging-indented continuation lines) re-indents on each newline so
+      // the body stays aligned under the glyph.
+      val line = lock.synchronized(formatStepLine(message))
+      output.log(line)
+    case OrcaEvent.StructuredResult(_, summary) =>
+      // The conversation renderer suppresses the agent's streamed JSON
+      // when in structured mode; this event is what surfaces the result.
+      // We render only when an `Announce[O]` summary is provided —
+      // falling back to raw JSON would just reverse the suppression we
+      // did upstream. Types that want to stay visible without a
+      // typeclass-driven summary should define an `Announce[O]` that
+      // returns the desired text.
+      summary.foreach: s =>
+        val line = lock.synchronized(formatStepLine(s))
+        output.log(line)
+    case OrcaEvent.Error(message) =>
+      val line = lock.synchronized:
+        formatIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
+      output.log(line)
 
   /** The current indent string. Held under the same lock as stage-stack
     * mutations, so a renderer on another thread sees a coherent snapshot.
@@ -69,27 +83,19 @@ private[runner] class TerminalEventListener(
   /** A `▶` step line: magenta-bold glyph, neutral body. Matches the
     * assistant-prose styling (magenta `●` + neutral text) so the dominant
     * accent across the event log is consistent — stages, steps, and prose are
-    * all "primary content".
+    * all "primary content". **Caller holds [[lock]].**
     */
-  private def emitStepLine(message: String): Unit =
+  private def formatStepLine(message: String): String =
     val glyph = paint(StepGlyphStyle, s"$StageStartGlyph ")
-    appendIndented(glyph + message)
+    formatIndented(glyph + message)
 
-  /** Push the current innermost stage to the bar (or hide it when the stack is
-    * empty). Only the innermost stage label is shown so the bar stays compact;
-    * the full breadcrumb is preserved in the event log via the indented `▶
-    * <stage>` lines.
+  /** Re-indent a (possibly multi-line) block under the current stage indent —
+    * first line and every embedded `\n` get the prefix. **Caller holds
+    * [[lock]]** (reads `depth`).
     */
-  private def showCurrentStage(): Unit =
-    output.setStatus(stages.innermost)
-
-  /** Tell the output to append a (possibly multi-line) block under the current
-    * stage indent. Embedded `\n`s are re-indented so multi-line content stays
-    * aligned with the leading glyph.
-    */
-  private def appendIndented(text: String): Unit =
+  private def formatIndented(text: String): String =
     val indent = depth.contentIndent
-    output.log(indent + text.replace("\n", "\n" + indent))
+    indent + text.replace("\n", "\n" + indent)
 
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)

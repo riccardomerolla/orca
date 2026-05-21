@@ -132,12 +132,19 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           initialPrompt = displayPrompt,
           outputSchema = outputSchema,
           askUserBridge = Some(bridge),
-          sessionResources = List(mcpServer)
+          // Order: stop the MCP server first (closes Netty workers),
+          // then remove the workDir config file. Listed in close order
+          // by ClaudeConversation.onFinalize.
+          sessionResources = List(
+            mcpServer,
+            ClaudeBackend.deleteFileResource(mcpConfigFile)
+          )
         )
       catch
         case e: Exception =>
           process.sendSigInt()
           mcpServer.close()
+          os.remove(mcpConfigFile)
           throw OrcaFlowException(
             s"Failed to open claude stream-json session: ${e.getMessage}"
           )
@@ -145,6 +152,8 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       case e: Throwable =>
         // Pre-process-spawn failure (config write / args build): stop the
         // server we already started so the Netty binding doesn't leak.
+        // The mcp config file may or may not have been written by the time
+        // we got here; remove if present.
         mcpServer.close()
         throw e
 
@@ -209,6 +218,14 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       file
 
 object ClaudeBackend:
+
+  /** Returns an `AutoCloseable` that best-effort deletes the given file when
+    * closed. Used as a `sessionResources` entry so each conversation's
+    * `.orca-mcp-<port>.json` is removed when the conversation ends — without
+    * this, long flows would accumulate orphan config files in `workDir`.
+    */
+  private[claude] def deleteFileResource(path: os.Path): AutoCloseable =
+    () => if os.exists(path) then os.remove(path)
 
   /** MCP server name as it appears in `.mcp.json`. Combined with the tool name,
     * the agent sees `mcp__orca__ask_user`.
