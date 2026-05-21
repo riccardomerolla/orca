@@ -58,6 +58,13 @@ private[claude] class ClaudeConversation(
   def sendUserMessage(text: String): Unit =
     writeOutbound(OutboundMessage.UserText(text))
 
+  // Claude's stream-json subprocess keeps stdin open for the full session,
+  // so it can accept mid-conversation user turns. The `ask_user` MCP tool
+  // (wired in I3) is what surfaces UserQuestion events; once that lands,
+  // flipping this to `true` enables it. Today it's `false` because
+  // ClaudeBackend.openConversation closes stdin right after the prompt.
+  def canAskUser: Boolean = false
+
   // --- Reader hook ---
 
   override protected def handleLine(line: String): Unit =

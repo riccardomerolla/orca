@@ -59,6 +59,7 @@ class ConversationRendererTest extends munit.FunSuite:
         case Left(c: OrcaInteractiveCancelled) => Left(c)
         case Left(t)                           => throw t
     def sendUserMessage(text: String): Unit = ()
+    def canAskUser: Boolean = false
     def cancel(): Unit = cancelled.set(true)
 
   /** Test prompter that replays a scripted list of outcomes and records the

@@ -49,8 +49,23 @@ trait Conversation[B <: BackendTag]:
     */
   def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]]
 
-  /** Inject a user turn mid-conversation. */
+  /** Inject a user turn mid-conversation.
+    *
+    * Implementations whose [[canAskUser]] is `false` may treat this as a no-op
+    * (the subprocess has already consumed its single allowance of stdin).
+    * Callers that need to know up front should consult the flag.
+    */
   def sendUserMessage(text: String): Unit
+
+  /** Whether the backend can emit [[ConversationEvent.UserQuestion]] events and
+    * accept follow-up `sendUserMessage` writes mid-session. Claude's
+    * stream-json subprocess keeps stdin open and exposes an `ask_user` MCP
+    * tool, so it returns `true`. Codex's `exec` subprocess consumes stdin once
+    * and has no in-session user-message channel (ADR 0007), so it returns
+    * `false`; flows that rely on interactive Q&A should branch on this rather
+    * than calling `sendUserMessage` blind.
+    */
+  def canAskUser: Boolean
 
   /** Cancel the current session. The driver tears down the subprocess and
     * closes the events iterator; `awaitResult()` then returns a

@@ -72,6 +72,11 @@ private[codex] class CodexConversation(
     */
   def sendUserMessage(text: String): Unit = ()
 
+  // codex exec consumes stdin once and has no mid-session user-message
+  // channel (ADR 0007); a fresh process is needed for follow-up turns.
+  // Flows that depend on mid-session Q&A must run on Claude.
+  def canAskUser: Boolean = false
+
   // --- Reader hooks ---
 
   override protected def handleLine(line: String): Unit =

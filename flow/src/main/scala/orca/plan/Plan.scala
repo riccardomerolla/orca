@@ -53,6 +53,11 @@ object Plan:
     * persistence rather than session continuity is the use case it serves; if
     * you need the planning conversation alive, use `from` and write the
     * markdown yourself with `Plan.render`.
+    *
+    * **Mid-session questions** (the agent pausing to ask the user something)
+    * require a backend whose `Conversation.canAskUser` is `true`. Today only
+    * Claude supports this; Codex sessions render tool calls and stream deltas
+    * live but the agent can't pause for free-form user input.
     */
   object interactive:
     def from[B <: BackendTag](
