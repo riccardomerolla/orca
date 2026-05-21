@@ -77,7 +77,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
 
   // Fast schedule so retry tests don't spend seconds sleeping between attempts.
   private val fastRetry =
-    ox.scheduling.Schedule.fixedInterval(1.milli).maxRepeats(5)
+    ox.scheduling.Schedule.fixedInterval(1.milli).maxRetries(5)
 
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil

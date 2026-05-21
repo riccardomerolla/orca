@@ -20,7 +20,7 @@ object LlmConfig:
 
   // Must be declared before `default` so the case-class default arg resolves.
   val defaultRetrySchedule: Schedule =
-    Schedule.exponentialBackoff(1.second).maxRepeats(3)
+    Schedule.exponentialBackoff(1.second).maxRetries(3)
 
   /** The default LlmConfig. Shared as a singleton so the framework can detect,
     * via `eq LlmConfig.default`, that the caller omitted the per-call `config`
