@@ -5,7 +5,7 @@ import ox.channels.{BufferCapacity, ChannelClosedException}
 
 class AskUserBridgeTest extends munit.FunSuite:
 
-  test("ask blocks until take's respond is called"):
+  test("ask blocks until the host calls respond"):
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val bridge = new AskUserBridge
@@ -13,9 +13,9 @@ class AskUserBridgeTest extends munit.FunSuite:
       val askResult = forkUser:
         bridge.ask("hello?")
 
-      val (question, respond) = bridge.take()
-      assertEquals(question, "hello?")
-      respond("world")
+      val pending = bridge.nextQuestion()
+      assertEquals(pending.question, "hello?")
+      pending.respond("world")
 
       assertEquals(askResult.join(), "world")
 
@@ -32,8 +32,8 @@ class AskUserBridgeTest extends munit.FunSuite:
       val second = forkUser(bridge.ask("Q2"))
 
       def serveOne(): Unit =
-        val (q, respond) = bridge.take()
-        respond(if q == "Q1" then "A1" else "A2")
+        val q = bridge.nextQuestion()
+        q.respond(if q.question == "Q1" then "A1" else "A2")
 
       serveOne()
       serveOne()
@@ -52,10 +52,10 @@ class AskUserBridgeTest extends munit.FunSuite:
           "completed-unexpectedly"
         catch case _: ChannelClosedException => "closed"
 
-      // Take ensures the ask reached the rendezvous (so its reply channel
-      // is registered as in-flight) before we close.
-      val (q, _) = bridge.take()
-      assertEquals(q, "blocked?")
+      // nextQuestion ensures the ask reached the rendezvous (so its
+      // reply channel is registered as in-flight) before we close.
+      val pending = bridge.nextQuestion()
+      assertEquals(pending.question, "blocked?")
 
       bridge.close()
       assertEquals(askFork.join(), "closed")

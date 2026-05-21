@@ -371,3 +371,38 @@ class ClaudeConversationTest extends munit.FunSuite:
       process.closeStdout()
       val _ = conv.events.toList
       val _ = conv.awaitResult()
+
+  test("canAskUser is false when no bridge is provided"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, LlmConfig.default)
+    assertEquals(conv.canAskUser, false)
+    process.closeStdout()
+    val _ = conv.events.toList
+
+  test(
+    "handleAssistantTurn suppresses the agent's ToolUse for ask_user"
+  ):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, LlmConfig.default)
+
+    // Assistant turn carrying a tool_use block for the MCP-prefixed
+    // ask_user tool name. Our renderer-side suppression should drop the
+    // AssistantToolCall event but leave AssistantTurnEnd.
+    process.enqueueStdout(
+      s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"${ClaudeBackend.AskUserToolName}","input":{"question":"x"}}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-tu"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assert(
+      !events.exists(_.isInstanceOf[ConversationEvent.AssistantToolCall]),
+      s"ask_user ToolCall should have been suppressed; got: $events"
+    )
+    assert(
+      events.exists(_ == ConversationEvent.AssistantTurnEnd),
+      s"expected AssistantTurnEnd; got: $events"
+    )
+    val _ = conv.awaitResult()

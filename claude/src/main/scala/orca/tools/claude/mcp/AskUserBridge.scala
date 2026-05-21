@@ -3,7 +3,7 @@ package orca.tools.claude.mcp
 import ox.channels.{BufferCapacity, Channel}
 import ox.discard
 
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 /** Synchronous rendezvous between the MCP `ask_user` tool handler (a Netty
   * worker thread that needs a string answer to return to the agent) and the
@@ -52,12 +52,20 @@ private[claude] class AskUserBridge(using BufferCapacity):
       val _ = inFlight.updateAndGet(_ - reply)
 
   /** Called by the host's consumer loop. Returns the next pending question and
-    * a closure to deliver the answer. Blocks if no question is queued; throws
-    * [[ChannelClosedException]] when the bridge is closed.
+    * the closure that delivers the answer to the originating [[ask]]. Blocks if
+    * no question is queued; throws [[ChannelClosedException]] when the bridge
+    * is closed.
+    *
+    * The returned `respond` closure is idempotent — only the first call
+    * delivers the answer to the rendezvous; later calls are no-ops. Protects
+    * against a renderer that double-fires (retry, reentrant cancel).
     */
-  def take(): (String, String => Unit) =
+  def nextQuestion(): PendingQuestion =
     val (question, reply) = pending.receive()
-    (question, answer => reply.send(answer))
+    val delivered = new AtomicBoolean(false)
+    val respond: String => Unit = answer =>
+      if delivered.compareAndSet(false, true) then reply.send(answer)
+    PendingQuestion(question, respond)
 
   /** Release every thread blocked on this bridge: `done`s all in-flight reply
     * channels (unblocking Netty workers with a [[ChannelClosedException.Done]])
@@ -68,3 +76,12 @@ private[claude] class AskUserBridge(using BufferCapacity):
     val outstanding = inFlight.getAndSet(Set.empty)
     outstanding.foreach(_.doneOrClosed().discard)
     pending.doneOrClosed().discard
+
+/** Single pending invocation of `ask_user`: the question text the agent
+  * supplied, plus a closure that delivers the user's typed answer back to the
+  * blocked MCP handler.
+  */
+private[claude] final case class PendingQuestion(
+    question: String,
+    respond: String => Unit
+)

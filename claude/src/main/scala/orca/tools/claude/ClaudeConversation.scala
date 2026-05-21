@@ -99,9 +99,9 @@ private[claude] class ClaudeConversation(
   ): Unit =
     try
       while !Thread.currentThread().isInterrupted do
-        val (question, respond) = bridge.take()
+        val q = bridge.nextQuestion()
         eventQueue.enqueue(
-          ConversationEvent.UserQuestion(question, respond)
+          ConversationEvent.UserQuestion(q.question, q.respond)
         )
     catch
       // Bridge channel closure (onFinalize → bridge.close()) propagates as

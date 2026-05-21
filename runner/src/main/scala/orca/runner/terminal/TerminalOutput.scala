@@ -6,6 +6,7 @@ import ox.channels.{Actor, ActorRef, BufferCapacity}
 import java.io.PrintStream
 import scala.collection.immutable.Queue
 import scala.concurrent.duration.DurationLong
+import scala.util.control.NonFatal
 
 /** The terminal rendering surface. A small set of operations for appending to
   * the event log and advancing the persistent status row at the bottom of the
@@ -88,7 +89,7 @@ private class ActorTerminalOutput(actor: ActorRef[TerminalOutputState])
   def resume(): Unit = actor.ask(_.resume())
   def close(): Unit =
     try actor.ask(_.close())
-    catch case _: Throwable => ()
+    catch case NonFatal(_) => ()
 
 /** Mutable rendering state. Not thread-safe in isolation; production wraps it
   * via [[ActorTerminalOutput]]. Tests construct this directly and drive
@@ -113,11 +114,21 @@ private[terminal] class TerminalOutputState(
   // When `suspended`, the status row is cleared and `log` calls accumulate
   // into `suspendedBuffer` instead of writing to `out`. The animator
   // short-circuits, so no ticks land while a prompt is being read.
+  //
+  // Cap on the buffer guards against unbounded growth if a flow stays
+  // suspended for a long time (e.g. an unattended prompt) while concurrent
+  // listeners keep emitting. Past the cap we drop the oldest entry — the
+  // newest is more likely to be informative on resume than a stale early
+  // line. Cap is large enough that typical interactive prompts don't trim.
   private var suspended: Boolean = false
   private var suspendedBuffer: Queue[String] = Queue.empty
 
   def log(text: String): Unit =
-    if suspended then suspendedBuffer = suspendedBuffer.enqueue(text)
+    if suspended then
+      suspendedBuffer = suspendedBuffer.enqueue(text)
+      if suspendedBuffer.size > TerminalOutputState.SuspendedBufferCap then
+        // Queue.dequeue returns (head, rest) — discard the dropped entry.
+        suspendedBuffer = suspendedBuffer.tail
     else writeLog(text)
 
   def setStatus(label: Option[String]): Unit =
@@ -215,6 +226,12 @@ private[terminal] object TerminalOutputState:
 
   /** Maximum characters in the rendered status line before truncation. */
   private val MaxStatusLineWidth: Int = 78
+
+  /** Maximum entries the suspended-log buffer holds. Past this the oldest entry
+    * is dropped so an unattended prompt with concurrent listener traffic can't
+    * grow memory without bound.
+    */
+  private[terminal] val SuspendedBufferCap: Int = 256
 
   private def paint(text: String, useColor: Boolean): String =
     Ansi.paint(useColor, fansi.Color.DarkGray, text)

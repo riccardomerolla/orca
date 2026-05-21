@@ -10,12 +10,13 @@ case class LlmConfig(
     autoApprove: AutoApprove = AutoApprove.All,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
 ):
-  /** Return a config that also auto-approves the given tool, on top of whatever
-    * the existing `autoApprove` allows. Backends use this to silently authorise
-    * their own host-side tools (e.g. the MCP `ask_user`) without surfacing a
-    * y/n prompt the user can't reasonably refuse.
+  /** Return a config whose `autoApprove` set also includes `tool`. Backends use
+    * this to silently authorise their own host-side tools (e.g. the MCP
+    * `ask_user`) without surfacing a y/n prompt the user can't reasonably
+    * refuse. No-op when `autoApprove = AutoApprove.All` — everything is already
+    * covered.
     */
-  def withAlsoAllowedTool(tool: String): LlmConfig =
+  def autoApproveAlso(tool: String): LlmConfig =
     autoApprove match
       case AutoApprove.All => this
       case AutoApprove.Only(tools) =>

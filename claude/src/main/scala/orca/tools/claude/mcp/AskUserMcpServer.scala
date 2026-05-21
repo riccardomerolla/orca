@@ -38,6 +38,15 @@ private[claude] class AskUserMcpServer private[mcp] (
 
 private[claude] object AskUserMcpServer:
 
+  /** MCP-side tool slug. Claude's MCP convention prefixes this with the server
+    * name (set via the caller's `.mcp.json`) when advertising the tool to the
+    * agent — `mcp__<server>__$ToolSlug`. Single source of truth referenced by
+    * both the chimp `tool(...)` registration here and by
+    * `ClaudeBackend.AskUserToolName` (which builds the fully-qualified name); a
+    * rename ripples to both sites.
+    */
+  private[claude] val ToolSlug: String = "ask_user"
+
   /** Mount the `ask_user` MCP endpoint on a fresh Netty binding. The Ox
     * capability is used to start the server in the enclosing scope; the caller
     * is responsible for calling `close()` (or relying on scope tear-down) to
@@ -45,7 +54,7 @@ private[claude] object AskUserMcpServer:
     */
   def start(bridge: AskUserBridge)(using Ox): AskUserMcpServer =
     val askUserTool =
-      tool("ask_user")
+      tool(AskUserMcpServer.ToolSlug)
         .description(
           "Ask the host user a clarifying question and receive their " +
             "typed answer."

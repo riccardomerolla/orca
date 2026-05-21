@@ -112,7 +112,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       val systemPromptFile =
         writeSystemPromptIfPresent(config, workDir, includeAskUserHint = true)
       val effectiveConfig =
-        config.withAlsoAllowedTool(ClaudeBackend.AskUserToolName)
+        config.autoApproveAlso(ClaudeBackend.AskUserToolName)
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
@@ -233,11 +233,11 @@ object ClaudeBackend:
   private[claude] val McpServerName: String = "orca"
 
   /** Fully-qualified tool name the agent uses, derived from the MCP server name
-    * + tool name. Always auto-approved on the interactive path — the user is
-    * already typing an answer, no need for a y/n prompt first.
+    * + the tool's bare slug. Always auto-approved on the interactive path — the
+    * user is already typing an answer, no need for a y/n prompt first.
     */
   private[claude] val AskUserToolName: String =
-    s"mcp__${McpServerName}__ask_user"
+    s"mcp__${McpServerName}__${mcp.AskUserMcpServer.ToolSlug}"
 
   /** Short hint appended to the system prompt on the interactive path, telling
     * the agent it has an `ask_user` tool for clarifying questions. Worded
