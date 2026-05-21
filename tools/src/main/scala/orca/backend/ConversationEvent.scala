@@ -46,6 +46,17 @@ enum ConversationEvent:
       respond: ApprovalDecision => Unit
   )
 
+  /** The agent wants a free-form answer from the user. The channel displays
+    * `question`, reads a reply, and calls `respond` exactly once with what the
+    * user typed. The driver feeds the answer back into the conversation as a
+    * tool result (the backend-specific machinery surfaces these via an
+    * `ask_user` MCP tool or equivalent).
+    *
+    * Only emitted by backends whose [[Conversation.canAskUser]] is true — at
+    * the moment, Claude. Codex sessions never emit this event.
+    */
+  case UserQuestion(question: String, respond: String => Unit)
+
 /** Channel's answer to a [[ConversationEvent.ApproveTool]] prompt.
   *
   *   - `Allow(None)` — run the tool with its original input.

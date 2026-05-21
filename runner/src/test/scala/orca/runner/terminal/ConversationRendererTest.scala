@@ -264,3 +264,35 @@ class ConversationRendererTest extends munit.FunSuite:
     )
     val _ = renderer(buf, prompter = prompter).render(conv)
     assert(conv.cancelled.get(), "expected conversation.cancel() to fire")
+
+  test("UserQuestion: question rendered, typed reply passed to respond"):
+    val buf = new ByteArrayOutputStream()
+    val answered = new AtomicReference[Option[String]](None)
+    val prompter = new ScriptedPrompter(List(PromptOutcome.Answer("Paris")))
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.UserQuestion(
+          "What's the target deployment region?",
+          ans => answered.set(Some(ans))
+        )
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, prompter = prompter).render(conv)
+    assertEquals(answered.get(), Some("Paris"))
+    assert(
+      buf.toString.contains("target deployment region"),
+      s"question text missing from output: ${buf.toString}"
+    )
+
+  test("UserQuestion interrupted → conversation.cancel() called"):
+    val buf = new ByteArrayOutputStream()
+    val prompter = new ScriptedPrompter(List(PromptOutcome.Interrupted))
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.UserQuestion("Pick one", _ => ())
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, prompter = prompter).render(conv)
+    assert(conv.cancelled.get(), "expected conversation.cancel() to fire")

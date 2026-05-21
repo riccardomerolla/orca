@@ -105,6 +105,8 @@ private[terminal] class ConversationRenderer(
     case ConversationEvent.Error(message)   => renderError(message)
     case ConversationEvent.ApproveTool(name, input, respond) =>
       promptApproval(name, input, respond, conversation)
+    case ConversationEvent.UserQuestion(question, respond) =>
+      promptUserQuestion(question, respond, conversation)
 
   // --- Rendering ---
 
@@ -210,6 +212,25 @@ private[terminal] class ConversationRenderer(
         currentIndent() + paint(ApprovalStyle, "  [y]es / [n]o ? ")
       ) match
         case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
+        case PromptOutcome.Interrupted   => conversation.cancel()
+    finally output.resume()
+
+  private def promptUserQuestion[B <: BackendTag](
+      question: String,
+      respond: String => Unit,
+      conversation: Conversation[B]
+  ): Unit =
+    enterSection(Section.Prose)
+    appendBlock(
+      paint(ApprovalStyle, s"$ApprovalGlyph ") +
+        paint(AssistantTextStyle, question)
+    )
+    output.suspend()
+    try
+      prompter.ask(
+        currentIndent() + paint(ApprovalStyle, "  > ")
+      ) match
+        case PromptOutcome.Answer(reply) => respond(reply)
         case PromptOutcome.Interrupted   => conversation.cancel()
     finally output.resume()
 
