@@ -1,4 +1,4 @@
-# Example 03 — running an epic with cross-agent review
+# Example 04 — running an epic with cross-agent review
 
 A more involved flow than [01-simple](../01-simple/): the epic
 lives on disk in a file the human can read, edit before running,
@@ -120,7 +120,7 @@ becomes "we trust your file" — useful for handcrafted epics.
 ## Run
 
 ```bash
-cd /tmp/orca-03-epic-…   # the seed-script's temp dir
+cd /tmp/orca-04-epic-…   # the seed-script's temp dir
 scala-cli run epic.sc -- \
   "Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), \
    add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) \

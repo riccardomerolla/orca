@@ -28,13 +28,14 @@ Save this as `implement.sc` and run it with your task:
 import orca.{*, given}
 
 flow(OrcaArgs(args)):
-  // Break the user's prompt into concrete subtasks. Plan.interactive.from
-  // opens a conversation the user can drive (clarifying questions,
-  // refinements); swap for Plan.autonomous.from for a single agentic turn
-  // with no human in the loop. The returned session id is reused below so
-  // the implementer turns share the planner's context.
+  // Break the user's prompt into concrete subtasks. Plan.autonomous.from
+  // runs the planner as a single agentic turn with no human in the loop;
+  // swap for Plan.interactive.from to let the planner ask clarifying
+  // questions when the prompt is open-ended (see example 02). The
+  // returned session id is reused below so the implementer turns share
+  // the planner's context.
   val (sessionId, plan) = stage("Creating a development plan"):
-    Plan.interactive.from(userPrompt, claude)
+    Plan.autonomous.from(userPrompt, claude)
 
   // Single branch for the whole epic; each task becomes a commit on it.
   // git.createBranch returns Either[BranchAlreadyExists, Unit]; .orThrow
@@ -74,10 +75,12 @@ flow(OrcaArgs(args)):
 scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
-There are three runnable examples which you migh try:
-* [01-simple](examples/01-simple/) (in-memory plan + review),
-* [02-bugfix](examples/02-bugfix/) (red-test-first against a real PR),
-* [03-epic](examples/03-epic/) (resumable disk-backed plan with cross-agent
+There are four runnable examples which you migh try:
+* [01-simple](examples/01-simple/) (in-memory plan + review, autonomous planner),
+* [02-interactive](examples/02-interactive/) (same shape as 01, but the planner
+  can ask clarifying questions via `ask_user`),
+* [03-bugfix](examples/03-bugfix/) (red-test-first against a real PR),
+* [04-epic](examples/04-epic/) (resumable disk-backed plan with cross-agent
   review).
 
 For convenient editing of Orca flow scripts, with code-completion, you can try

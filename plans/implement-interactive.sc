@@ -1,37 +1,37 @@
 //> using dep "org.virtuslab::orca:0.0.2"
 //> using jvm 21
 
-/** Simple in-memory planning + coding flow (autonomous planning).
+/** Interactive planning + coding flow.
   *
-  * Mirrors the README example. The agent breaks the user's prompt into a list
-  * of tasks in a single structured turn, the flow surfaces the plan, and each
-  * task is implemented in sequence on a single epic branch with a
-  * review-and-fix loop after each.
+  * Same shape as `implement.sc` but the planner opens a conversation the user
+  * can drive: if the prompt is underspecified, the agent calls the `ask_user`
+  * tool to clarify before producing the plan. Each follow-up question shows
+  * up in the terminal; typed answers feed straight back to the agent.
   *
   * Lives alongside the seeded calculator crate so a user can run it from the
-  * project's root after `examples/01-simple/create-test-project.sh`:
+  * project's root after `examples/02-interactive/create-test-project.sh`:
   *
   * ```bash
-  * scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
+  * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate"
   * ```
   *
-  * Requires `claude` logged in and `cargo` on PATH.
+  * The prompt above is deliberately open-ended — the agent should ask which
+  * operation (multiply? divide? modulo?) before planning.
   *
-  * For the variant where the planner can ask the user clarifying questions
-  * (open-ended prompts, underspecified asks), see `implement-interactive.sc`.
+  * Requires `claude` logged in and `cargo` on PATH.
   */
 
 import orca.{*, given}
 
 flow(OrcaArgs(args)):
-  // 1. Break the user's prompt into concrete subtasks in one agentic turn.
-  // `Plan.autonomous.from` runs the planner without a human in the loop —
-  // good when the prompt is concrete enough that the agent shouldn't need
-  // to ask anything. Swap for `Plan.interactive.from` to let the planner
-  // clarify ambiguous asks. Both wrap the user prompt with
-  // `PlanPrompts.Planning` to keep the agent in plan-only mode.
+  // 1. Break the user's prompt into concrete subtasks, interactively.
+  // `Plan.interactive.from` lets the planner call `ask_user` whenever the
+  // prompt is too vague to plan against — typically one or two questions
+  // before the structured `Plan` lands. Swap for `Plan.autonomous.from`
+  // (see `implement.sc`) when the prompt is concrete enough that the
+  // agent shouldn't need to ask anything.
   val (sessionId, plan) = stage("Creating a development plan"):
-    Plan.autonomous.from(userPrompt, claude)
+    Plan.interactive.from(userPrompt, claude)
 
   // 2. Single branch for the whole epic; tasks become commits on it.
   stage(s"Branch: ${plan.epicId}"):

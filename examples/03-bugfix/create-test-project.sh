@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Seeds the calculator scratch project for example 02-bugfix into a temp
+# Seeds the calculator scratch project for example 03-bugfix into a temp
 # directory (or a path you supply) and inits a git repo. Includes a
 # minimal `.github/workflows/ci.yml` so the bugfix flow's "wait for CI"
 # stages have something to observe once the project is pushed to GitHub.
@@ -9,10 +9,10 @@
 # on a real GitHub repo — see "Next steps" at the end of this script.
 #
 # Usage:
-#   examples/02-bugfix/create-test-project.sh                    # mktemp, Maven Central
-#   examples/02-bugfix/create-test-project.sh /path/to/dir       # explicit dest
-#   examples/02-bugfix/create-test-project.sh --local            # publishLocal + pin
-#   examples/02-bugfix/create-test-project.sh --local /path/...  # both
+#   examples/03-bugfix/create-test-project.sh                    # mktemp, Maven Central
+#   examples/03-bugfix/create-test-project.sh /path/to/dir       # explicit dest
+#   examples/03-bugfix/create-test-project.sh --local            # publishLocal + pin
+#   examples/03-bugfix/create-test-project.sh --local /path/...  # both
 
 set -euo pipefail
 
@@ -27,7 +27,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$SCRIPT_DIR/../_seed_lib.sh"
 
 parse_args "$@"
-resolve_dest "orca-02-bugfix"
+resolve_dest "orca-03-bugfix"
 init_destination "$SEED_DIR" "$PLANS_DIR" "bugfix.sc" "Initial buggy calculator project"
 apply_local_flag "$REPO_ROOT" "$DEST/bugfix.sc"
 
@@ -35,7 +35,7 @@ cat <<EOF
 
 Test project ready at: $DEST
 
-Example 02 needs a real GitHub repo so the flow can open a PR and wait
+Example 03 needs a real GitHub repo so the flow can open a PR and wait
 for CI. Push the seed somewhere first:
 
   cd $DEST

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# Seeds the todo-cli scratch project for example 03-epic into a temp
+# Seeds the todo-cli scratch project for example 04-epic into a temp
 # directory (or a path you supply) and inits a git repo. The starter
 # is intentionally feature-incomplete (no persistence, no done/delete
 # commands, no priorities) so the epic prompt below decomposes into
 # several distinct tasks rather than collapsing into one.
 #
 # Usage:
-#   examples/03-epic/create-test-project.sh                    # mktemp, Maven Central
-#   examples/03-epic/create-test-project.sh /path/to/dir       # explicit dest
-#   examples/03-epic/create-test-project.sh --local            # publishLocal + pin
-#   examples/03-epic/create-test-project.sh --local /path/...  # both
+#   examples/04-epic/create-test-project.sh                    # mktemp, Maven Central
+#   examples/04-epic/create-test-project.sh /path/to/dir       # explicit dest
+#   examples/04-epic/create-test-project.sh --local            # publishLocal + pin
+#   examples/04-epic/create-test-project.sh --local /path/...  # both
 
 set -euo pipefail
 
@@ -25,7 +25,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$SCRIPT_DIR/../_seed_lib.sh"
 
 parse_args "$@"
-resolve_dest "orca-03-epic"
+resolve_dest "orca-04-epic"
 init_destination "$SEED_DIR" "$PLANS_DIR" "epic.sc" "Initial todo-cli project"
 apply_local_flag "$REPO_ROOT" "$DEST/epic.sc"
 

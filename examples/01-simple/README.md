@@ -1,17 +1,20 @@
-# Example 01 — simple in-memory flow
+# Example 01 — simple in-memory flow (autonomous planning)
 
-The minimum-viable Orca flow: ask the agent to plan, then implement
-each task in sequence with a review-and-fix loop.
+The minimum-viable Orca flow: ask the agent to plan in one turn, then
+implement each task in sequence with a review-and-fix loop.
 
 The plan lives entirely in memory for one run — there's no plan file,
 no resume, no on-disk state beyond the git commits the flow produces.
-Use this when the task is small enough to finish in one session.
+Use this when the task is small enough to finish in one session and
+concrete enough that the planner doesn't need to ask anything. For
+the variant where the planner can ask clarifying questions, see
+[02-interactive](../02-interactive/).
 
 ## What it does
 
 1. **Plan.** The agent receives the user's prompt and returns a
-   structured `Plan(tasks: List[Task])` (one interactive turn). The
-   `Announce[Plan]` instance auto-summarises it on the event bus —
+   structured `Plan(tasks: List[Task])` in a single autonomous turn.
+   The `Announce[Plan]` instance auto-summarises it on the event bus —
    no explicit `plan.announce` call needed.
 2. **For each task:**
    - Create the task's branch.

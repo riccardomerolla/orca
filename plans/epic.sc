@@ -21,7 +21,7 @@
   * wrap-up).
   *
   * Lives alongside the seeded todo-cli project so a user can run it from the
-  * project's root after `examples/03-epic/create-test-project.sh`:
+  * project's root after `examples/04-epic/create-test-project.sh`:
   *
   * ```bash
   * scala-cli run epic.sc -- \

@@ -1,4 +1,4 @@
-# Example 02 — bugfix flow
+# Example 03 — bugfix flow
 
 Red-test-first bugfix loop that exercises GitHub. The script turns a
 bug report into a failing test, opens a PR, lets CI confirm the
@@ -55,7 +55,7 @@ the `gh repo create` line) so the flow can open a PR and watch CI.
 ## Run
 
 ```bash
-cd /tmp/orca-02-bugfix-…   # the seed-script's temp dir
+cd /tmp/orca-03-bugfix-…   # the seed-script's temp dir
 scala-cli run bugfix.sc -- \
   "Calculator.add returns Integer.MAX_VALUE when one input is Integer.MIN_VALUE"
 ```

@@ -17,7 +17,7 @@
   *      branch. Reviews + lints. 7. Pushes the fix; waits for CI to go green.
   *
   * Lives alongside the seeded buggy project so a user can run it from the
-  * project's root after `examples/02-bugfix/create-test-project.sh` (push the
+  * project's root after `examples/03-bugfix/create-test-project.sh` (push the
   * seed to a real GitHub repo first — the seed script prints the `gh repo
   * create` line):
   *
