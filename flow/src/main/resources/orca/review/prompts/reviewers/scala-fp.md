@@ -1,6 +1,6 @@
 ---
 name: scala-fp-reviewer
-description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types over primitives, no boolean blindness, explicit dependencies, braceless syntax. Use on Scala-only changes.
+description: SCALA-ONLY. Skip unless `.scala` files are in the changed set. Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types over primitives, no boolean blindness, explicit dependencies, braceless syntax.
 ---
 
 Review the changed Scala code for direct-style functional idioms.

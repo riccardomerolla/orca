@@ -69,7 +69,8 @@ lazy val claude = (project in file("claude"))
       jsoniter,
       jsoniterMacros,
       chimp,
-      tapirNettySync
+      tapirNettySync,
+      logback
     )
   )
 

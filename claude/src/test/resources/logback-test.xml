@@ -1,0 +1,9 @@
+<!-- Mirrors runner/main/logback.xml so claude's own tests aren't drowned in
+     chimp/tapir/netty DEBUG output when they exercise the MCP server. -->
+<configuration>
+  <logger name="com.softwaremill.chimp" level="ERROR"/>
+  <logger name="sttp.tapir" level="ERROR"/>
+  <logger name="io.netty" level="ERROR"/>
+
+  <root level="WARN"/>
+</configuration>

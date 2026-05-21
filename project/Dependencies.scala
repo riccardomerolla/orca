@@ -14,6 +14,7 @@ object Dependencies {
     val munit = "1.1.1"
     val jsonSchemaValidator = "1.5.4"
     val chimp = "0.1.8"
+    val logback = "1.5.18"
   }
 
   val osLib = "com.lihaoyi" %% "os-lib" % V.osLib
@@ -42,4 +43,9 @@ object Dependencies {
   val chimp = "com.softwaremill.chimp" %% "core" % V.chimp
   val tapirNettySync =
     "com.softwaremill.sttp.tapir" %% "tapir-netty-server-sync" % V.tapir
+
+  // SLF4J binding so chimp/tapir/netty stop printing the "No SLF4J providers
+  // found" warning; a logback.xml on the classpath pins the noisy loggers to
+  // ERROR so the orca event log isn't drowned in framework chatter.
+  val logback = "ch.qos.logback" % "logback-classic" % V.logback
 }

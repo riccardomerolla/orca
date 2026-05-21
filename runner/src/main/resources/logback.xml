@@ -1,0 +1,20 @@
+<!-- Suppresses framework chatter (chimp/tapir/netty) under the agent's event
+     log. ERROR-only on those loggers; everything else stays at WARN so a real
+     orca-side log message would still get through if one were ever added.
+     Override by placing your own logback.xml earlier on the classpath. -->
+<configuration>
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <pattern>%-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <logger name="com.softwaremill.chimp" level="ERROR"/>
+  <logger name="sttp.tapir" level="ERROR"/>
+  <logger name="io.netty" level="ERROR"/>
+
+  <root level="WARN">
+    <appender-ref ref="STDERR"/>
+  </root>
+</configuration>
