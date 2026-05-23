@@ -1,5 +1,5 @@
-Your previous response could not be parsed as a JSON value matching the
-required schema.
+Your previous response could not be parsed as a JSON value matching the required
+schema.
 
 Parser error:
 {{parseError}}
