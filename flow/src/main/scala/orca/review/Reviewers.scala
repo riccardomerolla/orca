@@ -3,16 +3,29 @@ package orca.review
 import orca.llm.{BackendTag, LlmTool}
 import orca.util.PromptResource
 
+import scala.util.matching.Regex
+
 /** A reviewer agent definition: a short slug name, a description suitable for
   * LLM-driven selection ([[ReviewerSelector.llmDriven]]), and the system prompt
-  * that personalises the underlying LLM tool.
+  * that personalises the underlying LLM tool. `filePattern`, when set,
+  * restricts the reviewer to changes that touch at least one matching file —
+  * the selector drops the reviewer before the picker LLM sees it.
   */
-case class Reviewer(name: String, description: String, systemPrompt: String)
+case class Reviewer(
+    name: String,
+    description: String,
+    systemPrompt: String,
+    filePattern: Option[Regex] = None
+)
 
 /** Canonical reviewer definitions the library ships with. Each entry reads from
   * a `.md` resource under `src/main/resources/orca/review/prompts/reviewers/`
-  * with YAML-ish frontmatter (`description:` is parsed; the body becomes the
-  * system prompt).
+  * with YAML-ish frontmatter:
+  *
+  *   - `description:` — short purpose blurb, used by the LLM-driven selector
+  *     (required).
+  *   - `files:` — substring-matched regex; the reviewer is only offered to the
+  *     picker when at least one changed file matches (optional).
   */
 object ReviewerPrompts:
 
@@ -26,7 +39,8 @@ object ReviewerPrompts:
         s"reviewer '$slug' is missing 'description' in its frontmatter"
       )
     )
-    Reviewer(slug, description, parsed.body)
+    val filePattern = parsed.metadata.get("files").map(_.r)
+    Reviewer(slug, description, parsed.body, filePattern)
 
   val CodeFunctionality: Reviewer = load("code-functionality")
   val CodeStructure: Reviewer = load("code-structure")
@@ -69,6 +83,14 @@ object ReviewerPrompts:
     */
   val descriptionsByToolName: Map[String, String] =
     all.map(r => s"reviewer: ${r.name}" -> r.description).toMap
+
+  /** File-filter regexes keyed by the prefixed tool name. The selector drops
+    * reviewers whose pattern doesn't match any of the iteration's changed
+    * files, before the picker LLM sees them. Only reviewers that declared a
+    * `files:` frontmatter entry appear here.
+    */
+  val filePatternsByToolName: Map[String, Regex] =
+    all.flatMap(r => r.filePattern.map(p => s"reviewer: ${r.name}" -> p)).toMap
 
 /** Build LlmTools for every reviewer the library ships with. The picker in
   * [[ReviewerSelector.llmDriven]] (the default in [[reviewAndFixLoop]]) narrows

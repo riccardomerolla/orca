@@ -1,12 +1,12 @@
 ---
 name: scala-fp-reviewer
-description: SCALA-ONLY. Skip unless `.scala` files are in the changed set. Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types over primitives, no boolean blindness, explicit dependencies, braceless syntax.
+description: Reviews Scala code for direct-style functional idioms — immutability, total functions, Either/Option over throws, opaque types over primitives, no boolean blindness, explicit dependencies, braceless syntax.
+files: \.scala$
 ---
 
 ## Scope
 
-Scala-only. If the diff has no `.scala` files, stop and report no issues. Review
-only the FP idioms below; other dimensions belong to other reviewers.
+Review only the FP idioms below; other dimensions belong to other reviewers.
 
 ## Aspects
 

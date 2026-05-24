@@ -5,6 +5,8 @@ import orca.events.OrcaEvent
 import orca.llm.{JsonData, LlmTool, given}
 import orca.plan.Title
 
+import scala.util.matching.Regex
+
 /** Picks which reviewers to run on each iteration of [[reviewAndFixLoop]].
   *
   *   - `history` holds prior batches with the most recent first.
@@ -63,23 +65,36 @@ object ReviewerSelector:
     * would see all-empty descriptions, a one-time `Step` warning fires so the
     * silent-name-only-selection failure mode is visible.
     *
+    * `filePatterns` is a code-side pre-filter applied before the LLM call:
+    * reviewers whose pattern doesn't match any of the iteration's
+    * `changedFiles` are dropped, so the picker can't pick them. The default
+    * uses [[ReviewerPrompts.filePatternsByToolName]] — only reviewers that
+    * declared a `files:` frontmatter entry are constrained; everything else is
+    * offered to the picker as-is.
+    *
     * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
     * `instructions` to retune the selection brief.
     */
   def llmDriven(
       llm: LlmTool[?],
       instructions: String = ReviewLoopPrompts.SelectReviewers,
-      descriptions: Map[String, String] = ReviewerPrompts.descriptionsByToolName
+      descriptions: Map[String, String] =
+        ReviewerPrompts.descriptionsByToolName,
+      filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsByToolName
   )(using ctx: FlowContext): ReviewerSelector =
     var cached: Option[List[String]] = None
     (_, all, taskTitle, changedFiles) =>
+      val eligible = all.filter: r =>
+        filePatterns.get(r.name) match
+          case None     => true
+          case Some(rx) => changedFiles.exists(f => rx.findFirstIn(f).isDefined)
       val names = cached.getOrElse:
-        val infos = all.map: r =>
+        val infos = eligible.map: r =>
           ReviewerInfo(
             name = r.name,
             description = descriptions.getOrElse(r.name, "")
           )
-        if all.nonEmpty && infos.forall(_.description.isEmpty) then
+        if eligible.nonEmpty && infos.forall(_.description.isEmpty) then
           ctx.emit(
             OrcaEvent.Step(
               "reviewer selection: no descriptions matched the supplied " +
@@ -87,21 +102,26 @@ object ReviewerSelector:
                 "preset builder?). The picker will see names only."
             )
           )
-        val picked = llm
-          .resultAs[SelectedReviewers]
-          .autonomous
-          .run(
-            ReviewerSelectionRequest(
-              taskTitle = taskTitle,
-              changedFiles = changedFiles,
-              availableReviewers = infos,
-              instructions = instructions
-            )
-          )
-          .names
+        val picked =
+          if eligible.isEmpty then Nil
+          else
+            llm
+              .resultAs[SelectedReviewers]
+              .autonomous
+              .run(
+                ReviewerSelectionRequest(
+                  taskTitle = taskTitle,
+                  changedFiles = changedFiles,
+                  availableReviewers = infos,
+                  instructions = instructions
+                )
+              )
+              .names
         cached = Some(picked)
         picked
-      SelectedReviewers(names).pick(all)
+      // Post-filter against `eligible`, not `all`, so a picker that hallucinates
+      // a name pre-filtered out can't resurrect it.
+      SelectedReviewers(names).pick(eligible)
 
 private case class ReviewerInfo(name: String, description: String)
     derives JsonData
