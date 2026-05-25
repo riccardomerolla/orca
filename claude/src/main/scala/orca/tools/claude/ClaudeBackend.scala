@@ -1,27 +1,31 @@
 package orca.tools.claude
 
 import orca.llm.{BackendTag, LlmConfig, SessionId}
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{OrcaFlowException}
-import orca.backend.{Conversation, LlmBackend, LlmResult}
+import orca.backend.{Conversation, Conversations, LlmBackend, LlmResult}
 import orca.subprocess.CliRunner
 import orca.tools.claude.mcp.{AskUserBridge, AskUserMcpServer}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
 import ox.channels.BufferCapacity
 
-/** Claude Code backend. Headless calls go through `claude -p --output-format
-  * json` — single-shot, parses the JSON result. Interactive calls drive a
-  * stream-json subprocess through [[ClaudeConversation]]: the prompt is
-  * injected as the first user turn on stdin, the subprocess emits typed NDJSON
-  * responses, the driver translates them into `ConversationEvent`s the channel
-  * renders.
+/** Claude Code backend. All calls — autonomous and interactive — drive a
+  * stream-json subprocess through [[ClaudeConversation]]; the difference is
+  * just the `canAskUser` knob on [[openConversation]]. The prompt is injected
+  * as the first user turn on stdin, the subprocess emits typed NDJSON
+  * responses, the driver translates them into `ConversationEvent`s.
+  *
+  * The autonomous path drains those events via
+  * [[orca.backend.Conversations.drainAutonomous]] and returns the awaited
+  * `LlmResult`. The interactive path hands the `Conversation` back to the
+  * caller who runs `Interaction.drive`.
   *
   * Interactive calls also stand up an MCP host bridge: a tiny HTTP server (via
   * [[AskUserMcpServer]]) exposes an `ask_user` tool the agent can call to
   * surface a free-form clarifying question. The server's lifetime tracks the
   * conversation (via `ClaudeConversation.onFinalize`), not the backend, so a
   * long flow with many interactive calls doesn't leak Netty bindings.
+  * Autonomous calls skip the bridge entirely.
   */
 class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
@@ -54,7 +58,8 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       config,
       workDir,
       resume = None,
-      outputSchema
+      outputSchema,
+      canAskUser = true
     )
 
   def continueInteractive(
@@ -71,30 +76,40 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       config,
       workDir,
       resume = Some(sessionId),
-      outputSchema
+      outputSchema,
+      canAskUser = true
     )
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
-    * stdin, and wrap the process in a live [[ClaudeConversation]].
+    * stdin, and wrap the process in a live [[ClaudeConversation]]. Used by both
+    * the interactive path (`runInteractive`, `canAskUser = true`) and the
+    * autonomous path (`runHeadless`, `canAskUser = false`).
     *
-    * The initial user turn is the only one we feed through stdin; once it's
+    * The initial user turn is the only thing we feed through stdin; once it's
     * written we close the pipe so `claude --print --input-format stream-json`
-    * stops waiting for EOF and starts producing output. Mid-session user input
-    * (clarifying questions) flows through the MCP host bridge instead: we stand
-    * up an [[AskUserMcpServer]] on an ephemeral port, write a workDir-local
-    * `.orca-mcp-<port>.json` pointing at it, and tell claude about it via
-    * `--mcp-config`. When the agent calls the `ask_user` tool the bridge wakes
-    * up, the conversation emits a `UserQuestion` event, the renderer prompts,
-    * and the typed answer becomes the tool result.
+    * stops waiting for EOF and starts producing output.
     *
-    * The MCP server is handed to ClaudeConversation as a session resource; its
-    * `close()` runs from `onFinalize` after the conversation's read loop
-    * drains, so the binding releases when the conversation ends rather than
-    * when the outer flow scope tears down.
+    * `canAskUser = true` wires the MCP `ask_user` tool: we stand up an
+    * [[AskUserMcpServer]] on an ephemeral port, write a workDir-local
+    * `.orca-mcp-<port>.json` pointing at it, tell claude about it via
+    * `--mcp-config`, and add the tool name to the auto-approve set so the user
+    * isn't prompted to authorise it. When the agent calls `ask_user` the bridge
+    * wakes up, the conversation emits a `UserQuestion` event, the renderer
+    * prompts, and the typed answer becomes the tool result.
     *
-    * If anything between server start and conversation construction throws we
-    * stop the server (and SIGINT the process if we'd already spawned it) so no
-    * Netty binding or subprocess leaks.
+    * `canAskUser = false` skips all of that — no MCP server, no config file, no
+    * system-prompt hint, no auto-approve entry. Autonomous calls have no
+    * renderer to drive the prompt, so exposing the tool would just give the
+    * agent a way to deadlock the call.
+    *
+    * The MCP server (when present) is handed to ClaudeConversation as a session
+    * resource; its `close()` runs from `onFinalize` after the read loop drains,
+    * so the binding releases when the conversation ends rather than when the
+    * outer flow scope tears down.
+    *
+    * If anything between resource allocation and conversation construction
+    * throws we tear down the server (and SIGINT the process if we'd already
+    * spawned it) so no Netty binding or subprocess leaks.
     */
   private def openConversation(
       prompt: String,
@@ -102,23 +117,40 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       config: LlmConfig,
       workDir: os.Path,
       resume: Option[SessionId[BackendTag.ClaudeCode.type]],
-      outputSchema: Option[String]
+      outputSchema: Option[String],
+      canAskUser: Boolean
   ): Conversation[BackendTag.ClaudeCode.type] =
-    val bridge = new AskUserBridge
-    val mcpServer = AskUserMcpServer.start(bridge)
+    // Allocate ask_user resources up front so we can close them deterministically
+    // on a downstream failure. `None` when canAskUser=false — autonomous calls
+    // don't expose the tool.
+    val askUser: Option[(AskUserBridge, AskUserMcpServer, os.Path)] =
+      if canAskUser then
+        val bridge = new AskUserBridge
+        val server = AskUserMcpServer.start(bridge)
+        try
+          val configFile = writeMcpConfig(server.url, server.port, workDir)
+          Some((bridge, server, configFile))
+        catch
+          case e: Throwable =>
+            server.close()
+            throw e
+      else None
     try
-      val mcpConfigFile =
-        writeMcpConfig(mcpServer.url, mcpServer.port, workDir)
       val systemPromptFile =
-        writeSystemPromptIfPresent(config, workDir, includeAskUserHint = true)
+        writeSystemPromptIfPresent(
+          config,
+          workDir,
+          includeAskUserHint = canAskUser
+        )
       val effectiveConfig =
-        config.autoApproveAlso(ClaudeBackend.AskUserToolName)
+        if canAskUser then config.autoApproveAlso(ClaudeBackend.AskUserToolName)
+        else config
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
         resume,
         outputSchema,
-        mcpConfig = Some(mcpConfigFile)
+        mcpConfig = askUser.map((_, _, file) => file)
       )
       val process = cli.spawnPiped(args, cwd = workDir)
       try
@@ -126,35 +158,35 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           OutboundMessage.toJson(OutboundMessage.UserText(prompt))
         )
         process.closeStdin()
+        val resources = askUser.toList.flatMap: (_, server, configFile) =>
+          // Order: stop the MCP server first (closes Netty workers), then
+          // remove the workDir config file. Listed in close order by
+          // ClaudeConversation.onFinalize.
+          List(server, ClaudeBackend.deleteFileResource(configFile))
         new ClaudeConversation(
           process,
           config,
           initialPrompt = displayPrompt,
           outputSchema = outputSchema,
-          askUserBridge = Some(bridge),
-          // Order: stop the MCP server first (closes Netty workers),
-          // then remove the workDir config file. Listed in close order
-          // by ClaudeConversation.onFinalize.
-          sessionResources = List(
-            mcpServer,
-            ClaudeBackend.deleteFileResource(mcpConfigFile)
-          )
+          askUserBridge = askUser.map((bridge, _, _) => bridge),
+          sessionResources = resources
         )
       catch
         case e: Exception =>
           process.sendSigInt()
-          mcpServer.close()
-          os.remove(mcpConfigFile)
+          askUser.foreach: (_, server, configFile) =>
+            server.close()
+            os.remove(configFile)
           throw OrcaFlowException(
             s"Failed to open claude stream-json session: ${e.getMessage}"
           )
     catch
       case e: Throwable =>
-        // Pre-process-spawn failure (config write / args build): stop the
-        // server we already started so the Netty binding doesn't leak.
-        // The mcp config file may or may not have been written by the time
-        // we got here; remove if present.
-        mcpServer.close()
+        // Pre-process-spawn failure (system-prompt write / args build):
+        // tear down anything we already allocated.
+        askUser.foreach: (_, server, configFile) =>
+          server.close()
+          if os.exists(configFile) then os.remove(configFile)
         throw e
 
   /** Write a workDir-local MCP config file advertising the host's MCP server.
@@ -173,29 +205,33 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     )
     path
 
+  /** Autonomous invocation: opens the same stream-json [[ClaudeConversation]]
+    * the interactive path uses (no MCP `ask_user`, no system-prompt hint), then
+    * drains it via [[Conversations.drainAutonomous]] for the result. Retries
+    * for transient failures live one layer up in `DefaultLlmCall` — it wraps
+    * every structured call in `retry(effective.retrySchedule)`.
+    */
   private def invokeHeadless(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
       resume: Option[SessionId[BackendTag.ClaudeCode.type]]
   ): LlmResult[BackendTag.ClaudeCode.type] =
-    val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
-    val args = ClaudeArgs.headless(prompt, config, systemPromptFile, resume)
-    // Retries for transient failures live one layer up in DefaultLlmCall —
-    // it wraps every structured call in `retry(effective.retrySchedule)`.
-    // Plain ask/startSession/continueSession callers skip that loop by
-    // design (raw-text path; the caller decides the retry policy).
-    val result = cli.run(args, cwd = workDir)
-    if result.exitCode != 0 then
-      val diagnostic =
-        if result.stderr.nonEmpty then result.stderr else result.stdout
-      throw OrcaFlowException(
-        s"claude CLI failed (exit ${result.exitCode}): $diagnostic"
-      )
-    val response = readFromString[ClaudeHeadlessResponse](result.stdout)
-    if response.is_error.contains(true) then
-      throw OrcaFlowException(s"claude reported an error: ${response.result}")
-    response.toLlmResult
+    val conv = openConversation(
+      prompt = prompt,
+      // No renderer on the autonomous path; the prompt is only ever shown
+      // to the agent, never echoed back to the user.
+      displayPrompt = "",
+      config = config,
+      workDir = workDir,
+      resume = resume,
+      outputSchema = None,
+      canAskUser = false
+    )
+    try Conversations.drainAutonomous(conv)
+    catch
+      case e: OrcaFlowException =>
+        throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
 
   /** Build the per-session system-prompt file. Optionally includes a short note
     * about the `ask_user` MCP tool — only the interactive path passes

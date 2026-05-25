@@ -9,28 +9,17 @@ import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
   */
 private[claude] object ClaudeArgs:
 
-  /** Single-turn headless invocation: `claude -p <prompt> --output-format
-    * json`. The process prints a JSON result and exits.
-    */
-  def headless(
-      prompt: String,
-      config: LlmConfig,
-      systemPromptFile: Option[os.Path],
-      resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None
-  ): Seq[String] =
-    Seq("claude", "-p", prompt, "--output-format", "json") ++
-      modelArgs(config) ++
-      systemPromptFileArgs(systemPromptFile) ++
-      resumeArgs(resume) ++
-      autoApproveArgs(config)
-
-  /** Stream-json interactive invocation: `claude --print --input-format
-    * stream-json --output-format stream-json --verbose
-    * --include-partial-messages`. The prompt goes in as the first user turn on
-    * stdin; the caller writes subsequent turns and reads responses as NDJSON.
+  /** Stream-json invocation: `claude --print --input-format stream-json
+    * --output-format stream-json --verbose --include-partial-messages`. Used by
+    * both the autonomous and interactive paths — they only differ in whether
+    * the `--mcp-config` arg (and the `ask_user` tool that comes with it) is
+    * wired. The prompt goes in as the first user turn on stdin; for single-turn
+    * (autonomous) calls the backend closes stdin immediately, for multi-turn
+    * (interactive) it stays open.
+    *
     * `--print` is required by the CLI for `--input-format stream-json` to take
-    * effect — despite the name, the session runs multi-turn because the stdin
-    * pipe stays open.
+    * effect — despite the name, the session runs multi-turn because stdin can
+    * stay open.
     */
   def streamJson(
       config: LlmConfig,
