@@ -89,17 +89,21 @@ class ClaudeBackendTest extends munit.FunSuite:
         backend.runAutonomous("x", LlmConfig.default, os.temp.dir())
 
   test(
-    "runAutonomous writes the system prompt to a file when config provides one"
+    "runAutonomous passes a --append-system-prompt-file pointing at the config's prompt"
   ):
+    // The file lives in a JVM temp dir (not the user's workDir) so the
+    // user's repo doesn't accumulate `.claude/orca-system-prompt.md`
+    // leftovers across calls. We assert on the args + file contents.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val config = LlmConfig(systemPrompt = Some("you are a poet"))
-      val _ = backend.runAutonomous("x", config, workDir)
-      val file = workDir / ".claude" / "orca-system-prompt.md"
-      assert(os.exists(file))
+      val _ = backend.runAutonomous("x", config, os.temp.dir())
+      val args = runner.calls.head
+      val flagIdx = args.indexOf("--append-system-prompt-file")
+      assert(flagIdx >= 0, s"expected the prompt-file flag in args; got: $args")
+      val path = os.Path(args(flagIdx + 1))
       // Autonomous path doesn't append the ask_user hint.
-      assertEquals(os.read(file), "you are a poet")
+      assertEquals(os.read(path), "you are a poet")
 
   test(
     "continueAutonomous passes --resume <id> and returns the new session id"

@@ -151,7 +151,6 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       val systemPromptFile =
         writeSystemPromptIfPresent(
           config,
-          workDir,
           includeAskUserHint = askUser.isDefined
         )
       val effectiveConfig =
@@ -271,12 +270,17 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
 
   /** Build the per-session system-prompt file. Optionally includes a short note
     * about the `ask_user` MCP tool — only the interactive path passes
-    * `includeAskUserHint = true`, so headless calls don't waste tokens on a
+    * `includeAskUserHint = true`, so autonomous calls don't waste tokens on a
     * tool they have no MCP server for.
+    *
+    * Writes to a JVM temp file (auto-cleaned on exit) rather than the user's
+    * workDir — the file is purely an IPC mechanism between orca and the
+    * `claude` subprocess (claude reads it once on startup via
+    * `--append-system-prompt-file`) and has no business surviving in the user's
+    * repo as `.claude/orca-system-prompt.md`.
     */
   private def writeSystemPromptIfPresent(
       config: LlmConfig,
-      workDir: os.Path,
       includeAskUserHint: Boolean = false
   ): Option[os.Path] =
     val body = (config.systemPrompt, includeAskUserHint) match
@@ -285,8 +289,8 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       case (Some(s), false) => Some(s)
       case (None, false)    => None
     body.map: text =>
-      val file = workDir / ".claude" / "orca-system-prompt.md"
-      os.write.over(file, text, createFolders = true)
+      val file =
+        os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
       file
 
 object ClaudeBackend:
