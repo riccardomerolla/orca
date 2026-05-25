@@ -227,3 +227,42 @@ class OsGitToolTest extends munit.FunSuite:
       assert(
         git.removeWorktree(ghost).left.exists(_.isInstanceOf[WorktreeNotFound])
       )
+
+  test("gitFailureMessage embeds status and fsck blocks"):
+    // Direct test on the formatter so we don't need to manufacture a real
+    // tree-corruption failure inside a sandbox repo.
+    val diag = OsGitTool.GitDiagnostics(
+      status = "M  changed.txt\n?? untracked.txt",
+      fsck = "missing tree fa29f13"
+    )
+    val msg = OsGitTool.gitFailureMessage(
+      "commit -m seed",
+      "fatal: unable to read tree",
+      diag
+    )
+    assert(msg.contains("git commit -m seed failed: fatal: unable to read tree"), msg)
+    assert(msg.contains("M  changed.txt"), msg)
+    assert(msg.contains("?? untracked.txt"), msg)
+    assert(msg.contains("missing tree fa29f13"), msg)
+
+  test("gitFailureMessage shows '(clean)' / '(no issues reported)' when empty"):
+    val diag = OsGitTool.GitDiagnostics(status = "", fsck = "")
+    val msg = OsGitTool.gitFailureMessage("add -A", "boom", diag)
+    assert(msg.contains("git add -A failed: boom"), msg)
+    assert(msg.contains("(clean)"), msg)
+    assert(msg.contains("(no issues reported)"), msg)
+
+  test("commit on a corrupted repo throws with status + fsck diagnostics"):
+    // Integration check that the formatter is actually wired into the commit
+    // path: corrupt the index so `git add -A` fails, then confirm the thrown
+    // message carries the status + fsck blocks (and isn't just the bare
+    // stderr we used to throw before).
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write.over(dir / ".git" / "index", "garbage")
+      os.write(dir / "another.txt", "x")
+      val ex = intercept[orca.OrcaFlowException](git.commit("noop"))
+      assert(ex.getMessage.contains("git add -A failed"), ex.getMessage)
+      assert(ex.getMessage.contains("git status --porcelain:"), ex.getMessage)
+      assert(ex.getMessage.contains("git fsck --no-progress:"), ex.getMessage)

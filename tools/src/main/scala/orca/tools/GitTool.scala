@@ -186,14 +186,46 @@ class OsGitTool(
     else false
 
   def commit(message: String): Either[NothingToCommit, Unit] =
-    val _ = git("add", "-A")
+    val _ = gitWithDiagnostics("add", "-A")
     // `git status --porcelain` after staging is the cheapest "are there
     // changes?" check that doesn't depend on parsing localised git output.
     if git("status", "--porcelain").trim.isEmpty then Left(new NothingToCommit)
     else
-      val _ = git("commit", "-m", message)
+      val _ = gitWithDiagnostics("commit", "-m", message)
       events.onEvent(OrcaEvent.Step(s"Committed: $message"))
       Right(())
+
+  /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
+    * with a `git status --porcelain` + `git fsck --no-progress` snapshot. Used
+    * by the commit path where a bare stderr line ("unable to read tree X") is
+    * not enough to diagnose the actual repo state.
+    */
+  private def gitWithDiagnostics(args: String*): String =
+    val result = QuietProc.call("git" +: args, cwd = workDir)
+    if result.exitCode == 0 then result.out.text()
+    else
+      throw OrcaFlowException(
+        OsGitTool.gitFailureMessage(
+          args.mkString(" "),
+          result.err.text(),
+          gitDiagnostics()
+        )
+      )
+
+  /** Best-effort collection of `git status --porcelain` + `git fsck
+    * --no-progress` for inclusion in a commit-failure exception. Each
+    * sub-command is swallowed-and-tagged on failure rather than thrown, so a
+    * broken repo can't shadow the original failure with a second one.
+    */
+  private def gitDiagnostics(): OsGitTool.GitDiagnostics =
+    def tryRun(args: String*): String =
+      val r = QuietProc.call("git" +: args, cwd = workDir)
+      if r.exitCode == 0 then r.out.text()
+      else s"<git ${args.mkString(" ")} failed (exit ${r.exitCode}): ${r.err.text().trim}>"
+    OsGitTool.GitDiagnostics(
+      status = tryRun("status", "--porcelain"),
+      fsck = tryRun("fsck", "--no-progress")
+    )
 
   def push(): Either[PushRejected, Unit] =
     // `-u origin HEAD` sets upstream on first push and is a no-op afterwards.
@@ -295,6 +327,36 @@ private[orca] object OsGitTool:
 
   private val WorktreePrefix = "worktree "
   private val BranchPrefix = "branch refs/heads/"
+
+  /** Snapshot of repo state captured when a commit fails. `status` is the
+    * porcelain listing of what was staged at the moment of failure; `fsck`
+    * reports missing/dangling objects when the failure was tree corruption.
+    */
+  private[tools] case class GitDiagnostics(status: String, fsck: String)
+
+  /** Format a git subprocess failure into the message used by the thrown
+    * exception. `cmd` is the argv after `git ` (e.g. `commit -m seed` or
+    * `add -A`). Sectioned so the original stderr stays at the top and the
+    * diagnostics follow on their own lines.
+    */
+  private[tools] def gitFailureMessage(
+      cmd: String,
+      stderr: String,
+      diag: GitDiagnostics
+  ): String =
+    val statusBlock =
+      if diag.status.trim.isEmpty then "  (clean)"
+      else diag.status.linesIterator.map("  " + _).mkString("\n")
+    val fsckBlock =
+      if diag.fsck.trim.isEmpty then "  (no issues reported)"
+      else diag.fsck.linesIterator.map("  " + _).mkString("\n")
+    s"""git $cmd failed: ${stderr.trim}
+       |
+       |git status --porcelain:
+       |$statusBlock
+       |
+       |git fsck --no-progress:
+       |$fsckBlock""".stripMargin
 
   /** Parse the output of `git worktree list --porcelain`. Entries are separated
     * by blank lines; each entry has `worktree <path>` followed by `HEAD <sha>`
