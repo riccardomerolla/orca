@@ -159,8 +159,12 @@ class CostTrackerTest extends munit.FunSuite:
       tokens("performance", Some("haiku"), Usage(1_000_000L, 0L, None))
     )
     val out = tracker.summary
-    assert(out.contains("claude: 10 in, 5 out — $0.1000"), out)
-    assert(out.contains("performance: 1000000 in, 0 out — $1.0000*"), out)
+    assert(out.contains("claude: 10 in, 5 out ($0.1000)"), out)
+    assert(out.contains("performance: 1000000 in, 0 out ($1.0000*)"), out)
+    // Mixed → aggregate is estimated → prefix shifts; asterisk on the
+    // amount drops since the word already says it.
+    assert(out.contains("Estimated total: $1.1000"), out)
+    assert(!out.contains("Estimated total: $1.1000*"), out)
 
   test("summary's estimate legend cites the price-list lastUpdated date"):
     val tracker = new CostTracker(pricing = testTable)
@@ -177,6 +181,7 @@ class CostTrackerTest extends munit.FunSuite:
     val out = tracker.summary
     assert(!out.contains("*"), out)
     assert(!out.contains("estimated"), out)
+    assert(out.contains("Total: $0.1000"), out)
 
   test("summary is empty when nothing has been recorded"):
     assertEquals(new CostTracker().summary, "")

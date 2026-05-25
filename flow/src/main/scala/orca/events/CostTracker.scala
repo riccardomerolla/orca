@@ -122,7 +122,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
         .map: (model, u) =>
           s"  ${modelLabel(model)}: ${formatLine(u, s.byModelCost.get(model))}"
       val totalLine = totalCost.fold(""): c =>
-        s"\n\nTotal: ${formatCost(c)}"
+        // The "Estimated" prefix already conveys what the per-line asterisk
+        // does, so we drop the marker on the total to avoid `Estimated
+        // total: $1.10*` reading like double-counting.
+        val label = if c.estimated then "Estimated total" else "Total"
+        s"\n\n$label: ${formatAmount(c)}"
       val hasEstimate =
         (s.byAgentCost.values ++ s.byModelCost.values).exists(_.estimated)
       val legend =
@@ -144,7 +148,7 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
 
   private def formatLine(usage: Usage, cost: Option[Cost]): String =
     val tokens = formatUsage(usage)
-    cost.fold(tokens)(c => s"$tokens — ${formatCost(c)}")
+    cost.fold(tokens)(c => s"$tokens (${formatCost(c)})")
 
   private def formatUsage(usage: Usage): String =
     val cached =
@@ -157,10 +161,13 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
       else ""
     s"${usage.inputTokens} in$cached, ${usage.outputTokens} out$reasoning"
 
-  private def formatCost(c: Cost): String =
+  private def formatAmount(c: Cost): String =
     val rounded = c.amount.setScale(4, BigDecimal.RoundingMode.HALF_UP)
+    s"$$$rounded"
+
+  private def formatCost(c: Cost): String =
     val marker = if c.estimated then "*" else ""
-    s"$$$rounded$marker"
+    s"${formatAmount(c)}$marker"
 
   /** Print the summary on its own block. Leading newline keeps the output from
     * landing on top of an active terminal status row; trailing newline ensures
