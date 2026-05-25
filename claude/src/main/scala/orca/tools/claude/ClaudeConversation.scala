@@ -103,6 +103,10 @@ private[claude] class ClaudeConversation(
     t.setDaemon(true)
     t.start()
 
+  // Subclass fields above are assigned now; safe to spin up the reader +
+  // stderr workers. See [[StreamConversation.start]].
+  start()
+
   private def askUserDrainLoop(
       bridge: orca.tools.claude.mcp.AskUserBridge
   ): Unit =

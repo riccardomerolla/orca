@@ -110,13 +110,14 @@ class CodexBackendTest extends munit.FunSuite:
     intercept[OrcaFlowException]:
       backend.runHeadless("q", LlmConfig.default, os.temp.dir())
 
-  test(
-    "runHeadless surfaces stderr in the failure message when codex exits non-zero"
-  ):
-    // FakePipedCliProcess.waitForExit hardcodes 0; subclass to drive a
-    // non-zero exit so the stderr-diagnostic branch can fire.
+  test("runHeadless throws when codex exits non-zero"):
+    // FakePipedCliProcess hardcodes tryExitCode = 0 when alive=false;
+    // override to drive a non-zero exit so the failure branch can fire.
+    // Stderr lines now reach the user via ConversationEvent.Error → the
+    // listener (task 4 of the unification plan wires it as
+    // OrcaEvent.Error); the thrown exception just carries the exit code.
     val p = new FakePipedCliProcess(initiallyAlive = false):
-      override def waitForExit(): Int = 7
+      override def tryExitCode: Option[Int] = Some(7)
     p.enqueueStdout("""{"type":"thread.started","thread_id":"thr-fail"}""")
     p.enqueueStderr("Error: thread/resume failed: not found")
     p.closeStdout()
@@ -125,11 +126,7 @@ class CodexBackendTest extends munit.FunSuite:
     val ex = intercept[OrcaFlowException]:
       backend.runHeadless("q", LlmConfig.default, os.temp.dir())
     assert(
-      ex.getMessage.contains("thread/resume failed"),
-      s"expected stderr to be in the failure message; got: ${ex.getMessage}"
-    )
-    assert(
-      ex.getMessage.contains("exit 7"),
+      ex.getMessage.contains("exited with code 7"),
       s"expected the exit code to be in the failure message; got: ${ex.getMessage}"
     )
 

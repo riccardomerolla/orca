@@ -56,17 +56,30 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
   if initialPrompt.nonEmpty then
     eventQueue.enqueue(ConversationEvent.UserMessage(initialPrompt))
 
-  private val readerThread: Thread =
+  // Lazy so the worker threads only spin up once the subclass has
+  // finished initialising its own fields — otherwise a pre-populated
+  // stdout fake (think tests) can let the reader race past EOF and
+  // touch a `null` subclass val before its `val` initializer runs.
+  // Concrete drivers call `start()` at the end of their constructor.
+  private lazy val readerThread: Thread =
     val t = new Thread(() => readLoop(), s"$backendName-conversation-reader")
     t.setDaemon(true)
-    t.start()
     t
 
-  private val stderrThread: Thread =
+  private lazy val stderrThread: Thread =
     val t = new Thread(() => stderrLoop(), s"$backendName-conversation-stderr")
     t.setDaemon(true)
-    t.start()
     t
+
+  /** Spin up the stdout + stderr workers. Backends call this at the end of
+    * their constructor, after their own fields are assigned.
+    */
+  protected def start(): Unit =
+    // Stderr first so a synchronous-finishing reader (pre-populated fake
+    // queues, etc.) still sees a non-null `stderrThread` if it reaches
+    // `onFinalize` immediately.
+    stderrThread.start()
+    readerThread.start()
 
   // --- Conversation surface ---
 

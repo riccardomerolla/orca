@@ -1,15 +1,9 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
-import orca.events.{Usage}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.OrcaFlowException
-import orca.util.OrcaDebug
-import orca.backend.{Conversation, LlmBackend, LlmResult}
-import orca.subprocess.{CliRunner, PipedCliProcess}
-import orca.tools.codex.jsonl.{InboundEvent, Item}
-
-import java.util.concurrent.atomic.AtomicReference
-import scala.util.control.NonFatal
+import orca.backend.{Conversation, Conversations, LlmBackend, LlmResult}
+import orca.subprocess.CliRunner
 
 /** Codex backend. Both headless and interactive paths drive `codex exec --json`
   * over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the assistant
@@ -112,11 +106,12 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
           s"Failed to open codex session: ${e.getMessage}"
         )
 
-  /** Headless invocation: spawn the subprocess, drain the JSONL stream, and
-    * assemble an [[LlmResult]] from the thread id, last agent message, and
-    * `turn.completed` usage. Unlike claude, codex's `--json` exec stream is the
-    * only output format — no separate batched-JSON shape, so headless and
-    * interactive share the parser.
+  /** Headless invocation: open a [[CodexConversation]] over the same JSONL
+    * subprocess the interactive path uses, then drain it via
+    * [[Conversations.drainAutonomous]] to get the result. The conversation's
+    * own reader thread + stderr drain (in [[orca.backend.StreamConversation]])
+    * handle the lifecycle bits that used to live in a bespoke `drainHeadless`
+    * here.
     */
   private def invokeHeadless(
       prompt: String,
@@ -124,101 +119,24 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       workDir: os.Path,
       resume: Option[SessionId[BackendTag.Codex.type]]
   ): LlmResult[BackendTag.Codex.type] =
-    val finalPrompt = mergeSystemPrompt(config, prompt)
-    // codex `exec` doesn't carry an output schema for headless calls
-    // — DefaultLlmCall's prompt template already pins the structure;
-    // ResponseParser handles validation post-hoc. `exec resume` rejects
-    // `--output-schema` in any case.
-    val args = resume match
-      case Some(sid) => CodexArgs.execResume(sid, finalPrompt, config)
-      case None =>
-        CodexArgs.exec(finalPrompt, config, outputSchemaFile = None, workDir)
-    val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
-    try
-      process.closeStdin()
-      drainHeadless(process) match
-        case Right(r)  => r
-        case Left(msg) => throw OrcaFlowException(s"codex CLI failed: $msg")
-    finally if process.isAlive then process.sendSigInt()
-
-  /** Walk the JSONL stream end-to-end, accumulating the artifacts a headless
-    * caller cares about: thread id, last agent message, usage. Returns Left
-    * with a diagnostic on any failure path (process exit non-zero, parse error,
-    * unexpected EOF).
-    */
-  private def drainHeadless(
-      process: PipedCliProcess
-  ): Either[String, LlmResult[BackendTag.Codex.type]] =
-    val stderrBuf: AtomicReference[Vector[String]] =
-      AtomicReference(Vector.empty)
-    val drainStderr: Runnable = () =>
-      try
-        process.stderrLines.foreach: line =>
-          if isReportableStderr(line) then
-            val _ = stderrBuf.updateAndGet(_ :+ line.trim)
-      catch
-        case _: InterruptedException =>
-          // Daemon thread is being shut down; preserve the flag so
-          // any caller observing it sees the request.
-          Thread.currentThread().interrupt()
-        case NonFatal(t) =>
-          // Best-effort drain; the main thread doesn't depend on
-          // stderr to make progress. Surface in debug so a real bug
-          // isn't masked.
-          if OrcaDebug.streamTrace || OrcaDebug.enabled then
-            System.err.println(
-              s"[orca-debug codex-stderr-drain] ${t.getClass.getName}: " +
-                s"${Option(t.getMessage).getOrElse("")}"
-            )
-    val stderrThread = new Thread(drainStderr, "codex-headless-stderr")
-    stderrThread.setDaemon(true)
-    stderrThread.start()
-
-    val foldResult = foldStdout(process, HeadlessAccumulator.empty)
-    val exit = process.waitForExit()
-    try stderrThread.join()
+    val conv = openConversation(
+      prompt = prompt,
+      // No renderer on the autonomous path — the prompt is only ever shown
+      // to the agent, never echoed back to the user.
+      displayPrompt = "",
+      config = config,
+      workDir = workDir,
+      resume = resume,
+      // codex `exec resume` rejects `--output-schema`, and headless
+      // structured calls already wrap the prompt with the schema via
+      // DefaultLlmCall's template. Schema enforcement at the CLI moves
+      // here in a later phase once the SPI carries it.
+      outputSchema = None
+    )
+    try Conversations.drainAutonomous(conv)
     catch
-      // Interrupt while joining means the parent is shutting down;
-      // restoring the flag is the right thing to do but there's
-      // nothing else useful to log here.
-      case _: InterruptedException => Thread.currentThread().interrupt()
-
-    foldResult match
-      case Left(msg) => Left(msg)
-      case Right(acc) =>
-        if exit != 0 then
-          val stderr = stderrBuf.get()
-          val diag =
-            if stderr.nonEmpty then stderr.mkString("; ") else "no stderr"
-          Left(s"exit $exit: $diag")
-        else if !acc.sawTurnCompleted then
-          Left("codex exited without a turn.completed event")
-        else Right(acc.toLlmResult)
-
-  private def foldStdout(
-      process: PipedCliProcess,
-      seed: HeadlessAccumulator
-  ): Either[String, HeadlessAccumulator] =
-    try
-      val it = process.stdoutLines
-      var acc = seed
-      while it.hasNext do
-        val line = it.next()
-        try acc = acc.absorb(InboundEvent.parse(line))
-        catch
-          case e: Exception =>
-            return Left(
-              s"failed to parse codex JSONL line: ${e.getMessage} | line=$line"
-            )
-      Right(acc)
-    catch
-      case e: Throwable =>
-        Left(s"error draining codex stdout: ${e.getMessage}")
-
-  private def isReportableStderr(line: String): Boolean =
-    val trimmed = line.trim
-    trimmed.nonEmpty &&
-    !trimmed.startsWith("Reading additional input from stdin")
+      case e: OrcaFlowException =>
+        throw new OrcaFlowException(s"codex CLI failed: ${e.getMessage}")
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
     * files in the working directory for static instructions). Fold a configured
@@ -243,34 +161,3 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       val file = workDir / ".codex" / "orca-output-schema.json"
       os.write.over(file, body, createFolders = true)
       file
-
-/** Fold state for `drainHeadless` — keeps the JSONL→LlmResult reduction
-  * explicit instead of scattered across method-scope vars. `absorb` is the
-  * per-event step; `toLlmResult` finalises after the stream is exhausted.
-  */
-private case class HeadlessAccumulator(
-    threadId: String,
-    lastMessage: String,
-    usage: Usage,
-    sawTurnCompleted: Boolean,
-    model: Option[String]
-):
-  def absorb(event: InboundEvent): HeadlessAccumulator = event match
-    case InboundEvent.ThreadStarted(id, m) => copy(threadId = id, model = m)
-    case InboundEvent.TurnCompleted(u) =>
-      copy(usage = u, sawTurnCompleted = true)
-    case InboundEvent.ItemCompleted(Item.AgentMessage(_, text)) =>
-      copy(lastMessage = text)
-    case _ => this
-
-  def toLlmResult: LlmResult[BackendTag.Codex.type] =
-    LlmResult(
-      sessionId = SessionId[BackendTag.Codex.type](threadId),
-      output = lastMessage,
-      usage = usage,
-      model = model.map(Model.apply)
-    )
-
-private object HeadlessAccumulator:
-  val empty: HeadlessAccumulator =
-    HeadlessAccumulator("", "", Usage.empty, sawTurnCompleted = false, None)

@@ -64,6 +64,10 @@ private[codex] class CodexConversation(
     */
   private val lastAgentMessage = new AtomicReference[String]("")
 
+  // Subclass fields above are assigned now; safe to spin up the reader +
+  // stderr workers. See [[StreamConversation.start]].
+  start()
+
   // --- Conversation surface ---
 
   /** Codex exec consumes its prompt argv-side and ignores stdin thereafter;
