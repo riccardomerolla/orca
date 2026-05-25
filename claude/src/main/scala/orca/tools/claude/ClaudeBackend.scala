@@ -17,10 +17,11 @@ import ox.Ox
 import ox.channels.BufferCapacity
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
-  * stream-json subprocess through [[ClaudeConversation]]; the difference is
-  * just the `canAskUser` knob on [[openConversation]]. The prompt is injected
-  * as the first user turn on stdin, the subprocess emits typed NDJSON
-  * responses, the driver translates them into `ConversationEvent`s.
+  * stream-json subprocess through [[ClaudeConversation]]; the only difference
+  * is the [[SessionMode]] passed to `openConversation` (autonomous omits the
+  * ask_user MCP, interactive wires it). The prompt is injected as the first
+  * user turn on stdin, the subprocess emits typed NDJSON responses, the driver
+  * translates them into `ConversationEvent`s.
   *
   * The autonomous path drains those events via
   * [[orca.backend.Conversations.drainAutonomous]] and returns the awaited

@@ -138,21 +138,34 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     if line.trim.nonEmpty then
       eventQueue.enqueue(ConversationEvent.Error(s"$backendName: $line"))
 
-  /** Hook called inside `finalizeLoop` after the outcome is settled but before
-    * the event queue closes. Default: no-op. Backends use it for
-    * trailing-stderr drains (codex's bounded join), final housekeeping events,
-    * etc.
+  /** Hook called inside `finalizeLoop` **before** the failure outcome is
+    * computed, so subclasses can drain any background streams whose buffered
+    * state [[diagnosticContext]] / [[cleanExitWithoutResult]] depend on (codex
+    * joins its stderr-drain thread here so the buffered lines reach the
+    * exception message). Also where backends release session-scoped resources
+    * (claude closes its MCP bridge + Netty server). Default: no-op.
     */
   protected def onFinalize(): Unit = ()
 
   /** The exception used when the subprocess exits with code 0 without having
-    * sent a terminal protocol message. Default: a generic `OrcaFlowException`.
-    * Backends may override with a more specific message.
+    * sent a terminal protocol message. Default: a generic `OrcaFlowException`
+    * whose message includes [[diagnosticContext]]. Backends may override
+    * outright if they prefer a different framing.
     */
   protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
-      s"$backendName exited cleanly but never sent a terminal message"
+      s"$backendName exited cleanly but never sent a terminal message${diagnosticContext}"
     )
+
+  /** Optional context appended to the non-zero-exit / clean-exit-without-
+    * result failure messages, so noop-listener callers (programmatic
+    * invocations, tests) still get something useful in the thrown exception
+    * even when no live listener observed the in-stream
+    * `ConversationEvent.Error` events. Default is empty; backends override to
+    * attach buffered stderr or similar. The string is appended verbatim —
+    * include the leading newline / indent if you want one.
+    */
+  protected def diagnosticContext: String = ""
 
   // --- Internals ---
 
@@ -197,12 +210,16 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
   protected def stderrDrainThread: Thread = stderrThread
 
   private def finalizeLoop(): Unit =
+    // Drain background streams + release session-scoped resources before
+    // computing the outcome — codex's stderr-drain join updates the
+    // buffer that diagnosticContext reads, and claude's bridge close is
+    // expected to happen as soon as the read loop has drained.
+    onFinalize()
     val finalOutcome: Outcome[B] = outcomeRef.get() match
       case Some(existing)          => existing
       case None if cancelled.get() => Outcome.cancelled[B]
       case None                    => outcomeFromExit(process.tryExitCode)
     val _ = outcomeRef.compareAndSet(None, Some(finalOutcome))
-    onFinalize()
     eventQueue.close()
 
   private def outcomeFromExit(exitCode: Option[Int]): Outcome[B] =
@@ -210,7 +227,9 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
       case Some(0) => Outcome.failed[B](cleanExitWithoutResult())
       case Some(code) =>
         Outcome.failed[B](
-          new OrcaFlowException(s"$backendName exited with code $code")
+          new OrcaFlowException(
+            s"$backendName exited with code $code${diagnosticContext}"
+          )
         )
       case None => Outcome.cancelled[B]
 

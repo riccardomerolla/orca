@@ -81,6 +81,28 @@ class CodexBackendTest extends munit.FunSuite:
       s"expected the exit code in the failure message; got: ${ex.getMessage}"
     )
 
+  test("non-zero exit's exception message attaches captured stderr"):
+    // Listener-less callers (default OrcaListener.noop) would otherwise
+    // lose stderr entirely on a non-zero exit; the diagnosticContext hook
+    // on CodexConversation should fold buffered lines into the message.
+    val p = new FakePipedCliProcess(initiallyAlive = false):
+      override def tryExitCode: Option[Int] = Some(7)
+    p.enqueueStderr("Error: thread/resume failed: not found")
+    p.enqueueStderr("Reading additional input from stdin") // filtered
+    p.closeStdout()
+    p.closeStderr()
+    val backend = new CodexBackend(new SpawnStubCliRunner(List(p)))
+    val ex = intercept[OrcaFlowException]:
+      backend.runAutonomous("q", LlmConfig.default, os.temp.dir())
+    assert(
+      ex.getMessage.contains("thread/resume failed: not found"),
+      s"expected stderr in the exception; got: ${ex.getMessage}"
+    )
+    assert(
+      !ex.getMessage.contains("Reading additional input from stdin"),
+      s"filtered noise leaked into the exception: ${ex.getMessage}"
+    )
+
   test("systemPrompt is folded into the user prompt as a preamble"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val backend = new CodexBackend(runner)

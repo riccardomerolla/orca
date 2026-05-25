@@ -64,6 +64,15 @@ private[codex] class CodexConversation(
     */
   private val lastAgentMessage = new AtomicReference[String]("")
 
+  /** Bounded ring of trimmed stderr lines (post-filter), kept so a non-zero
+    * exit or clean-exit-without-result can carry the actual failure context
+    * back to the caller in the thrown exception — listener subscribers already
+    * saw each line as a `ConversationEvent.Error`, but a noop listener (tests,
+    * simple scripts) would otherwise lose the diagnostic entirely. Capped on
+    * both line count and byte total so a runaway agent can't OOM us.
+    */
+  private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
+
   // Subclass fields above are assigned now; safe to spin up the reader +
   // stderr workers. See [[StreamConversation.start]].
   start()
@@ -89,13 +98,16 @@ private[codex] class CodexConversation(
   /** codex prints `Reading additional input from stdin...` on every exec
     * invocation when stdin is piped (regardless of whether we actually feed it
     * anything). Filter that and empty lines; pass the rest through with the
-    * default backend-prefixed Error event.
+    * default backend-prefixed Error event AND append to the bounded
+    * [[stderrBuffer]] so the failure exception can include them.
     */
   override protected def handleStderr(line: String): Unit =
     val trimmed = line.trim
     if trimmed.nonEmpty &&
       !trimmed.startsWith("Reading additional input from stdin")
-    then eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
+    then
+      eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
+      val _ = stderrBuffer.updateAndGet(appendBounded(_, trimmed))
 
   /** Bounded wait for the stderr drain so any trailing error lines (which the
     * consumer can't see once we close the queue) reach the events queue. The
@@ -112,8 +124,18 @@ private[codex] class CodexConversation(
 
   override protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
-      "codex exited cleanly but never sent a turn.completed event"
+      s"codex exited cleanly but never sent a turn.completed event$diagnosticContext"
     )
+
+  /** Recent stderr lines, indented, prefixed with a `\n stderr:` header. Empty
+    * when nothing of interest was captured. Surfaced in the failure exceptions
+    * by [[StreamConversation.outcomeFromExit]] and [[cleanExitWithoutResult]]
+    * above.
+    */
+  override protected def diagnosticContext: String =
+    val lines = stderrBuffer.get()
+    if lines.isEmpty then ""
+    else lines.mkString("\n  stderr:\n    ", "\n    ", "")
 
   // --- Per-event dispatch ---
 
@@ -196,6 +218,32 @@ private[codex] object CodexConversation:
     * short enough that a stalled child doesn't deadlock `awaitResult`.
     */
   private val StderrDrainTimeoutMs: Long = 500L
+
+  /** Cap on lines kept in [[stderrBuffer]]. Sized for a typical stack trace
+    * plus a brief explanation — enough to diagnose a failure inline, bounded so
+    * a chatty subprocess can't grow memory.
+    */
+  private val StderrMaxLines: Int = 20
+
+  /** Soft byte cap on [[stderrBuffer]], counted across kept lines. Trims from
+    * the front (oldest) when exceeded, same as the line cap, so the most recent
+    * (typically most diagnostic) lines stay.
+    */
+  private val StderrMaxBytes: Int = 4096
+
+  /** Append `line` to `buf` while respecting both caps. Drops from the head
+    * until the result fits. Lives on the companion so the
+    * `AtomicReference.updateAndGet` callback stays a pure function.
+    */
+  private def appendBounded(
+      buf: Vector[String],
+      line: String
+  ): Vector[String] =
+    var result = buf :+ line
+    while result.size > StderrMaxLines do result = result.tail
+    while result.size > 1 && result.map(_.length).sum > StderrMaxBytes do
+      result = result.tail
+    result
 
   /** Synthetic JSON the driver hands the renderer for `bash` tool calls —
     * codex's `command_execution` items don't natively carry a JSON-shaped
