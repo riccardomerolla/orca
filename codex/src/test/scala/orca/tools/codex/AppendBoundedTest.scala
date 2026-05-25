@@ -20,13 +20,10 @@ class AppendBoundedTest extends munit.FunSuite:
     // Each line is ~half the byte budget; two of them plus a newcomer
     // would blow the cap, forcing the oldest out.
     val big = "x" * (StderrMaxBytes / 2 + 10)
-    val seed = Vector(big, big)
-    val after = appendBounded(seed, "newest")
-    // The two `big` strings together already exceed StderrMaxBytes; the
-    // oldest must have been dropped.
-    assertEquals(after.size, 2)
-    assertEquals(after.last, "newest")
-    assertEquals(after.head, big)
+    val after = appendBounded(Vector(big, big), "newest")
+    // Single structural assertion: fails informatively if the byte loop
+    // trims too much (e.g. down to just "newest") or too little.
+    assertEquals(after, Vector(big, "newest"))
 
   test("keeps at least one line even if it alone exceeds the byte cap"):
     // Empty diagnostics are useless; an oversized line is at least

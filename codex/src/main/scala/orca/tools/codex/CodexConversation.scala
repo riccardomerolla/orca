@@ -224,13 +224,15 @@ private[codex] object CodexConversation:
 
   /** Cap on lines kept in [[stderrBuffer]]. Sized for a typical stack trace
     * plus a brief explanation — enough to diagnose a failure inline, bounded so
-    * a chatty subprocess can't grow memory.
+    * a chatty subprocess can't grow memory. `private[codex]` so cap-edge tests
+    * can size their inputs against it.
     */
   private[codex] val StderrMaxLines: Int = 20
 
   /** Soft byte cap on [[stderrBuffer]], counted across kept lines. Trims from
     * the front (oldest) when exceeded, same as the line cap, so the most recent
-    * (typically most diagnostic) lines stay.
+    * (typically most diagnostic) lines stay. `private[codex]` for the same
+    * test-visibility reason as [[StderrMaxLines]].
     */
   private[codex] val StderrMaxBytes: Int = 4096
 

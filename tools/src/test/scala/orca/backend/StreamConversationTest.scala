@@ -20,16 +20,25 @@ private class UnstartedConversation(process: FakePipedCliProcess)
 
 class StreamConversationTest extends munit.FunSuite:
 
-  test("awaitResult shouts when the subclass constructor didn't call start"):
-    val conv = new UnstartedConversation(new FakePipedCliProcess())
-    val ex = intercept[IllegalStateException]:
-      val _ = conv.awaitResult()
-    assert(
-      ex.getMessage.contains("called before start()"),
-      s"expected a clear 'called before start()' message; got: ${ex.getMessage}"
+  // Each public entry point must report which one was called so a future
+  // change that skips the guard on one of them surfaces in the message,
+  // not just in a generic IllegalStateException.
+  private val guardedEntryPoints: List[(String, Conversation[?] => Unit)] =
+    List(
+      "awaitResult" -> { c =>
+        val _ = c.awaitResult()
+      },
+      "events" -> { c =>
+        val _ = c.events.hasNext
+      }
     )
 
-  test("events shouts when the subclass constructor didn't call start"):
-    val conv = new UnstartedConversation(new FakePipedCliProcess())
-    intercept[IllegalStateException]:
-      val _ = conv.events.hasNext
+  for (label, action) <- guardedEntryPoints do
+    test(s"$label shouts when the subclass constructor didn't call start"):
+      val conv = new UnstartedConversation(new FakePipedCliProcess())
+      val ex = intercept[IllegalStateException](action(conv))
+      assert(
+        ex.getMessage.contains(s"$label called before start()"),
+        s"expected the message to name `$label` as the entry point; " +
+          s"got: ${ex.getMessage}"
+      )
