@@ -104,7 +104,7 @@ object Plan:
       llm
         .resultAs[Plan]
         .interactive
-        .startSession(s"$userPrompt\n\n$instructions")
+        .run(s"$userPrompt\n\n$instructions")
 
     def loadOrGenerate[B <: BackendTag: CanAskUser](
         file: os.Path,
@@ -118,7 +118,7 @@ object Plan:
           llm
             .resultAs[Plan]
             .interactive
-            .startSession(s"$userPrompt\n\n$instructions")
+            .run(s"$userPrompt\n\n$instructions")
             ._2
       )
 
@@ -135,7 +135,7 @@ object Plan:
       llm.withReadOnly
         .resultAs[Plan]
         .autonomous
-        .startSession(s"$userPrompt\n\n$instructions")
+        .run(s"$userPrompt\n\n$instructions")
 
     def loadOrGenerate(
         file: os.Path,
@@ -150,6 +150,7 @@ object Plan:
             .resultAs[Plan]
             .autonomous
             .run(s"$userPrompt\n\n$instructions")
+            ._2
       )
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
@@ -166,7 +167,7 @@ object Plan:
         llm: LlmTool[B],
         instructions: String = PlanPrompts.AssessThenPlan
     )(using FlowContext): Verdict[Plan] =
-      val assessed =
+      val (_, assessed) =
         llm.withReadOnly
           .resultAs[AssessedPlan]
           .autonomous

@@ -33,14 +33,16 @@ flow(OrcaArgs(args)):
     Plan.recoverOrCreate(planFile, "orca: starting implementation"):
       Plan.interactive.from(userPrompt, claude)._2
 
-  // Autonomous session across all tasks — ask_user was only needed for
-  // planning. Started lazily by the first task; implementer + fixer share it.
-  val session = claude.session
+  // Autonomous session across all tasks (ask_user was only needed for
+  // planning). Lazily started by the first task; reused thereafter.
+  var session: Option[SessionId[BackendTag.ClaudeCode.type]] = None
 
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       val sid = stage("Implementation"):
-        session.run(task.description)
+        val (next, _) = claude.autonomous.run(task.description, resume = session)
+        session = Some(next)
+        next
 
       reviewAndFixLoop(
         coder = claude,

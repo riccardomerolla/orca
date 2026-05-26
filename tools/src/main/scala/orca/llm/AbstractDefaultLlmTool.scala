@@ -53,22 +53,13 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
     copyTool(config = config.copy(model = Some(model)))
 
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
-    def run(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
-      runAutonomous(prompt, callConfig, resume = None).output
-
-    def startSession(
+    def run(
         prompt: String,
+        resume: Option[SessionId[B]] = None,
         callConfig: LlmConfig = LlmConfig.default
     ): (SessionId[B], String) =
-      val result = runAutonomous(prompt, callConfig, resume = None)
+      val result = runAutonomous(prompt, callConfig, resume)
       (result.sessionId, result.output)
-
-    def continueSession(
-        sessionId: SessionId[B],
-        prompt: String,
-        callConfig: LlmConfig = LlmConfig.default
-    ): String =
-      runAutonomous(prompt, callConfig, resume = Some(sessionId)).output
 
   def resultAs[O: JsonData: Announce]: LlmCall[B, O] =
     new DefaultLlmCall[B, O](

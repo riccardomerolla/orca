@@ -25,7 +25,6 @@ export orca.llm.{
   BackendTag,
   CanAskUser,
   Model,
-  Session,
   SessionId,
   JsonData,
   Announce,

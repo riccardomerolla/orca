@@ -122,7 +122,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       )
     )
     supervised:
-      val answer = makeCall(backend).autonomous.run("what is the answer?")
+      val (_, answer) = makeCall(backend).autonomous.run("what is the answer?")
       assertEquals(answer, Answer(42))
       val Seq(first, second, third) = backend.prompts: @unchecked
       assert(
@@ -141,20 +141,20 @@ class DefaultLlmCallTest extends munit.FunSuite:
   test("autonomous succeeds on the first attempt when the response parses"):
     val backend = new SequencedBackend(List("""{"value":7}"""))
     supervised:
-      val answer = makeCall(backend).autonomous.run("a question")
+      val (_, answer) = makeCall(backend).autonomous.run("a question")
       assertEquals(answer, Answer(7))
       assertEquals(backend.prompts.size, 1)
 
   test(
-    "continueSession retries against the same sessionId on parse failure"
+    "run(resume = Some(sid)) retries against the same sessionId on parse failure"
   ):
     val backend = new SequencedBackend(
       List("garbage", """{"value":11}""")
     )
     val sid = SessionId[BackendTag.ClaudeCode.type]("sess-under-test")
     supervised:
-      val answer =
-        makeCall(backend).autonomous.continueSession(sid, "next step")
+      val (_, answer) =
+        makeCall(backend).autonomous.run("next step", resume = Some(sid))
       assertEquals(answer, Answer(11))
       val Seq(first, second) = backend.prompts: @unchecked
       assert(

@@ -32,17 +32,10 @@ private[plan] class CannedPlanLlm(plan: Plan)
         new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
           def run[I: AgentInput](
               input: I,
+              resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
               config: LlmConfig = LlmConfig.default
-          ): O = plan.asInstanceOf[O]
-          def startSession[I: AgentInput](
-              input: I,
-              config: LlmConfig = LlmConfig.default
-          ): (SessionId[BackendTag.ClaudeCode.type], O) = ???
-          def continueSession[I: AgentInput](
-              sid: SessionId[BackendTag.ClaudeCode.type],
-              input: I,
-              config: LlmConfig = LlmConfig.default
-          ): O = ???
+          ): (SessionId[BackendTag.ClaudeCode.type], O) =
+            (SessionId[BackendTag.ClaudeCode.type]("stub-sid"), plan.asInstanceOf[O])
       def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
 /** Test double whose `resultAs[AssessedPlan].autonomous.run` returns a
@@ -63,17 +56,13 @@ private[plan] class CannedAssessedPlanLlm(assessed: AssessedPlan)
         new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
           def run[I: AgentInput](
               input: I,
+              resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
               config: LlmConfig = LlmConfig.default
-          ): O = assessed.asInstanceOf[O]
-          def startSession[I: AgentInput](
-              input: I,
-              config: LlmConfig = LlmConfig.default
-          ): (SessionId[BackendTag.ClaudeCode.type], O) = ???
-          def continueSession[I: AgentInput](
-              sid: SessionId[BackendTag.ClaudeCode.type],
-              input: I,
-              config: LlmConfig = LlmConfig.default
-          ): O = ???
+          ): (SessionId[BackendTag.ClaudeCode.type], O) =
+            (
+              SessionId[BackendTag.ClaudeCode.type]("stub-sid"),
+              assessed.asInstanceOf[O]
+            )
       def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
 /** Test double that throws on every method — used to assert that a code path

@@ -80,13 +80,15 @@ flow(OrcaArgs(args)):
         git.createBranch(plan.epicId).orThrow
 
       // Fresh implementation session (the assess session was in plan mode
-      // and can't write). Started lazily by the first task; reused thereafter.
-      val session = claude.session
+      // and can't write). Lazily started by the first task; reused thereafter.
+      var session: Option[SessionId[BackendTag.ClaudeCode.type]] = None
 
       for task <- plan.tasks do
         stage(s"Implement task: ${task.title}"):
           val sid = stage("Implementation"):
-            session.run(task.description)
+            val (next, _) = claude.autonomous.run(task.description, resume = session)
+            session = Some(next)
+            next
 
           reviewAndFixLoop(
             coder = claude,

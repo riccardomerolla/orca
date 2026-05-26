@@ -236,12 +236,12 @@ def reviewAndFixLoop[B <: BackendTag](
     val call = r.resultAs[ReviewResult].autonomous
     sessions.get(r.name) match
       case Some(stored) =>
-        (call.continueSession(stored.as[RB], ReviewLoopPrompts.ReReview), None)
+        val (_, result) =
+          call.run(ReviewLoopPrompts.ReReview, resume = Some(stored.as[RB]))
+        (result, None)
       case None =>
         val (sid, result) =
-          call.startSession(
-            ReviewLoopPrompts.initialReview(task, currentDiff)
-          )
+          call.run(ReviewLoopPrompts.initialReview(task, currentDiff))
         (result, Some(r.name -> SessionId.Untyped.from(sid)))
 
   /** One parallel agent's contribution. The `Reviewer` variant carries the
@@ -345,11 +345,12 @@ def reviewAndFixLoop[B <: BackendTag](
     coder
       .resultAs[FixOutcome]
       .autonomous
-      .continueSession(
-        sessionId,
+      .run(
         FixRequest(fixInstructions, issues),
+        resume = Some(sessionId),
         LlmConfig.default
       )
+      ._2
 
   // The stage doesn't repeat `task` in its label — the enclosing
   // implement-task stage already names it.
@@ -395,3 +396,4 @@ def lint(
       .resultAs[ReviewResult]
       .autonomous
       .run(s"$instructions\n\nLint output:\n$output")
+      ._2

@@ -116,6 +116,7 @@ object ReviewerSelector:
                   instructions = instructions
                 )
               )
+              ._2
               .names
         cached = Some(picked)
         picked

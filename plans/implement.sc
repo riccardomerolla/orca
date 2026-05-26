@@ -34,15 +34,18 @@ flow(OrcaArgs(args)):
     Plan.recoverOrCreate(planFile, "orca: starting implementation"):
       Plan.autonomous.from(userPrompt, claude)._2
 
-  // One session across all tasks, started lazily by the first task's prompt
-  // (no separate priming turn). Implementer and fixer share it so review
-  // comments land against the same context that produced the code.
-  val session = claude.session
+  // One session across all tasks: lazily started by the first task's prompt
+  // (no separate priming turn), the returned id resumes it on the next task.
+  // Implementer and fixer share the session so review comments land against
+  // the same context that produced the code.
+  var session: Option[SessionId[BackendTag.ClaudeCode.type]] = None
 
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       val sid = stage("Implementation"):
-        session.run(task.description)
+        val (next, _) = claude.autonomous.run(task.description, resume = session)
+        session = Some(next)
+        next
 
       reviewAndFixLoop(
         coder = claude,

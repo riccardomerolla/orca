@@ -47,7 +47,7 @@ flow(OrcaArgs(args)):
     claude
       .resultAs[BugTriage]
       .interactive
-      .startSession(
+      .run(
         s"""You are triaging this bug report:
            |
            |$userPrompt
@@ -71,12 +71,12 @@ flow(OrcaArgs(args)):
       val testPath = triage.failingTestPath.getOrElse(
         fail("triage.canTest = true but failingTestPath was missing")
       )
-      val _ = claude.autonomous.continueSession(
-        sessionId,
+      val _ = claude.autonomous.run(
         s"""Now write the failing unit test at `$testPath`. The test
            |must FAIL on the current code — that's how we confirm the
            |bug. Run it locally if you can to verify it actually
-           |fails.""".stripMargin
+           |fails.""".stripMargin,
+        resume = Some(sessionId)
       )
       git.commit(s"Add failing test: ${triage.summary}").orThrow
   else
@@ -127,18 +127,18 @@ flow(OrcaArgs(args)):
     // Confirm the failure is the bug we set out to reproduce, not a
     // different test failure that coincidentally also went red.
     stage("Verify failure matches the report"):
-      val verdict = claude
+      val (_, verdict) = claude
         .resultAs[BugReportMatch]
         .autonomous
-        .continueSession(
-          sessionId,
+        .run(
           s"""Here's the CI failure log:
              |
              |${redBuild.log}
              |
              |Does this match the original report? Be strict: a different
              |stack trace or a different assertion error counts as a
-             |mismatch.""".stripMargin
+             |mismatch.""".stripMargin,
+          resume = Some(sessionId)
         )
       if !verdict.matches then
         fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
@@ -146,11 +146,11 @@ flow(OrcaArgs(args)):
     // Fix + format + review in one commit so the PR history shows the
     // whole fix as a single entry.
     stage(s"Implement the fix: ${triage.summary}"):
-      val _ = claude.autonomous.continueSession(
-        sessionId,
+      val _ = claude.autonomous.run(
         s"""The failing test is in place on branch `${triage.branchName}`.
            |Implement the fix. Ensure the previously-failing test now
-           |passes, and that no other tests regress.""".stripMargin
+           |passes, and that no other tests regress.""".stripMargin,
+        resume = Some(sessionId)
       )
 
       // Format before review — Spotless is wired into the seed pom.

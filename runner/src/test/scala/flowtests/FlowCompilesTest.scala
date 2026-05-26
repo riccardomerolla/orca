@@ -29,18 +29,17 @@ object FlowCanary:
     flow(OrcaArgs()):
       stage("plan"):
         val (sessionId, _) =
-          claude.resultAs[FlowPlan].interactive.startSession(userPrompt)
+          claude.resultAs[FlowPlan].interactive.run(userPrompt)
         val _ = claude
           .resultAs[FlowPlan]
           .interactive
-          .continueSession(sessionId, "refine")
+          .run("refine", resume = Some(sessionId))
         val (sid2, _) =
-          claude.resultAs[FlowPlan].autonomous.startSession(userPrompt)
+          claude.resultAs[FlowPlan].autonomous.run(userPrompt)
         val _ = claude
           .resultAs[FlowPlan]
           .autonomous
-          .continueSession(sid2, "follow up")
-        val _ = claude.resultAs[FlowPlan].autonomous.run(userPrompt)
+          .run("follow up", resume = Some(sid2))
 
   /** Free-form text prompts and session continuation; the shape the README
     * promises for per-task implementation.
@@ -48,8 +47,8 @@ object FlowCanary:
   def continuedSession(): Unit =
     flow(OrcaArgs()):
       stage("impl"):
-        val (sessionId, _) = claude.autonomous.startSession("kick off")
-        val _ = claude.autonomous.continueSession(sessionId, "keep going")
+        val (sessionId, _) = claude.autonomous.run("kick off")
+        val _ = claude.autonomous.run("keep going", resume = Some(sessionId))
         val _ = claude.autonomous.run("one-shot")
 
   /** Every top-level accessor must resolve from `import orca.*` alone.
@@ -70,7 +69,7 @@ object FlowCanary:
   def reviewLoop(): Unit =
     flow(OrcaArgs()):
       val (sessionId, plan) = stage("plan"):
-        claude.resultAs[FlowPlan].interactive.startSession(userPrompt)
+        claude.resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do
         stage(task.description):
           reviewAndFixLoop(

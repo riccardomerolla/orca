@@ -38,21 +38,17 @@ class FakeLlmCall[O](
     new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
       def run[I: AgentInput](
           input: I,
-          config: LlmConfig = LlmConfig.default
-      ): O = runOutputs.next().asInstanceOf[O]
-      def startSession[I: AgentInput](
-          input: I,
+          resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
           config: LlmConfig = LlmConfig.default
       ): (SessionId[BackendTag.ClaudeCode.type], O) =
-        val sid = SessionId[BackendTag.ClaudeCode.type](
-          s"fake-session-${sessionCounter.incrementAndGet()}"
-        )
-        (sid, runOutputs.next().asInstanceOf[O])
-      def continueSession[I: AgentInput](
-          sessionId: SessionId[BackendTag.ClaudeCode.type],
-          input: I,
-          config: LlmConfig = LlmConfig.default
-      ): O = continueSessionOutputs.next().asInstanceOf[O]
+        resume match
+          case Some(sid) =>
+            (sid, continueSessionOutputs.next().asInstanceOf[O])
+          case None =>
+            val sid = SessionId[BackendTag.ClaudeCode.type](
+              s"fake-session-${sessionCounter.incrementAndGet()}"
+            )
+            (sid, runOutputs.next().asInstanceOf[O])
   def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
 class FakeLlmTool(
@@ -220,10 +216,7 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  c: LlmConfig = LlmConfig.default
-              ): O = ???
-              def startSession[I: AgentInput](
-                  i: I,
+                  resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 capturedFirst = Some(i.toString)
@@ -231,11 +224,6 @@ class ReviewAndFixTest extends munit.FunSuite:
                   SessionId[BackendTag.ClaudeCode.type]("s"),
                   ReviewResult.empty.asInstanceOf[O]
                 )
-              def continueSession[I: AgentInput](
-                  s: SessionId[BackendTag.ClaudeCode.type],
-                  i: I,
-                  c: LlmConfig = LlmConfig.default
-              ): O = ???
           def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
             ???
 
@@ -384,11 +372,7 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  c: LlmConfig = LlmConfig.default
-              ): O =
-                ???
-              def startSession[I: AgentInput](
-                  i: I,
+                  resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -397,11 +381,6 @@ class ReviewAndFixTest extends munit.FunSuite:
                   SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
                   ReviewResult.empty.asInstanceOf[O]
                 )
-              def continueSession[I: AgentInput](
-                  s: SessionId[BackendTag.ClaudeCode.type],
-                  i: I,
-                  c: LlmConfig = LlmConfig.default
-              ): O = ???
           def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
             ???
 
@@ -471,21 +450,13 @@ class ReviewAndFixTest extends munit.FunSuite:
                 ReviewResult.empty.asInstanceOf[O]
               def run[I: AgentInput](
                   i: I,
-                  c: LlmConfig = LlmConfig.default
-              ): O = rendezvousThen()
-              def startSession[I: AgentInput](
-                  i: I,
+                  resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 (
                   SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
                   rendezvousThen()
                 )
-              def continueSession[I: AgentInput](
-                  s: SessionId[BackendTag.ClaudeCode.type],
-                  i: I,
-                  c: LlmConfig = LlmConfig.default
-              ): O = ???
           def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
             ???
 

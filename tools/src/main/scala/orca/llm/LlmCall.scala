@@ -14,39 +14,28 @@ trait LlmCall[B <: BackendTag, O]:
   def interactive: InteractiveLlmCall[B, O]
 
 /** Autonomous structured calls — single agentic turn, no human in the loop.
-  * `run` returns just `O`; `startSession` / `continueSession` retain the
-  * session id alongside `O` so callers can continue the same context.
+  * `resume = None` starts a fresh session, `resume = Some(sid)` continues an
+  * existing one. Always returns the session id so the caller can hold onto it
+  * for the next call.
   */
 trait AutonomousLlmCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O
-  def startSession[I: AgentInput](
-      input: I,
+      resume: Option[SessionId[B]] = None,
       config: LlmConfig = LlmConfig.default
   ): (SessionId[B], O)
-  def continueSession[I: AgentInput](
-      sessionId: SessionId[B],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O
 
 /** Interactive structured calls — open a conversation the user can drive
   * (clarifying questions, refinements) before the agent produces the final
-  * structured `O`. No `run` because an interactive call without a session id to
-  * follow up on doesn't make sense — the conversation IS the session.
+  * structured `O`. Same shape as the autonomous variant; `resume` lets a
+  * caller continue a previously-started interactive session.
   */
 trait InteractiveLlmCall[B <: BackendTag, O]:
-  def startSession[I: AgentInput](
+  def run[I: AgentInput](
       input: I,
+      resume: Option[SessionId[B]] = None,
       config: LlmConfig = LlmConfig.default
   ): (SessionId[B], O)
-  def continueSession[I: AgentInput](
-      sessionId: SessionId[B],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O
 
 /** Default implementation of [[LlmCall]] for any backend.
   *
@@ -84,31 +73,18 @@ class DefaultLlmCall[B <: BackendTag, O](
     jd.codec
 
   val autonomous: AutonomousLlmCall[B, O] = new AutonomousLlmCall[B, O]:
-    def run[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): O =
-      runAutonomousWithRetry(input, config, resume = None)._2
-
-    def startSession[I: AgentInput](
+    def run[I: AgentInput](
         input: I,
+        resume: Option[SessionId[B]] = None,
         config: LlmConfig = LlmConfig.default
-    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, resume = None)
-
-    def continueSession[I: AgentInput](
-        sessionId: SessionId[B],
-        input: I,
-        config: LlmConfig = LlmConfig.default
-    ): O = runAutonomousWithRetry(input, config, resume = Some(sessionId))._2
+    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, resume)
 
   val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
-    def startSession[I: AgentInput](
+    def run[I: AgentInput](
         input: I,
+        resume: Option[SessionId[B]] = None,
         config: LlmConfig = LlmConfig.default
-    ): (SessionId[B], O) = runInteractiveOnce(input, config, resume = None)
-
-    def continueSession[I: AgentInput](
-        sessionId: SessionId[B],
-        input: I,
-        config: LlmConfig = LlmConfig.default
-    ): O = runInteractiveOnce(input, config, resume = Some(sessionId))._2
+    ): (SessionId[B], O) = runInteractiveOnce(input, config, resume)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary (if any). The terminal listener renders

@@ -37,22 +37,17 @@ private class RecordingPicker(
         new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
           def run[I: AgentInput](
               input: I,
+              resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
               config: LlmConfig = LlmConfig.default
-          ): O =
+          ): (SessionId[BackendTag.ClaudeCode.type], O) =
             input match
               case r: ReviewerSelectionRequest =>
                 captured.set(Some(r))
               case _ => ()
-            response.asInstanceOf[O]
-          def startSession[I: AgentInput](
-              input: I,
-              config: LlmConfig = LlmConfig.default
-          ): (SessionId[BackendTag.ClaudeCode.type], O) = ???
-          def continueSession[I: AgentInput](
-              sessionId: SessionId[BackendTag.ClaudeCode.type],
-              input: I,
-              config: LlmConfig = LlmConfig.default
-          ): O = ???
+            (
+              SessionId[BackendTag.ClaudeCode.type]("picker-sid"),
+              response.asInstanceOf[O]
+            )
       def interactive
           : orca.llm.InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 

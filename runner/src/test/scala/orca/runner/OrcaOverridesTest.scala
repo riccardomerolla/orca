@@ -49,17 +49,12 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withReadOnly = this
       val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          def run(p: String, c: LlmConfig = LlmConfig.default): String =
-            s"echo: $p"
-          def startSession(
+          def run(
               p: String,
+              resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
               c: LlmConfig = LlmConfig.default
-          ): (SessionId[BackendTag.ClaudeCode.type], String) = ???
-          def continueSession(
-              s: SessionId[BackendTag.ClaudeCode.type],
-              p: String,
-              c: LlmConfig = LlmConfig.default
-          ): String = ???
+          ): (SessionId[BackendTag.ClaudeCode.type], String) =
+            (SessionId[BackendTag.ClaudeCode.type]("fake-sid"), s"echo: $p")
       def resultAs[O: JsonData: Announce]
           : LlmCall[BackendTag.ClaudeCode.type, O] =
         ???
@@ -75,7 +70,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         claude = Some(fakeClaude),
         interaction = Some(interaction)
       ):
-        observed = summon[FlowContext].claude.autonomous.run("hi")
+        observed = summon[FlowContext].claude.autonomous.run("hi")._2
     assertEquals(observed, "echo: hi")
 
   test("flow collects extra listeners alongside the interaction's"):

@@ -46,11 +46,12 @@ flow(OrcaArgs(args)):
   // Per task: implement, format, review & fix, commit. We commit *after*
   // the loop so the single commit captures the original implementation,
   // the auto-formatted result, and any follow-up fixes the reviewers
-  // triggered.
+  // triggered. `resume = Some(sessionId)` continues the planner's session
+  // so the implementer turns share its context.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
-        claude.autonomous.continueSession(sessionId, task.description)
+        val _ = claude.autonomous.run(task.description, resume = Some(sessionId))
       // Format before review so reviewers don't burn turns on style nits
       // the toolchain would fix automatically. Run after the agent
       // writes — we don't want to demand pre-formatted code from the LLM.
@@ -92,8 +93,8 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.{run,startSession,continueSession}`, `session`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | Claude Code coding/reviewing agent. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
-| `codex` | `autonomous.{run,startSession,continueSession}`, `session`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | OpenAI Codex coding/reviewing agent. |
+| `claude` | `autonomous.run(prompt, resume?)`, `resultAs[O].{autonomous,interactive}.run(input, resume?)`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | Claude Code coding/reviewing agent. Each `run` returns `(SessionId, output)`; pass `resume = Some(prev)` to continue a session. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
+| `codex` | `autonomous.run(prompt, resume?)`, `resultAs[O].{autonomous,interactive}.run(input, resume?)`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | OpenAI Codex coding/reviewing agent. |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
 | `gh` | `createPr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `waitForBuild` returns `Either[BuildTimedOut, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -104,11 +105,18 @@ case class) for schema generation and deserialization. Additionally, you might
 define an `Announce[O]` so that a friendly summary is printed in the event log,
 instead of a raw json.
 
-`tool.session` returns a stateful [`Session`](tools/src/main/scala/orca/llm/Session.scala)
-that lazily starts an autonomous session on the first `.run(prompt)` and
-continues it thereafter — handy for multi-task loops where the first task is
-also the session opener (used by `plans/implement.sc` and `epic.sc`). The
-session id is observable via `.id` for steps that happen after the loop.
+For multi-task loops, hold the returned session id in a `var
+Option[SessionId[B]]` and pass it as the `resume` arg on the next call:
+
+```scala
+var session: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+for task <- tasks do
+  val (next, _) = claude.autonomous.run(task.description, resume = session)
+  session = Some(next)
+```
+
+The first call (with `resume = None`) opens a fresh session; later calls
+continue it. Both flow through the same code path, no session-init step.
 
 ## Flow methods
 

@@ -5,14 +5,14 @@ package orca.llm
   *
   *   - **`autonomous`** — free-form text, no structured output, no JSON schema
   *     wrapping. The agent's reply is returned verbatim.
-  *     `claude.autonomous.run` is the cheapest single-turn shape;
-  *     `startSession` / `continueSession` keep a thread alive so subsequent
-  *     turns share context.
   *   - **`resultAs[O]`** — fix the output type and obtain a call object that
-  *     exposes both `autonomous` and `interactive` modes. Each mode in turn
-  *     exposes `run` / `startSession` / `continueSession` (autonomous adds
-  *     `run`, interactive doesn't because an interactive session without a
-  *     session id is meaningless).
+  *     exposes both `autonomous` and `interactive` modes.
+  *
+  * Each mode has a single `run(input, resume = None, config = …)` method that
+  * always returns `(SessionId[B], output)`. Pass `resume = Some(prevSid)` to
+  * continue a prior session; `None` starts a fresh one. The session id is in
+  * every return value so callers can decide whether to hold onto it for the
+  * next call.
   *
   * The API never hides the autonomous-vs-interactive choice behind a default —
   * it's always visible at the call site as the leftmost segment after the tool
@@ -53,17 +53,10 @@ trait LlmTool[B <: BackendTag]:
     */
   def withReadOnly: LlmTool[B]
 
-  /** A fresh [[Session]] bound to this tool — a stateful wrapper that lazily
-    * starts an autonomous session on the first `run` and continues it
-    * thereafter. Hides the `match { Some => continueSession; None =>
-    * startSession }` boilerplate at the call site.
-    */
-  def session: Session[B] = new Session(this)
-
 trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `LlmConfig.model`.
-    * Typical usage: `claude.haiku.autonomous.run("summarize this")` for a cheap
-    * fast call.
+    * Typical usage: `claude.haiku.autonomous.run("summarize this")._2` for a
+    * cheap fast one-shot call (discard the returned session id).
     */
   def haiku: ClaudeTool
   def sonnet: ClaudeTool
@@ -72,18 +65,14 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 
-/** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Three
-  * methods cover the session-retention axis: `run` for one-shot, `startSession`
-  * to keep the thread alive for follow-ups, `continueSession` to resume.
+/** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
+  * method: `resume = None` starts a fresh session, `resume = Some(sid)`
+  * continues that session. Always returns the (possibly-new) session id so
+  * the caller can hold onto it for the next call.
   */
 trait AutonomousTextCall[B <: BackendTag]:
-  def run(prompt: String, config: LlmConfig = LlmConfig.default): String
-  def startSession(
+  def run(
       prompt: String,
+      resume: Option[SessionId[B]] = None,
       config: LlmConfig = LlmConfig.default
   ): (SessionId[B], String)
-  def continueSession(
-      sessionId: SessionId[B],
-      prompt: String,
-      config: LlmConfig = LlmConfig.default
-  ): String

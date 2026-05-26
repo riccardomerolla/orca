@@ -41,20 +41,16 @@ class LintTest extends munit.FunSuite:
       new LlmCall[BackendTag.ClaudeCode.type, O]:
         val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
           new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
-            def run[I](i: I, c: LlmConfig = LlmConfig.default)(using
-                a: AgentInput[I]
-            ): O =
+            def run[I](
+                i: I,
+                resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+                c: LlmConfig = LlmConfig.default
+            )(using a: AgentInput[I]): (SessionId[BackendTag.ClaudeCode.type], O) =
               captured = a.serialize(i)
-              canned.asInstanceOf[O]
-            def startSession[I: AgentInput](
-                i: I,
-                c: LlmConfig = LlmConfig.default
-            ): (SessionId[BackendTag.ClaudeCode.type], O) = ???
-            def continueSession[I: AgentInput](
-                sid: SessionId[BackendTag.ClaudeCode.type],
-                i: I,
-                c: LlmConfig = LlmConfig.default
-            ): O = ???
+              (
+                SessionId[BackendTag.ClaudeCode.type]("lint-test"),
+                canned.asInstanceOf[O]
+              )
         def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
   test("lint runs the command, passes output to the LLM, returns its result"):
