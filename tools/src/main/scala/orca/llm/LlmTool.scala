@@ -53,6 +53,13 @@ trait LlmTool[B <: BackendTag]:
     */
   def withReadOnly: LlmTool[B]
 
+  /** A fresh [[Session]] bound to this tool — a stateful wrapper that lazily
+    * starts an autonomous session on the first `run` and continues it
+    * thereafter. Hides the `match { Some => continueSession; None =>
+    * startSession }` boilerplate at the call site.
+    */
+  def session: Session[B] = new Session(this)
+
 trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `LlmConfig.model`.
     * Typical usage: `claude.haiku.autonomous.run("summarize this")` for a cheap

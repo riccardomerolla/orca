@@ -46,26 +46,16 @@ flow(OrcaArgs(args)):
   val coder = claude.withSystemPrompt(
     "The runtime handles git commits. Never run `git commit` yourself."
   )
+  val session = coder.session
 
   // Reviewers on codex (not claude — the implementer is its own worst critic);
   // fixes go back to the same Claude session that implemented the task.
   val reviewers: List[LlmTool[?]] = allReviewers(codex)
 
-  // One coder session across tasks so the docs pass below can see the whole
-  // epic's context. Lazy: started by the first task, reused thereafter.
-  var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
-
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       val sid = stage("Implementation"):
-        sessionId match
-          case Some(s) =>
-            val _ = coder.autonomous.continueSession(s, task.description)
-            s
-          case None =>
-            val (fresh, _) = coder.autonomous.startSession(task.description)
-            sessionId = Some(fresh)
-            fresh
+        session.run(task.description)
 
       // Format before review so reviewers don't burn turns on style nits the
       // toolchain would fix automatically. Spotless is wired into the seed pom.
@@ -84,7 +74,7 @@ flow(OrcaArgs(args)):
 
   // Documentation pass uses the same session — it needs the cross-task
   // context to update docs coherently. Skipped on an empty plan.
-  sessionId.foreach: sid =>
+  session.id.foreach: sid =>
     stage("Update documentation"):
       val _ = coder.autonomous.continueSession(
         sid,

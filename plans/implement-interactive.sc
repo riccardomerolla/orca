@@ -35,19 +35,12 @@ flow(OrcaArgs(args)):
 
   // Autonomous session across all tasks — ask_user was only needed for
   // planning. Started lazily by the first task; implementer + fixer share it.
-  var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+  val session = claude.session
 
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       val sid = stage("Implementation"):
-        sessionId match
-          case Some(s) =>
-            val _ = claude.autonomous.continueSession(s, task.description)
-            s
-          case None =>
-            val (fresh, _) = claude.autonomous.startSession(task.description)
-            sessionId = Some(fresh)
-            fresh
+        session.run(task.description)
 
       reviewAndFixLoop(
         coder = claude,

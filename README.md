@@ -92,8 +92,8 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.{run,startSession,continueSession}`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName` | Claude Code coding/reviewing agent. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
-| `codex` | `autonomous.{run,startSession,continueSession}`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `mini`, `withConfig`, `withSystemPrompt`, `withName` | OpenAI Codex coding/reviewing agent. |
+| `claude` | `autonomous.{run,startSession,continueSession}`, `session`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | Claude Code coding/reviewing agent. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
+| `codex` | `autonomous.{run,startSession,continueSession}`, `session`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | OpenAI Codex coding/reviewing agent. |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
 | `gh` | `createPr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `waitForBuild` returns `Either[BuildTimedOut, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -103,6 +103,12 @@ output. The `O` type needs a `JsonData[O]` (provided by `derives JsonData` on a
 case class) for schema generation and deserialization. Additionally, you might
 define an `Announce[O]` so that a friendly summary is printed in the event log,
 instead of a raw json.
+
+`tool.session` returns a stateful [`Session`](tools/src/main/scala/orca/llm/Session.scala)
+that lazily starts an autonomous session on the first `.run(prompt)` and
+continues it thereafter — handy for multi-task loops where the first task is
+also the session opener (used by `plans/implement.sc` and `epic.sc`). The
+session id is observable via `.id` for steps that happen after the loop.
 
 ## Flow methods
 

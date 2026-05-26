@@ -37,19 +37,12 @@ flow(OrcaArgs(args)):
   // One session across all tasks, started lazily by the first task's prompt
   // (no separate priming turn). Implementer and fixer share it so review
   // comments land against the same context that produced the code.
-  var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+  val session = claude.session
 
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       val sid = stage("Implementation"):
-        sessionId match
-          case Some(s) =>
-            val _ = claude.autonomous.continueSession(s, task.description)
-            s
-          case None =>
-            val (fresh, _) = claude.autonomous.startSession(task.description)
-            sessionId = Some(fresh)
-            fresh
+        session.run(task.description)
 
       reviewAndFixLoop(
         coder = claude,

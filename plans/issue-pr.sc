@@ -81,19 +81,12 @@ flow(OrcaArgs(args)):
 
       // Fresh implementation session (the assess session was in plan mode
       // and can't write). Started lazily by the first task; reused thereafter.
-      var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+      val session = claude.session
 
       for task <- plan.tasks do
         stage(s"Implement task: ${task.title}"):
           val sid = stage("Implementation"):
-            sessionId match
-              case Some(s) =>
-                val _ = claude.autonomous.continueSession(s, task.description)
-                s
-              case None =>
-                val (fresh, _) = claude.autonomous.startSession(task.description)
-                sessionId = Some(fresh)
-                fresh
+            session.run(task.description)
 
           reviewAndFixLoop(
             coder = claude,
