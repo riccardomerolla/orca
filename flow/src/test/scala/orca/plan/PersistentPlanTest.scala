@@ -108,10 +108,10 @@ class PersistentPlanTest extends munit.FunSuite:
         s"expected a recovery Step; got: $steps"
       )
 
-  // --- runPersistent ---
+  // --- implementTaskLoop ---
 
   test(
-    "runPersistent on an all-complete plan skips the body and only does cleanup"
+    "implementTaskLoop on an all-complete plan skips the body and only does cleanup"
   ):
     withRepoCtx: (ctx, dir, _) =>
       given FlowContext = ctx
@@ -126,7 +126,7 @@ class PersistentPlanTest extends munit.FunSuite:
       val _ = os.proc("git", "commit", "-m", "add done plan").call(cwd = dir)
 
       var bodyCalls = 0
-      Plan.runPersistent(planFile, plan): _ =>
+      Plan.implementTaskLoop(planFile, plan): _ =>
         bodyCalls += 1
 
       assertEquals(bodyCalls, 0, "body should not run when every task is complete")
@@ -139,7 +139,7 @@ class PersistentPlanTest extends munit.FunSuite:
       )
 
   test(
-    "runPersistent runs body per task, persists completion, commits, removes file"
+    "implementTaskLoop runs body per task, persists completion, commits, removes file"
   ):
     withRepoCtx: (ctx, dir, _) =>
       given FlowContext = ctx
@@ -157,7 +157,7 @@ class PersistentPlanTest extends munit.FunSuite:
       val _ = os.proc("git", "commit", "-m", "add plan").call(cwd = dir)
 
       val bodyRan = collection.mutable.ListBuffer[String]()
-      Plan.runPersistent(planFile, plan): task =>
+      Plan.implementTaskLoop(planFile, plan): task =>
         bodyRan += task.title.value
         // Simulate work the body would normally do — write a file so the
         // task commit has something to record.
@@ -165,7 +165,7 @@ class PersistentPlanTest extends munit.FunSuite:
 
       assertEquals(bodyRan.toList, List("t1", "t2"))
       assert(!os.exists(planFile), "plan file should be removed at the end")
-      // Three commits added by runPersistent: one per task + final cleanup.
+      // Three commits added by implementTaskLoop: one per task + final cleanup.
       val commits = ctx.git.log(10).map(_.message)
       assertEquals(
         commits.take(3),

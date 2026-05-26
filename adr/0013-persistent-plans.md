@@ -34,7 +34,7 @@ Persistent is the default for multi-task flows. Three pieces fall out of that:
    The stash-before-parse order matters: an in-flight crash may have left
    edits to the plan file itself.
 
-3. **`Plan.runPersistent(file, plan)(body: Task => Unit)`** — the iteration
+3. **`Plan.implementTaskLoop(file, plan)(body: Task => Unit)`** — the iteration
    helper. Owns the loop (re-reads the plan after each task so persisted
    completions shape resume), the per-task `persistComplete` + `git.commit
    ("task: <title>")`, and the final cleanup commit (`os.remove` +
@@ -47,7 +47,7 @@ shows exactly which tasks have shipped without needing the plan file.
 
 ## Why this scope split
 
-`runPersistent` deliberately owns only iteration + persistence + cleanup, not
+`implementTaskLoop` deliberately owns only iteration + persistence + cleanup, not
 the implementation-and-review loop. Per-task bodies vary too much across
 flows (different reviewer rosters, different lint commands, different format
 steps) to bake into a single helper. Recovery, in contrast, *is* uniform —
@@ -70,7 +70,7 @@ one tag per epic clutters the tag namespace; the branch + epic-id is enough.
 
 - `implement.sc`, `implement-interactive.sc`, `epic.sc` switched to
   `Plan.defaultPath(userPrompt)` + `Plan.recover(...).getOrElse(generate)`
-  + `Plan.runPersistent(planFile, plan)`.
+  + `Plan.implementTaskLoop(planFile, plan)`.
 - `issue-pr.sc` stays in-memory: the issue body + agent assessment drive
   the plan; the plan isn't useful to preserve once the PR is open. The
   branch + closing-comment carry the state.

@@ -37,7 +37,7 @@ flow(OrcaArgs(args)):
     Plan.recoverOrCreate(planFile, claude, "orca: starting implementation"):
       Plan.autonomous.from(userPrompt, claude)
 
-  Plan.runPersistent(planFile, plan): task =>
+  Plan.implementTaskLoop(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
         val _ = claude.autonomous.run(task.description, session)

@@ -37,7 +37,7 @@ flow(OrcaArgs(args)):
 
   // System prompt covers the whole epic run — the runtime owns commits, so
   // the agent must never invoke git itself (a stray `git commit` would empty
-  // the working tree and crash the next `runPersistent` commit step).
+  // the working tree and crash the next `implementTaskLoop` commit step).
   val coder = claude.withSystemPrompt(
     "The runtime handles git commits. Never run `git commit` yourself."
   )
@@ -53,7 +53,7 @@ flow(OrcaArgs(args)):
   // fixes go back to the same Claude session that implemented the task.
   val reviewers: List[LlmTool[?]] = allReviewers(codex)
 
-  Plan.runPersistent(planFile, plan): task =>
+  Plan.implementTaskLoop(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
         val _ = coder.autonomous.run(task.description, session)

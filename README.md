@@ -46,12 +46,12 @@ flow(OrcaArgs(args)):
   // Per task: implement, format, review & fix, commit. We commit *after*
   // the loop so the single commit captures the original implementation,
   // the auto-formatted result, and any follow-up fixes the reviewers
-  // triggered. `resume = Some(sessionId)` continues the planner's session
-  // so the implementer turns share its context.
+  // triggered. `sessionId` from the planner is passed to every turn so the
+  // implementer shares the planner's context.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
-        val _ = claude.autonomous.run(task.description, resume = Some(sessionId))
+        val _ = claude.autonomous.run(task.description, sessionId)
       // Format before review so reviewers don't burn turns on style nits
       // the toolchain would fix automatically. Run after the agent
       // writes — we don't want to demand pre-formatted code from the LLM.
@@ -93,8 +93,8 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, resume?)`, `resultAs[O].{autonomous,interactive}.run(input, resume?)`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | Claude Code coding/reviewing agent. Each `run` returns `(SessionId, output)`; pass `resume = Some(prev)` to continue a session. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
-| `codex` | `autonomous.run(prompt, resume?)`, `resultAs[O].{autonomous,interactive}.run(input, resume?)`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | OpenAI Codex coding/reviewing agent. |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | Claude Code coding/reviewing agent. Each `run` returns `(SessionId, output)`. Pre-allocate a session with `claude.newSession` and pass it on every call to keep one conversation alive; omit the arg for a one-shot fresh session. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
+| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | OpenAI Codex coding/reviewing agent. |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
 | `gh` | `createPr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `waitForBuild` returns `Either[BuildTimedOut, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -105,18 +105,17 @@ case class) for schema generation and deserialization. Additionally, you might
 define an `Announce[O]` so that a friendly summary is printed in the event log,
 instead of a raw json.
 
-For multi-task loops, hold the returned session id in a `var
-Option[SessionId[B]]` and pass it as the `resume` arg on the next call:
+For multi-task loops, pre-allocate one session and pass it on every call:
 
 ```scala
-var session: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+val session = claude.newSession
 for task <- tasks do
-  val (next, _) = claude.autonomous.run(task.description, resume = session)
-  session = Some(next)
+  val _ = claude.autonomous.run(task.description, session)
 ```
 
-The first call (with `resume = None`) opens a fresh session; later calls
-continue it. Both flow through the same code path, no session-init step.
+The first call opens the session; subsequent calls resume it. The library
+tracks fresh-vs-resume internally per backend (`--session-id` then `--resume`
+on claude; a client→server mapping on codex).
 
 ## Flow methods
 
@@ -132,15 +131,15 @@ Planning utilities, available via `import orca.plan.*`:
 
 | Method | Use |
 |---|---|
-| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns the session id + a `Plan` so the caller can pass `resume = Some(sid)` to continue the planner's context on implementation turns. |
+| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns the session id + a `Plan` so the caller can pass it as `session = sid` on implementation turns to continue the planner's context. |
 | `Plan.autonomous.from(userPrompt, llm, instructions?)` | Same shape as `interactive.from` but the planning runs as a single agentic turn, no human in the loop. |
 | `Plan.autonomous.assessThenPlan(userPrompt, llm, instructions?)` | Skeptically assess `userPrompt` (typically a bug/feature report) against the repo and either return a plan (`Verdict.Proceed`) or a critique/follow-up question/rebuff the caller surfaces back to the reporter (`Verdict.Rejection`). Used by `issue-pr.sc`. |
 | `Plan.interactive.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition with interactive generation: parse `file` if it exists (resume), otherwise drive the planner conversationally and persist the result as markdown. |
 | `Plan.autonomous.loadOrGenerate(file, userPrompt, llm, instructions?)` | Same, but generation is autonomous. |
 | `Plan.defaultPath(userPrompt, workDir?)` | Returns `<workDir>/.orca/plan-<hash>.md` — the conventional persistent-plan path. `<hash>` is the first 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars, so unrelated prompts in the same repo don't collide. |
 | `Plan.recover(file)` | Resume-from-crash entry point. If `file` exists: stash pending edits (`git stash pop` recovers them), switch to the plan's branch, parse the file, return `Some(plan)`. Otherwise `None` so the caller can fall back to generating. |
-| `Plan.runPersistent(file, plan)(body)` | Iterate `plan` running `body(task)` per task; tick the checkbox + commit per task; remove `file` and commit the cleanup at the end. Body owns the per-task work (implement, review, lint). |
-| `Plan.persistComplete(file, title)` | Mark one task complete on disk. Lower-level primitive `runPersistent` is built on. |
+| `Plan.implementTaskLoop(file, plan)(body)` | Iterate `plan` running `body(task)` per task; tick the checkbox + commit per task; remove `file` and commit the cleanup at the end. Body owns the per-task work (implement, review, lint). |
+| `Plan.persistComplete(file, title)` | Mark one task complete on disk. Lower-level primitive that `implementTaskLoop` is built on. |
 
 Picking interactive vs autonomous is visible at the call site rather than
 hidden behind a parameter default — `Plan.interactive.*` and `Plan.autonomous.*`
@@ -148,7 +147,7 @@ are sibling namespaces with the same method shapes.
 
 Persistent plans are the default mode for multi-task flows — `implement.sc`,
 `implement-interactive.sc`, and `epic.sc` all use `Plan.defaultPath` +
-`Plan.recover` + `Plan.runPersistent`. See ADR
+`Plan.recover` + `Plan.implementTaskLoop`. See ADR
 [0013](adr/0013-persistent-plans.md) for the convention and migration notes.
 
 Review utilities, available via `import orca.review.*`:

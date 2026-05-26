@@ -22,8 +22,9 @@ import orca.subprocess.CliRunner
   * Both modes wrap the subprocess in a [[CodexConversation]]; the autonomous
   * path drains it internally via [[orca.backend.Conversations.drainAutonomous]]
   * while the interactive path returns the conversation for an `Interaction` to
-  * drive. Multi-turn happens via `continueInteractive` / `continueAutonomous`,
-  * which spawn a fresh `codex exec resume <thread_id>`.
+  * drive. Multi-turn: subsequent `runAutonomous` / `runInteractive` calls with
+  * the same session id route through `codex exec resume <server-id>` via the
+  * [[clientToServer]] mapping.
   */
 class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
 

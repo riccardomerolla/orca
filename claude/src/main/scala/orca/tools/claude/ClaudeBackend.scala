@@ -155,12 +155,15 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
         else config
       // First call with this id → claim it via `--session-id`; subsequent
-      // calls → `--resume`. `add` is atomic and returns true the first time,
-      // false thereafter, so the test+set is race-free under parallel reviewer
-      // fan-out. Marking before the spawn (rather than after) is intentional —
-      // if `claude --session-id` fails, the session is still claimed in our
-      // book and a retry would correctly go through `--resume` (idempotent).
-      val firstUse = startedSessions.add(SessionId.value(session))
+      // calls → `--resume`. `contains` is the read side; the `add` that
+      // records "we've successfully opened this session" runs *after* the
+      // conversation is up (below), so a spawn that fails before claude
+      // registers the session doesn't leave the mapping wedged — a retry
+      // will still try `--session-id`. Pre-condition for thread-safety:
+      // callers must not share a session id across concurrent calls.
+      // `reviewAndFixLoop`'s parallel reviewer fan-out is safe because each
+      // reviewer mints its own distinct id via `LlmTool.newSession`.
+      val firstUse = !startedSessions.contains(SessionId.value(session))
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
@@ -180,7 +183,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           // remove the workDir config file. Listed in close order by
           // ClaudeConversation.onFinalize.
           List(r.server, ClaudeBackend.deleteFileResource(r.configFile))
-        new ClaudeConversation(
+        val conv = new ClaudeConversation(
           process,
           config,
           initialPrompt = displayPrompt,
@@ -188,6 +191,11 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           askUserBridge = askUser.map(_.bridge),
           sessionResources = resources
         )
+        // claude has parsed `--session-id` and started the stream-json
+        // session by the time we've successfully constructed the
+        // conversation; record this so subsequent calls use `--resume`.
+        val _ = startedSessions.add(SessionId.value(session))
+        conv
       catch
         case e: Exception =>
           process.sendSigInt()

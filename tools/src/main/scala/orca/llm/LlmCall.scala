@@ -41,11 +41,10 @@ trait InteractiveLlmCall[B <: BackendTag, O]:
   * The trait splits into `autonomous` and `interactive` sibling objects so the
   * call site shows which mode it picked. This class wires both:
   *
-  *   - The autonomous shape goes through `backend.runAutonomous` /
-  *     `backend.continueAutonomous` and shares a retry-with-corrective-prompt
-  *     loop: if the response fails to parse as `O`, the next attempt's prompt
-  *     includes the failed output and the parser error so the model can
-  *     self-correct.
+  *   - The autonomous shape goes through `backend.runAutonomous` and shares a
+  *     retry-with-corrective-prompt loop: if the response fails to parse as
+  *     `O`, the next attempt's prompt includes the failed output and the
+  *     parser error so the model can self-correct.
   *   - The interactive shape opens a [[orca.backend.Conversation]] via the
   *     backend and hands it to the supplied [[Interaction]] for rendering and
   *     user steering. No retry: the user is steering, and a parse failure on

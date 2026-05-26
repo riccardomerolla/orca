@@ -80,7 +80,7 @@ object Plan:
   /** Interactive planning helpers — the LLM call opens a conversation the user
     * can drive (clarifying questions, refinements) before producing the plan.
     * `from` returns `(SessionId, Plan)` so the caller can pass the id as
-    * `resume = Some(sid)` on the implementation turns. `loadOrGenerate`
+    * `session = sid` on the implementation turns. `loadOrGenerate`
     * returns just `Plan` —
     * persistence rather than session continuity is the use case it serves; if
     * you need the planning conversation alive, use `from` and write the
@@ -271,19 +271,25 @@ object Plan:
       )
       Some(plan)
 
-  /** Drive `plan` to completion while persisting progress to `file`. For each
-    * incomplete task the helper calls `body(task)`, ticks the checkbox on
-    * disk, and commits both the body's changes and the tick as a single
-    * `task: <title>` commit. When every task is complete it removes `file`
-    * and makes a `chore: remove <file.last>` cleanup commit (or none if the
-    * file was untracked).
+  /** Per-task implementation loop with on-disk progress + commits.
     *
-    * The body is responsible for the work itself — implementation, review,
-    * lint, format — and may freely call other helpers; everything it touches
-    * lands in the per-task commit. Bodies that throw abort the loop with the
-    * partial plan still on disk so a subsequent run can resume.
+    * For each incomplete task in `plan`:
+    *
+    *   1. Calls `body(task)` — the caller's implement-and-review work.
+    *   2. Ticks the task's `Status: [x]` in `file`.
+    *   3. Makes one `task: <title>` git commit covering both the body's
+    *      changes and the checkbox tick.
+    *
+    * After the last task: removes `file` and makes a `chore: remove
+    * <file.last>` cleanup commit (skipped if the file was never tracked).
+    * Bodies that throw abort the loop with the partial plan still on disk,
+    * so a subsequent run resumes at the first incomplete task.
+    *
+    * Sibling of [[orca.review.reviewAndFixLoop]] — that one drives the
+    * review-and-fix iteration within a task; this one drives task-by-task
+    * progress across the whole plan.
     */
-  def runPersistent(file: os.Path, plan: Plan)(body: Task => Unit)(using
+  def implementTaskLoop(file: os.Path, plan: Plan)(body: Task => Unit)(using
       ctx: FlowContext
   ): Unit =
     var current = plan
@@ -299,7 +305,7 @@ object Plan:
       // diverged from what we just wrote — surface it instead of spinning.
       if next.firstIncomplete.map(_.title).contains(t.title) then
         throw OrcaFlowException(
-          s"runPersistent: task '${t.title.value}' is still the first incomplete entry " +
+          s"implementTaskLoop: task '${t.title.value}' is still the first incomplete entry " +
             s"after persistComplete + commit. The plan file at $file may have been " +
             "edited so the title still matches an unchecked task."
         )

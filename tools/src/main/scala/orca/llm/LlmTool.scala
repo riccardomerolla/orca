@@ -8,11 +8,10 @@ package orca.llm
   *   - **`resultAs[O]`** — fix the output type and obtain a call object that
   *     exposes both `autonomous` and `interactive` modes.
   *
-  * Each mode has a single `run(input, resume = None, config = …)` method that
-  * always returns `(SessionId[B], output)`. Pass `resume = Some(prevSid)` to
-  * continue a prior session; `None` starts a fresh one. The session id is in
-  * every return value so callers can decide whether to hold onto it for the
-  * next call.
+  * Each mode has a single `run(input, session = …, config = …)` method that
+  * always returns `(SessionId[B], output)`. Pre-allocate a session with
+  * [[newSession]] and pass it across calls to keep one conversation alive;
+  * omit the argument to get a fresh one-shot session per call.
   *
   * The API never hides the autonomous-vs-interactive choice behind a default —
   * it's always visible at the call site as the leftmost segment after the tool
