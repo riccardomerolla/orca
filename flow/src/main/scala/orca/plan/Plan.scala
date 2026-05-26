@@ -205,48 +205,33 @@ object Plan:
     val updated = current.markComplete(title)
     os.write.over(file, render(updated))
 
-  /** Acquire a persistent plan along with a session id callers can keep
-    * passing to `llm.autonomous.run(prompt, session)` across tasks.
+  /** Acquire a persistent plan: resume from `file` if it exists, otherwise
+    * evaluate `generate` (typically `Plan.autonomous.from(...)._2`) and lay
+    * down the branch + on-disk plan for a fresh run.
     *
-    * The returned `SessionId` is always `llm.newSession` — fresh, irrespective
-    * of whether `file` was recovered or `generate` ran. The planner's session
-    * (if any) is deliberately discarded:
+    * Does not return a session id. The planner's session (if `generate`
+    * minted one) is irrelevant to the implementer: `Plan.autonomous.from`
+    * runs in plan mode via `.withReadOnly`, so resuming it would inherit the
+    * read-only restriction. Callers should allocate their own implementer
+    * session at the script level via `llm.newSession`.
     *
-    *   - `Plan.autonomous.from` runs in plan mode (`withReadOnly`); resuming
-    *     it would inherit the read-only restriction and the implementer
-    *     couldn't write.
-    *   - On `epic.sc`'s pattern (planner = `claude.opus`, implementer =
-    *     `claude.withSystemPrompt(…)`), the implementer's system prompt is
-    *     applied to a fresh session — resuming the planner would keep the
-    *     opus framing and silently drop the new system prompt.
-    *
-    * The plan markdown captures everything the implementer needs; re-reading
-    * files for context is cheap.
-    *
-    * `generate`'s session id from the create branch is destructured and
-    * discarded — the signature keeps the tuple so callers can plug
-    * `Plan.autonomous.from(...)` in directly. `stashMessage` is used when a
-    * fresh start finds a dirty tree; pass a flow-specific string so
-    * `git stash list` is searchable.
+    * `stashMessage` is used when a fresh start finds a dirty tree; pass a
+    * flow-specific string so `git stash list` is searchable.
     */
-  def recoverOrCreate[B <: BackendTag](
+  def recoverOrCreate(
       file: os.Path,
-      llm: LlmTool[B],
       stashMessage: String = "orca: starting work"
-  )(generate: => (SessionId[B], Plan))(using
-      ctx: FlowContext
-  ): (SessionId[B], Plan) =
-    val plan = recover(file).getOrElse:
+  )(generate: => Plan)(using ctx: FlowContext): Plan =
+    recover(file).getOrElse:
       // ensureClean *before* generate so the planner sees a known-clean
       // tree (and the "stashed pending changes" Step only fires when the
       // user actually had pre-existing dirty edits, not when the planner
       // itself wrote files — `Plan.autonomous.from` runs read-only).
       val _ = ctx.git.ensureClean(stashMessage)
-      val (_, generated) = generate
-      ctx.git.checkoutOrCreate(generated.epicId)
-      os.write.over(file, render(generated), createFolders = true)
-      generated
-    (llm.newSession, plan)
+      val plan = generate
+      ctx.git.checkoutOrCreate(plan.epicId)
+      os.write.over(file, render(plan), createFolders = true)
+      plan
 
   /** Resume from a previously-persisted plan. Returns `Some(plan)` when `file`
     * exists, with the working tree cleaned (any pending edits stashed; the

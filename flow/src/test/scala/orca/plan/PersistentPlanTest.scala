@@ -2,7 +2,6 @@ package orca.plan
 
 import orca.{FlowContext, TestFlowContext}
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
-import orca.llm.{BackendTag, SessionId}
 import orca.tools.{GitTool, OsGitTool}
 
 import java.util.concurrent.atomic.AtomicReference
@@ -111,11 +110,9 @@ class PersistentPlanTest extends munit.FunSuite:
 
   // --- recoverOrCreate ---
 
-  test("recoverOrCreate discards the planner's session id on the create path"):
-    // The planner runs in plan mode (Plan.autonomous.from uses withReadOnly);
-    // returning its session id to the caller would invite resuming it for
-    // implementation, which inherits the read-only restriction. Verify both
-    // branches return a fresh `llm.newSession`, not the planner-supplied id.
+  test("recoverOrCreate returns the generated plan on the create path"):
+    // Pinning that the helper returns the plan from `generate` (no session
+    // id — session allocation is the caller's responsibility).
     withRepoCtx: (ctx, dir, _) =>
       given FlowContext = ctx
       val plan = Plan(
@@ -123,18 +120,10 @@ class PersistentPlanTest extends munit.FunSuite:
         description = "",
         tasks = List(Task(Title("t1"), "body"))
       )
-      val plannerSid =
-        SessionId[BackendTag.ClaudeCode.type]("planner-supplied-sid")
-      val llm = new CannedPlanLlm(plan)
       val planFile = dir / "plan.md"
-      val (sid, returned) =
-        Plan.recoverOrCreate(planFile, llm)((plannerSid, plan))
+      val returned = Plan.recoverOrCreate(planFile)(plan)
       assertEquals(returned, plan)
-      assertNotEquals(
-        SessionId.value(sid),
-        "planner-supplied-sid",
-        "recoverOrCreate must mint a fresh session, not return the planner's"
-      )
+      assert(os.exists(planFile), "plan file should be persisted on create")
 
   // --- implementTaskLoop ---
 

@@ -42,12 +42,14 @@ flow(OrcaArgs(args)):
     "The runtime handles git commits. Never run `git commit` yourself."
   )
 
-  // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch. The
-  // returned `session` is reused across every task (and the docs pass at the
-  // end) so the coder retains cross-task context.
-  val (session, plan) = stage("Acquire epic"):
-    Plan.recoverOrCreate(planFile, coder, "orca: starting epic"):
-      Plan.autonomous.from(userPrompt, claude.opus)
+  // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
+  val plan = stage("Acquire epic"):
+    Plan.recoverOrCreate(planFile, "orca: starting epic"):
+      Plan.autonomous.from(userPrompt, claude.opus)._2
+
+  // Stable coder session reused across every task (and the docs pass at the
+  // end) so the agent retains cross-task context.
+  val session = coder.newSession
 
   // Reviewers on codex (not claude — the implementer is its own worst critic);
   // fixes go back to the same Claude session that implemented the task.

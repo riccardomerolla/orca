@@ -28,11 +28,14 @@ flow(OrcaArgs(args)):
   val planFile = Plan.defaultPath(userPrompt)
 
   // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan interactively
-  // (the planner can call `ask_user` to clarify) and branch. `session` is
-  // stable across all tasks — implementer and fixer share it.
-  val (session, plan) = stage("Acquire plan"):
-    Plan.recoverOrCreate(planFile, claude, "orca: starting implementation"):
-      Plan.interactive.from(userPrompt, claude)
+  // (the planner can call `ask_user` to clarify) and branch.
+  val plan = stage("Acquire plan"):
+    Plan.recoverOrCreate(planFile, "orca: starting implementation"):
+      Plan.interactive.from(userPrompt, claude)._2
+
+  // Stable autonomous session reused across every task — ask_user was only
+  // needed for planning. Implementer and fixer share it.
+  val session = claude.newSession
 
   Plan.implementTaskLoop(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
