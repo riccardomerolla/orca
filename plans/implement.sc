@@ -29,22 +29,14 @@ import orca.{*, given}
 flow(OrcaArgs(args)):
   val planFile = Plan.defaultPath(userPrompt)
 
-  // 1. Acquire the plan: resume from a previous run if `.orca/plan-<hash>.md`
-  // exists (recover stashes pending edits + switches to the plan's branch);
-  // otherwise generate one autonomously, stash, switch to its branch, and
-  // write the file.
+  // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
   val plan = stage("Acquire plan"):
     Plan.recoverOrCreate(planFile, "orca: starting implementation"):
       Plan.autonomous.from(userPrompt, claude)._2
 
-  // 2. Iterate. A single Claude session runs across every task so the agent
-  // retains cross-task context; it's started lazily by the first task (the
-  // first task's description is the session opener — no separate "you are
-  // working on the plan…" priming turn). The implementer + the fixer in
-  // `reviewAndFixLoop` share this session so review comments can be
-  // addressed against the same conversational context that produced the
-  // code. `runPersistent` ticks the checkbox + commits per task and removes
-  // the plan file once everything is done.
+  // One session across all tasks, started lazily by the first task's prompt
+  // (no separate priming turn). Implementer and fixer share it so review
+  // comments land against the same context that produced the code.
   var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
 
   Plan.runPersistent(planFile, plan): task =>
@@ -63,8 +55,7 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sid,
         reviewers = allReviewers(claude),
-        // Haiku picks which reviewers run per task — sees each one's
-        // description plus the changed files. Swap for
+        // Haiku picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,

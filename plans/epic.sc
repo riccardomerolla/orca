@@ -35,67 +35,60 @@ import orca.{*, given}
 flow(OrcaArgs(args)):
   val planFile = Plan.defaultPath(userPrompt)
 
-  // 1. Recover from a previous run, or plan from scratch. `recoverOrCreate`
-  // stashes pending edits, switches to the plan's branch, and writes the
-  // file when no plan exists yet.
+  // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
   val plan = stage("Acquire epic"):
     Plan.recoverOrCreate(planFile, "orca: starting epic"):
       Plan.autonomous.from(userPrompt, claude.opus)._2
 
-  // 2. Single Claude session across tasks so the agent retains context.
-  // Required here (unlike `implement.sc`'s per-task sessions) because the
-  // documentation pass at the end consumes the accumulated context — the
-  // agent needs to remember what it built across the whole epic to update
-  // docs coherently.
-  val (sessionId, _) = claude.autonomous.startSession(
-    s"""You are working on the epic at $planFile.
-       |
-       |The epic defines tasks with short names and prompts. I will
-       |send you each task's prompt in turn — implement just that
-       |task, commit nothing yourself (the runtime handles commits),
-       |and reply briefly when you've finished so I know to move
-       |on.""".stripMargin
+  // System prompt covers the whole epic run — the runtime owns commits, so
+  // the agent must never invoke git itself (a stray `git commit` would empty
+  // the working tree and crash the next `runPersistent` commit step).
+  val coder = claude.withSystemPrompt(
+    "The runtime handles git commits. Never run `git commit` yourself."
   )
 
-  // 3. Reviewers run on codex (not claude — the implementing agent
-  // is its own worst critic). Claude still drives the fix step,
-  // so the same session that implemented the task receives the
-  // findings and addresses them in code.
+  // Reviewers on codex (not claude — the implementer is its own worst critic);
+  // fixes go back to the same Claude session that implemented the task.
   val reviewers: List[LlmTool[?]] = allReviewers(codex)
 
-  // 4. Iterate. `runPersistent` ticks the checkbox + commits per task,
-  // re-reads the plan after each iteration so persisted completions shape the
-  // next round, and removes the plan file with a cleanup commit at the end.
+  // One coder session across tasks so the docs pass below can see the whole
+  // epic's context. Lazy: started by the first task, reused thereafter.
+  var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
-      stage("Implementation"):
-        val _ = claude.autonomous.continueSession(sessionId, task.description)
-      // Format before review so reviewers don't waste turns on
-      // style nits the toolchain would fix automatically. Spotless
-      // is wired into the seed pom.
+      val sid = stage("Implementation"):
+        sessionId match
+          case Some(s) =>
+            val _ = coder.autonomous.continueSession(s, task.description)
+            s
+          case None =>
+            val (fresh, _) = coder.autonomous.startSession(task.description)
+            sessionId = Some(fresh)
+            fresh
+
+      // Format before review so reviewers don't burn turns on style nits the
+      // toolchain would fix automatically. Spotless is wired into the seed pom.
       stage("Format"):
         val _ = os
           .proc("mvn", "-q", "spotless:apply")
           .call(cwd = os.pwd, check = false)
+
       reviewAndFixLoop(
-        coder = claude,
-        sessionId = sessionId,
+        coder = coder,
+        sessionId = sid,
         reviewers = reviewers,
-        // Haiku picks which codex reviewers run — sees each one's
-        // description plus the changed files. Swap for
-        // `ReviewerSelector.allEveryRound` to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value
       )
 
-  // 5. Documentation pass — update relevant docs based on what
-  // changed in this branch.
-  stage("Update documentation"):
-    val _ = claude.autonomous.continueSession(
-      sessionId,
-      """All tasks are done. Now update the project's documentation
-        |(README, in-code doc-comments where they obviously got
-        |stale, etc.) based on the changes you made. Don't invent
-        |new docs sections — only update what's affected.""".stripMargin
-    )
-    git.commit("docs: update for completed work").orThrow
+  // Documentation pass uses the same session — it needs the cross-task
+  // context to update docs coherently. Skipped on an empty plan.
+  sessionId.foreach: sid =>
+    stage("Update documentation"):
+      val _ = coder.autonomous.continueSession(
+        sid,
+        "All tasks done. Update project docs (README, doc-comments) based " +
+          "on the changes made. Only update what's affected — no new sections."
+      )
+      git.commit("docs: update for completed work").orThrow

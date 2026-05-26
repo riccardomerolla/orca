@@ -55,9 +55,8 @@ flow(OrcaArgs(args)):
   ):
     gh.readIssue(issueHandle)
 
-  // The full payload to plan against — title + body. We don't include
-  // comments by default; the issue body is usually self-contained, and
-  // including a noisy comment thread can pull the planner off-target.
+  // Title + body. Comments are excluded by default — noisy threads pull the
+  // planner off-target.
   val issuePayload =
     s"""Issue: ${issue.title}
        |
@@ -65,29 +64,23 @@ flow(OrcaArgs(args)):
        |
        |${issue.body}""".stripMargin
 
-  // 2. Assess the report and either plan or reject. Opus runs read-only —
-  // it has Read/Grep to verify claims against the repo but can't edit during
-  // the assess turn.
+  // Opus runs read-only so it can verify claims via Read/Grep without
+  // editing during the assess turn.
   val verdict = stage("Assess and plan"):
     Plan.autonomous.assessThenPlan(issuePayload, claude.opus)
 
-  // Branching here rather than `return` — `flow` is a lambda body, and
-  // Scala 3 doesn't allow non-local returns from lambdas.
+  // Pattern-match rather than `return` — `flow` is a lambda body.
   verdict match
     case Verdict.Rejection(_, body) =>
-      // 3. On rejection: surface the agent's reply on the issue and stop.
       stage("Post assessment on the issue"):
         gh.writeComment(issueHandle, body)
 
     case Verdict.Proceed(plan) =>
-      // 4. Branch for the whole epic, then implement each task on that
-      // branch with the review-and-fix loop. One commit per task. Lazy
-      // session — started by the first task's prompt, reused across tasks
-      // so the agent retains context. Fresh from the assess turn (which
-      // ran in plan mode) so the implementer has write access.
       stage(s"Branch: ${plan.epicId}"):
         git.createBranch(plan.epicId).orThrow
 
+      // Fresh implementation session (the assess session was in plan mode
+      // and can't write). Started lazily by the first task; reused thereafter.
       var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
 
       for task <- plan.tasks do
@@ -106,23 +99,18 @@ flow(OrcaArgs(args)):
             coder = claude,
             sessionId = sid,
             reviewers = allReviewers(claude),
-            // Haiku picks which reviewers run — sees each one's description
-            // plus the changed files. Swap for `ReviewerSelector.allEveryRound`
-            // to run every reviewer.
+            // Haiku picks the per-task reviewer subset; swap for
+            // `ReviewerSelector.allEveryRound` to run every reviewer.
             reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
             task = task.title.value
           )
 
           git.commit(s"Implement ${task.title}").orThrow
 
-      // 5. Push the branch so a PR can be opened against it.
       stage("Push branch"):
         git.push().orThrow
 
-      // 6. Generate PR title + description from the diff with a cheap
-      // model. The planning + implementation agent already did the heavy
-      // thinking; the PR write-up is a summarisation task that haiku
-      // handles fine and saves tokens.
+      // Haiku summarises the diff — cheap model, summarisation task.
       val summary = stage("Draft PR title and description"):
         val diff = git.diff()
         claude.haiku
@@ -144,11 +132,9 @@ flow(OrcaArgs(args)):
                |```""".stripMargin
           )
 
-      // 7. Open the PR.
       stage("Open PR"):
         val body =
           s"""${summary.body}
              |
              |Closes ${issueHandle.owner}/${issueHandle.repo}#${issueHandle.number}.""".stripMargin
-        val pr = gh.createPr(title = summary.title, body = body).orThrow
-        val _ = pr
+        val _ = gh.createPr(title = summary.title, body = body).orThrow
