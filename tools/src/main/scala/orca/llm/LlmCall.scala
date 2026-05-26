@@ -161,6 +161,11 @@ class DefaultLlmCall[B <: BackendTag, O](
       Some(outputSchema)
     )
     val result = interaction.drive(conversation)
+    // Codex mints its server thread id inside the drain (not at spawn);
+    // surface it back to the backend so a follow-up call with the same
+    // `session` can resume the right thread. No-op for backends whose
+    // session id IS the client-supplied UUID (claude).
+    backend.registerSession(session, result.sessionId)
     // TokensUsed emits on the normal path only. If the user cancels
     // mid-session, drive throws before this line — and the wire
     // protocols don't always carry partial usage, so there's nothing
@@ -174,6 +179,8 @@ class DefaultLlmCall[B <: BackendTag, O](
     )
     val parsed = ResponseParser.parse[O](result.output)
     emitStructuredResult(result.output, parsed)
-    (result.sessionId, parsed)
+    // Return the caller-supplied `session` (the stable handle), not
+    // `result.sessionId` which for codex is the server thread id.
+    (session, parsed)
 
 private case class FailedAttempt(response: String, parserError: String)

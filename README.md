@@ -31,10 +31,8 @@ flow(OrcaArgs(args)):
   // Break the user's prompt into concrete subtasks. Plan.autonomous.from
   // runs the planner as a single agentic turn with no human in the loop;
   // swap for Plan.interactive.from to let the planner ask clarifying
-  // questions when the prompt is open-ended (see example 02). The
-  // returned session id is reused below so the implementer turns share
-  // the planner's context.
-  val (sessionId, plan) = stage("Creating a development plan"):
+  // questions when the prompt is open-ended (see example 02).
+  val plan = stage("Creating a development plan"):
     Plan.autonomous.from(userPrompt, claude)
 
   // Single branch for the whole epic; each task becomes a commit on it.
@@ -43,15 +41,19 @@ flow(OrcaArgs(args)):
   stage(s"Branch: ${plan.epicId}"):
     git.createBranch(plan.epicId).orThrow
 
+  // Stable session reused across every task so the implementer retains
+  // cross-task context. The planner's session isn't carried forward — it
+  // runs read-only and would inherit the restriction on resume.
+  val session = claude.newSession
+
   // Per task: implement, format, review & fix, commit. We commit *after*
   // the loop so the single commit captures the original implementation,
   // the auto-formatted result, and any follow-up fixes the reviewers
-  // triggered. `sessionId` from the planner is passed to every turn so the
-  // implementer shares the planner's context.
+  // triggered.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
-        val _ = claude.autonomous.run(task.description, sessionId)
+        val _ = claude.autonomous.run(task.description, session)
       // Format before review so reviewers don't burn turns on style nits
       // the toolchain would fix automatically. Run after the agent
       // writes — we don't want to demand pre-formatted code from the LLM.
@@ -59,7 +61,7 @@ flow(OrcaArgs(args)):
         val _ = os.proc("sbt", "scalafmtAll").call(check = false)
       reviewAndFixLoop(
         coder = claude,
-        sessionId = sessionId,
+        sessionId = session,
         reviewers = allReviewers(claude),
         // Cheap model picks which reviewers run per task — sees each
         // one's description plus the changed files. Swap for

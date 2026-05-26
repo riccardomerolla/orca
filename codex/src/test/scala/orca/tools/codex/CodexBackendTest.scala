@@ -150,6 +150,34 @@ class CodexBackendTest extends munit.FunSuite:
     assert(secondArgs.contains("resume"), secondArgs)
     assert(secondArgs.contains("thr-server-1"), secondArgs)
 
+  test(
+    "registerSession after an interactive call lets a follow-up autonomous call resume"
+  ):
+    // Codex's server thread id is learned inside the conversation drain
+    // (not at spawn time), so the framework calls `registerSession`
+    // post-drain to record the client→server mapping. Pin that mechanism:
+    // once registered, a subsequent autonomous call with the same client id
+    // routes through `codex exec resume <server-id>`, not a fresh `exec`.
+    val runner = new SpawnStubCliRunner(
+      List(
+        successfulProcess("thr-via-interactive"),
+        successfulProcess("thr-via-interactive")
+      )
+    )
+    val backend = new CodexBackend(runner)
+    val workDir = os.temp.dir()
+    // Simulate the post-interactive-drain registration that DefaultLlmCall
+    // performs (this test exercises the backend in isolation; the
+    // integration path is wired in LlmCall.runInteractiveOnce).
+    backend.registerSession(
+      clientSid,
+      SessionId[BackendTag.Codex.type]("thr-via-interactive")
+    )
+    val _ = backend.runAutonomous("after", clientSid, LlmConfig.default, workDir)
+    val args = runner.calls.head
+    assert(args.contains("resume"), args)
+    assert(args.contains("thr-via-interactive"), args)
+
   test("distinct client ids both start fresh — no cross-client mapping"):
     // Pins the per-client isolation of the clientToServer map: a different
     // client id must NOT resume the prior call's server thread.

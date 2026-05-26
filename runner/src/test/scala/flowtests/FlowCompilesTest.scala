@@ -117,6 +117,12 @@ object FlowCanary:
   def assessThenPlanSurface(): Unit =
     flow(OrcaArgs()):
       stage("assess"):
+        // Pin both return-type contracts: assessThenPlan → Verdict[Plan],
+        // and Plan.{autonomous,interactive}.from → Plan (no SessionId pair).
+        val autoPlan: Plan = Plan.autonomous.from(userPrompt, claude.opus)
+        val intPlan: Plan = Plan.interactive.from(userPrompt, claude)
+        val _ = autoPlan
+        val _ = intPlan
         val verdict =
           Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
         verdict match

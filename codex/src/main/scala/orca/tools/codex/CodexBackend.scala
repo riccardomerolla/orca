@@ -137,15 +137,23 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
   /** Record the server-allocated thread id learned from the first call's
     * response so subsequent calls with the same client id resume that thread.
     * No-op if the mapping already exists (idempotent under retry).
+    *
+    * Also reachable via [[registerSession]] from `DefaultLlmCall` after an
+    * interactive conversation drains — see the SPI doc.
     */
+  override def registerSession(
+      client: SessionId[BackendTag.Codex.type],
+      server: SessionId[BackendTag.Codex.type]
+  ): Unit =
+    val _ = clientToServer.putIfAbsent(
+      SessionId.value(client),
+      SessionId.value(server)
+    )
+
   private def rememberServerId(
       clientId: SessionId[BackendTag.Codex.type],
       serverId: SessionId[BackendTag.Codex.type]
-  ): Unit =
-    val _ = clientToServer.putIfAbsent(
-      SessionId.value(clientId),
-      SessionId.value(serverId)
-    )
+  ): Unit = registerSession(clientId, serverId)
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
     * files in the working directory for static instructions). Fold a configured

@@ -43,7 +43,7 @@ flow(OrcaArgs(args)):
 
   // Interactive triage — the agent reads the report, explores the code, and
   // decides whether a unit test can reproduce or whether to document instead.
-  val (sessionId, triage) = stage("Triage the bug"):
+  val (session, triage) = stage("Triage the bug"):
     claude
       .resultAs[BugTriage]
       .interactive
@@ -76,7 +76,7 @@ flow(OrcaArgs(args)):
            |must FAIL on the current code — that's how we confirm the
            |bug. Run it locally if you can to verify it actually
            |fails.""".stripMargin,
-        session = sessionId
+        session = session
       )
       git.commit(s"Add failing test: ${triage.summary}").orThrow
   else
@@ -138,7 +138,7 @@ flow(OrcaArgs(args)):
              |Does this match the original report? Be strict: a different
              |stack trace or a different assertion error counts as a
              |mismatch.""".stripMargin,
-          session = sessionId
+          session = session
         )
       if !verdict.matches then
         fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
@@ -150,7 +150,7 @@ flow(OrcaArgs(args)):
         s"""The failing test is in place on branch `${triage.branchName}`.
            |Implement the fix. Ensure the previously-failing test now
            |passes, and that no other tests regress.""".stripMargin,
-        session = sessionId
+        session = session
       )
 
       // Format before review — Spotless is wired into the seed pom.
@@ -161,7 +161,7 @@ flow(OrcaArgs(args)):
 
       reviewAndFixLoop(
         coder = claude,
-        sessionId = sessionId,
+        sessionId = session,
         reviewers = allReviewers(claude),
         // Haiku picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.

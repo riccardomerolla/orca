@@ -58,3 +58,14 @@ trait LlmBackend[B <: BackendTag]:
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[B]
+
+  /** Hook for backends that mint server-side session ids during a
+    * conversation drain: after the interactive `Conversation` returned by
+    * [[runInteractive]] settles, the framework calls this with the client
+    * session id it dispatched on and the server id learned from the result.
+    * Backends with caller-supplied ids (claude — `--session-id <uuid>`) can
+    * leave the default no-op. Codex overrides to record the client→server
+    * mapping so a follow-up `runAutonomous` / `runInteractive` on the same
+    * client id resumes the right thread.
+    */
+  def registerSession(client: SessionId[B], server: SessionId[B]): Unit = ()

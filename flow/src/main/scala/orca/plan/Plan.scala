@@ -7,7 +7,6 @@ import orca.llm.{
   CanAskUser,
   JsonData,
   LlmTool,
-  SessionId,
   given
 }
 import orca.events.OrcaEvent
