@@ -55,12 +55,12 @@ class FakeLlmTool(
     resumeOutputs: List[Any] = Nil
 ) extends LlmTool[BackendTag.ClaudeCode.type]:
   private val promptIt = promptOutputs.iterator
-  private val continueIt = resumeOutputs.iterator
+  private val resumeIt = resumeOutputs.iterator
 
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
 
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    new FakeLlmCall[O](promptIt, continueIt)
+    new FakeLlmCall[O](promptIt, resumeIt)
 
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this

@@ -113,15 +113,7 @@ object Plan:
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
-      loadOrGenerateImpl(
-        file,
-        () =>
-          llm
-            .resultAs[Plan]
-            .interactive
-            .run(s"$userPrompt\n\n$instructions")
-            ._2
-      )
+      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions)._2)
 
   /** Autonomous planning helpers — a single agentic turn, no human in the loop.
     * Sibling of [[interactive]]; the choice between the two is visible at the
@@ -138,21 +130,13 @@ object Plan:
         .autonomous
         .run(s"$userPrompt\n\n$instructions")
 
-    def loadOrGenerate(
+    def loadOrGenerate[B <: BackendTag](
         file: os.Path,
         userPrompt: String,
-        llm: LlmTool[?],
+        llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
-      loadOrGenerateImpl(
-        file,
-        () =>
-          llm.withReadOnly
-            .resultAs[Plan]
-            .autonomous
-            .run(s"$userPrompt\n\n$instructions")
-            ._2
-      )
+      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions)._2)
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
       * either return a plan to implement, or a [[Verdict.Rejection]] the caller
