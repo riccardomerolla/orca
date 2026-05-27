@@ -53,8 +53,7 @@ private[claude] class ClaudeConversation(
   /** Set when a text or thinking delta streams during the current turn,
     * cleared when the full turn message lands. Gates the fallback in
     * `handleAssistantTurn` that re-emits Text/Thinking blocks when no
-    * partials arrived (older claude builds, partials disabled). Tool-use
-    * dedup is tracked separately via [[streamedToolUseIds]].
+    * partials arrived (older claude builds, partials disabled).
     */
   private var deltasSinceTurnBoundary: Boolean = false
 
@@ -64,19 +63,6 @@ private[claude] class ClaudeConversation(
     * prompt already surfaced it.
     */
   private var suppressedToolUseIds: Set[String] = Set.empty
-
-  /** Tool-use blocks currently being assembled from streaming events. Keyed
-    * by the per-message `content_block` index; drained on `content_block_stop`
-    * where the assembled `AssistantToolCall` is emitted.
-    */
-  private var inProgressToolUses: Map[Int, ClaudeConversation.ToolUseAccum] =
-    Map.empty
-
-  /** Tool-use ids already emitted via the streaming path. `handleAssistantTurn`
-    * skips these so the same call doesn't render twice (once mid-stream, once
-    * from the final turn message).
-    */
-  private var streamedToolUseIds: Set[String] = Set.empty
 
   // --- Conversation surface (only the bit not covered by the base) ---
 
@@ -137,12 +123,13 @@ private[claude] class ClaudeConversation(
       // can act on, so drop silently rather than rendering ✖.
       ()
 
-  /** Full assistant turn arrives after partials have streamed. Tool-use blocks
-    * normally reach the channel via the streaming path (see
-    * [[translateStreamEvent]]) — we skip them here unless that path didn't
-    * emit them (older claude builds, partials disabled). Text and thinking
-    * are normally already streamed as deltas; if no deltas preceded this turn
-    * we fall back to emitting the whole block as a single delta.
+  /** Full assistant turn arrives after partials have streamed. This is the
+    * single source of truth for tool calls — claude's protocol emits the
+    * `assistant` message BEFORE the matching `content_block_stop`, so we
+    * can't usefully stream tool-use events earlier. Text and thinking are
+    * normally already streamed as deltas; if no deltas preceded this turn
+    * (older claude builds, partials disabled) we fall back to emitting
+    * each block as a single delta.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
     val sawDeltasThisTurn = deltasSinceTurnBoundary
@@ -157,10 +144,6 @@ private[claude] class ClaudeConversation(
       case ContentBlock.ToolUse(id, name, _)
           if name == ClaudeBackend.AskUserToolName =>
         suppressedToolUseIds = suppressedToolUseIds + id
-      case ContentBlock.ToolUse(id, _, _)
-          if streamedToolUseIds.contains(id) =>
-        // Already emitted from `content_block_stop`; drop the duplicate.
-        streamedToolUseIds = streamedToolUseIds - id
       case ContentBlock.ToolUse(_, name, rawInput) =>
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(name, rawInput))
       case ContentBlock.Text(text) if !sawDeltasThisTurn =>
@@ -260,13 +243,15 @@ private[claude] class ClaudeConversation(
     case AutoApprove.Only(tools) => tools.contains(toolName)
 
   /** Translate one stream-event payload into a `ConversationEvent`, or `None`
-    * if the payload only updates internal state (a tool-use block being
-    * assembled across `content_block_start` + `input_json_delta` events). The
-    * eventual `AssistantToolCall` is returned at `content_block_stop` so the
-    * UI sees per-tool-call progress instead of a turn-end batch.
+    * if the payload contributes only to state we'll surface elsewhere.
     *
-    * Text and thinking deltas pass straight through — claude has already
-    * chunked them and the renderer handles re-assembly.
+    * Text and thinking deltas pass straight through — claude chunks them and
+    * the renderer handles re-assembly. Tool-use deltas (start / json /
+    * stop) are NOT translated here: in the live protocol the full
+    * `assistant` message arrives BEFORE the matching `content_block_stop`,
+    * so emitting from a stop event would always be a duplicate of what
+    * `handleAssistantTurn` already emitted. The full-turn message is the
+    * single source of truth for tool calls.
     */
   private def translateStreamEvent(
       payload: StreamEventPayload
@@ -275,35 +260,8 @@ private[claude] class ClaudeConversation(
       Some(ConversationEvent.AssistantTextDelta(text))
     case StreamEventPayload.ThinkingDelta(_, text) =>
       Some(ConversationEvent.AssistantThinkingDelta(text))
-    case StreamEventPayload.ContentBlockStart(idx, block) =>
-      block match
-        case ContentBlock.ToolUse(id, name, _)
-            if name == ClaudeBackend.AskUserToolName =>
-          // ask_user is surfaced through the MCP bridge, not as a ToolCall.
-          // The matching full-turn block is also suppressed; record the id
-          // so `handleUserTurn` can drop the paired `tool_result`.
-          suppressedToolUseIds = suppressedToolUseIds + id
-          None
-        case ContentBlock.ToolUse(id, name, _) =>
-          // Args arrive piecewise via input_json_delta; seed an empty buffer
-          // and emit the AssistantToolCall when the matching
-          // content_block_stop closes the block.
-          inProgressToolUses =
-            inProgressToolUses +
-              (idx -> ClaudeConversation.ToolUseAccum(id, name))
-          None
-        case _ => None
-    case StreamEventPayload.InputJsonDelta(idx, partial) =>
-      inProgressToolUses =
-        inProgressToolUses.updatedWith(idx)(_.map(_.append(partial)))
-      None
-    case StreamEventPayload.ContentBlockStop(idx) =>
-      inProgressToolUses.get(idx).map: acc =>
-        inProgressToolUses = inProgressToolUses - idx
-        streamedToolUseIds = streamedToolUseIds + acc.id
-        ConversationEvent.AssistantToolCall(acc.name, acc.input)
     case _ =>
-      None // unhandled stream-event types pass through silently
+      None // tool-use blocks, block start/stop, unhandled — driver ignores
 
   private def respond(requestId: String, decision: ApprovalDecision): Unit =
     val controlDecision = decision match
@@ -314,17 +272,3 @@ private[claude] class ClaudeConversation(
   private def writeOutbound(msg: OutboundMessage): Unit =
     process.writeLine(OutboundMessage.toJson(msg))
 
-private[claude] object ClaudeConversation:
-
-  /** Accumulator for a tool-use block being assembled from `input_json_delta`
-    * chunks. Holds each chunk separately and joins them only once at
-    * `content_block_stop` — concat-on-append would be O(N²) over a long
-    * stream of small chunks.
-    */
-  case class ToolUseAccum(
-      id: String,
-      name: String,
-      chunks: Vector[String] = Vector.empty
-  ):
-    def append(chunk: String): ToolUseAccum = copy(chunks = chunks :+ chunk)
-    def input: String = chunks.mkString
