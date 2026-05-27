@@ -281,6 +281,45 @@ class DefaultLlmCallTest extends munit.FunSuite:
       assertEquals(structured, List(("""{"value":1}""", None)))
 
   test(
+    "autonomous emits UserPrompt(serialized) once, plus once per retry"
+  ):
+    // Pins the input-visibility contract: the framework must surface the
+    // human-readable input (and any corrective retry prompt) so a listener
+    // — terminal or otherwise — can show the user what was sent. Two
+    // failed attempts followed by a successful one means three UserPrompts:
+    // the original input + two corrective prompts. Dropping the emit on
+    // either path would fail this test.
+    val backend = new SequencedBackend(
+      List("garbage one", "garbage two", """{"value":5}""")
+    )
+    val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
+    supervised:
+      val _ = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
+        backend = backend,
+        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        prompts = DefaultPrompts,
+        workDir = os.pwd,
+        events = (e: orca.events.OrcaEvent) => {
+          val _ = seen.updateAndGet(e :: _)
+        },
+        interaction = stubInteraction,
+        agentName = "claude"
+      ).autonomous.run("original question")
+      val prompts = seen.get().reverse.collect {
+        case orca.events.OrcaEvent.UserPrompt(text) => text
+      }
+      assertEquals(prompts.size, 3, prompts)
+      assertEquals(prompts.head, "original question")
+      assert(
+        prompts(1).contains("garbage one"),
+        s"first retry prompt must quote the first failure; got: ${prompts(1)}"
+      )
+      assert(
+        prompts(2).contains("garbage two"),
+        s"second retry prompt must quote the second failure; got: ${prompts(2)}"
+      )
+
+  test(
     "interactive.run registers (clientSid, serverSid) and returns the client id"
   ):
     // Pins the codex-interactive bug fix end-to-end: the framework must call

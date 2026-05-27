@@ -45,6 +45,16 @@ enum OrcaEvent:
     */
   case StructuredResult(raw: String, summary: Option[String])
 
+  /** The human-readable input that was sent to the agent at the start of an
+    * autonomous call. Fires once per call (before [[TokensUsed]] /
+    * [[StructuredResult]] / [[AssistantMessage]]), so the user sees what the
+    * agent is being asked to do. Interactive calls surface this through the
+    * conversation renderer's own user-message line and do not emit this event.
+    * The terminal listener renders it as a `▸` line, truncated to one line —
+    * full text is available to non-terminal listeners.
+    */
+  case UserPrompt(text: String)
+
   /** A turn of free-form prose from the agent. The autonomous drain emits one
     * per [[ConversationEvent.AssistantTurnEnd]] so the user sees what the agent
     * is doing without the interactive renderer attached. The terminal listener

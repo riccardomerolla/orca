@@ -106,6 +106,12 @@ class DefaultLlmCall[B <: BackendTag, O](
     val initialPrompt = prompts.autonomous(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
 
+    // Surface the human-readable input — `serialized`, not `initialPrompt`,
+    // which is the schema-wrapped form the agent sees. The retry path emits
+    // its own UserPrompt below so a parse failure still shows what the
+    // follow-up turn was asked to fix.
+    events.onEvent(OrcaEvent.UserPrompt(serialized))
+
     // Threaded across retry attempts via closure so a parse failure can
     // steer the next attempt with the corrective prompt. Method-scope var
     // allowed by the project's FP conventions.
@@ -113,8 +119,11 @@ class DefaultLlmCall[B <: BackendTag, O](
 
     retry(effective.retrySchedule):
       val promptText = lastFailure match
-        case Some(f) => prompts.retry(f.response, f.parserError)
-        case None    => initialPrompt
+        case Some(f) =>
+          val corrective = prompts.retry(f.response, f.parserError)
+          events.onEvent(OrcaEvent.UserPrompt(corrective))
+          corrective
+        case None => initialPrompt
       val result = backend.runAutonomous(
         promptText,
         session,

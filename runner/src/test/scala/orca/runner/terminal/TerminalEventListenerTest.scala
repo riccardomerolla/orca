@@ -120,6 +120,18 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(List(OrcaEvent.AssistantMessage("   \n\t  ")))
     assertEquals(output, "")
 
+  test("UserPrompt renders as a `▸` line with the one-line collapsed body"):
+    val output =
+      renderEvents(
+        List(OrcaEvent.UserPrompt("Add a multiply function\nwith tests"))
+      )
+    assert(output.contains(TerminalEventListener.UserPromptGlyph), output)
+    assert(output.contains("Add a multiply function with tests"), output)
+
+  test("UserPrompt with whitespace-only body emits nothing"):
+    val output = renderEvents(List(OrcaEvent.UserPrompt("   \n\t  ")))
+    assertEquals(output, "")
+
   test("TokensUsed events are ignored (owned by CostTracker)"):
     val output = renderEvents(
       List(

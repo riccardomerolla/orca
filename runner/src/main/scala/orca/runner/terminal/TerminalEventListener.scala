@@ -29,7 +29,9 @@ private[runner] class TerminalEventListener(
     ErrorGlyph,
     MaxAssistantMessageLength,
     StageStartGlyph,
-    StepGlyphStyle
+    StepGlyphStyle,
+    UserPromptGlyph,
+    UserPromptStyle
   }
 
   private val lock = new Object
@@ -86,6 +88,15 @@ private[runner] class TerminalEventListener(
       summary.foreach: s =>
         val line = lock.synchronized(formatStepLine(s))
         output.log(line)
+    case OrcaEvent.UserPrompt(text) =>
+      // Same one-line treatment as AssistantMessage so a long task
+      // description doesn't dominate the log. Empty payloads are dropped.
+      val collapsed = Text.oneLine(text, MaxAssistantMessageLength)
+      if collapsed.nonEmpty then
+        val line = lock.synchronized:
+          val glyph = paint(UserPromptStyle, s"$UserPromptGlyph ")
+          formatIndented(glyph + collapsed)
+        output.log(line)
     case OrcaEvent.AssistantMessage(text) =>
       // Truncate to one line — the autonomous drain emits these for every
       // agent prose turn, and full text would dominate the log. Empty
@@ -133,6 +144,12 @@ private[runner] object TerminalEventListener:
   val ErrorGlyph: String = "✖"
   val AssistantGlyph: String = "●"
 
+  /** Marker for the human input sent to the agent. Matches the
+    * [[ConversationRenderer]]'s `▸` user glyph so autonomous and interactive
+    * logs use the same accent for "this is what was asked".
+    */
+  val UserPromptGlyph: String = "▸"
+
   /** Stages, steps, and structured-result summaries share the same magenta-
     * bold glyph — the dominant accent for "primary content" in the event log.
     * Pulled into a constant so the three render paths can't drift.
@@ -145,6 +162,9 @@ private[runner] object TerminalEventListener:
     * look identical when both surface agent prose.
     */
   val AssistantGlyphStyle: fansi.Attrs = StepGlyphStyle
+
+  /** Cyan-bold to mirror the [[ConversationRenderer]]'s user-message header. */
+  val UserPromptStyle: fansi.Attrs = fansi.Color.Cyan ++ fansi.Bold.On
 
   /** Per-turn cap. Long agent prose collapses to one line because the
     * autonomous drain fires one event per turn and the log would otherwise fill
