@@ -241,9 +241,10 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
 object ClaudeBackend:
 
   /** Returns an `AutoCloseable` that best-effort deletes the given file when
-    * closed. Used as a `sessionResources` entry so each conversation's
-    * `.orca-mcp-<port>.json` is removed when the conversation ends — without
-    * this, long flows would accumulate orphan config files in `workDir`.
+    * closed. Used as an `AskUserResources.extras` entry so each
+    * conversation's `.orca-mcp-<port>.json` is removed when the conversation
+    * ends — without this, long flows would accumulate orphan config files
+    * in `workDir`.
     */
   private[claude] def deleteFileResource(path: os.Path): AutoCloseable =
     () => if os.exists(path) then os.remove(path)
@@ -259,8 +260,3 @@ object ClaudeBackend:
     */
   private[claude] val AskUserToolName: String =
     s"mcp__${McpServerName}__${AskUserMcpServer.ToolSlug}"
-
-  /** Short hint appended to the system prompt on the interactive path. Shared
-    * with codex via [[orca.backend.mcp.AskUserMcpServer.Hint]].
-    */
-  private[claude] val AskUserHint: String = AskUserMcpServer.Hint

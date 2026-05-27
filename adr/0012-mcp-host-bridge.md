@@ -57,18 +57,24 @@ the spawned `claude` subprocess via `.mcp.json` + `--mcp-config`.
   conversation's event queue. The renderer prompts the user and calls
   `respond(answer)`, which signals the bridge, unblocking the MCP
   handler so it returns the answer as the tool result. The server is
-  passed as a `sessionResources: List[AutoCloseable]` and closed from
-  `onFinalize` so its Netty binding releases when the conversation
-  ends — not when the outer flow scope tears down.
+  bundled into an `AskUserResources` (with the bridge and any
+  backend-specific `extras` such as claude's workDir-local config
+  file) and closed from the conversation's `onFinalize` so its Netty
+  binding releases when the conversation ends — not when the outer
+  flow scope tears down.
 
-- **System-prompt hint** — `ClaudeBackend.AskUserHint` is appended on
-  the interactive path (only). Tells the agent the tool exists and to
-  use it conservatively. Worded to discourage overuse.
+- **System-prompt hint** — `AskUserMcpServer.Hint` is appended on the
+  interactive path (only). Tells the agent the tool exists and to use
+  it conservatively. Worded to discourage overuse. Shared across
+  backends; each delivers it differently (claude via
+  `--append-system-prompt-file`, codex by folding into the user
+  prompt — `SystemPromptComposer.combine` does the input-combining).
 
-- **`Conversation.canAskUser`** — capability flag, `true` for
-  ClaudeConversation when the bridge is wired; `false` for headless
-  Claude calls and for Codex (always). Flow code can branch on this
-  before relying on mid-session Q&A.
+- **`Conversation.canAskUser`** — capability flag, `true` when the
+  bridge is wired (claude interactive, codex interactive); `false`
+  for autonomous calls. Flow code can branch on this before relying
+  on mid-session Q&A; the compile-time `CanAskUser[B]` typeclass
+  encodes the same capability at the call site.
 
 ### Why chimp
 

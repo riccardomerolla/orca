@@ -30,7 +30,7 @@ import ox.channels.BufferCapacity
   * while the interactive path returns the conversation for an `Interaction` to
   * drive. Multi-turn: subsequent `runAutonomous` / `runInteractive` calls with
   * the same session id route through `codex exec resume <server-id>` via the
-  * [[clientToServer]] mapping.
+  * [[sessions]] registry (a [[SessionRegistry.ClientToServer]]).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) on an ephemeral port and register it with codex via
@@ -103,10 +103,11 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
     * (continuation), and wrap the process in a live [[CodexConversation]].
     * Stdin is closed immediately — codex consumes the prompt argv-side.
     *
-    * The fresh-vs-resume decision is driven by [[clientToServer]]: if we've
-    * seen this client session id before, we know the server id to resume;
-    * otherwise we start fresh and the post-call [[registerSession]] records
-    * the mapping.
+    * The fresh-vs-resume decision is driven by [[sessions.dispatchFor]]:
+    * if we've seen this client id before we resume against its mapped
+    * server thread, otherwise we start fresh and the post-drain
+    * `commitSuccess` (via [[registerSession]] on the interactive path)
+    * records the mapping.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
     * Netty server, hand the URL to `CodexArgs` for the `-c mcp_servers.orca`

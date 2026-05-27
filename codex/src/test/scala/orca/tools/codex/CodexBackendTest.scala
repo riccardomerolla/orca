@@ -187,7 +187,7 @@ class CodexBackendTest extends munit.FunSuite:
       assert(args.contains("thr-via-interactive"), args)
 
   test("distinct client ids both start fresh — no cross-client mapping"):
-    // Pins the per-client isolation of the clientToServer map: a different
+    // Pins the per-client isolation of the session registry: a different
     // client id must NOT resume the prior call's server thread.
     val runner = new SpawnStubCliRunner(
       List(

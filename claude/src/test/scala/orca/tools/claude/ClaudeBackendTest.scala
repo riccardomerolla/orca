@@ -152,10 +152,10 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "failed first call leaves the session unclaimed; retry still uses --session-id"
   ):
-    // `startedSessions.add` runs only after `new ClaudeConversation` succeeds,
-    // so a first call that throws (e.g. is_error from the result message)
-    // doesn't wedge the mapping. Pins the post-success ordering against
-    // regressions back to mark-then-spawn.
+    // `sessions.commitSuccess` runs only after `new ClaudeConversation`
+    // succeeds, so a first call that throws (e.g. is_error from the result
+    // message) doesn't wedge the registry. Pins the post-success ordering
+    // against regressions back to mark-then-spawn.
     val sid = SessionId[BackendTag.ClaudeCode.type](
       "33333333-3333-3333-3333-333333333333"
     )

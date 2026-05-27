@@ -49,8 +49,10 @@ private[codex] class CodexConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     /** The ask_user resource bundle for this conversation, or `None` for
-      * autonomous calls / tests. Wired drives `canAskUser`, spawns the
-      * bridge drainer thread, and closes on `onFinalize`.
+      * autonomous calls / tests. When wired: drives `canAskUser`, spawns
+      * the bridge drainer thread, and closes on `onFinalize` (closing
+      * happens in [[AskUserResources.close]] order: bridge → server →
+      * extras).
       */
     askUser: Option[AskUserResources] = None
 ) extends StreamConversation[BackendTag.Codex.type](

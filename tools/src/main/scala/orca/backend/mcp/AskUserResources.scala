@@ -19,16 +19,14 @@ import scala.util.control.NonFatal
 private[orca] case class AskUserResources(
     bridge: AskUserBridge,
     server: AskUserMcpServer,
-    extras: List[AutoCloseable] = Nil
+    extras: List[AutoCloseable]
 ):
+  import AskUserResources.swallow
+
   def close(): Unit =
     swallow(bridge.close())
     swallow(server.close())
     extras.foreach(r => swallow(r.close()))
-
-  private def swallow(action: => Unit): Unit =
-    try action
-    catch case NonFatal(_) => ()
 
 private[orca] object AskUserResources:
 
@@ -46,8 +44,14 @@ private[orca] object AskUserResources:
     try AskUserResources(bridge, server, extras(server))
     catch
       case NonFatal(e) =>
-        // Bridge holds only heap (a Channel) so GC reclaims it; the
-        // server's Netty binding is the resource we must close.
-        try server.close()
-        catch case NonFatal(_) => ()
+        // No drainer thread is running yet so the bridge has no blocked
+        // callers to error, but close it for symmetry with the normal
+        // tear-down path — if anything moves drainer-start earlier later,
+        // the cleanup stays right.
+        swallow(bridge.close())
+        swallow(server.close())
         throw e
+
+  private def swallow(action: => Unit): Unit =
+    try action
+    catch case NonFatal(_) => ()

@@ -8,14 +8,14 @@ import orca.llm.{BackendTag, SessionId}
   * via `--session-id`; codex maps client UUIDs to server-allocated thread
   * ids), but the call site only cares about the two cases.
   *
-  * The carried id is the id to put on the wire — claude uses the same
-  * client-supplied id for both arms; codex resumes against the server-side
-  * thread id learned from `thread.started`. Backends that don't use the id
-  * (e.g. codex's fresh `exec`, which mints its own) simply ignore it.
+  * `wireId` is the id the consumer puts on the wire — the registry has
+  * already decided which one it is (claude's client UUID, codex's server
+  * thread id). Consumers shouldn't reason about where it came from; they
+  * pattern-match on `Fresh` vs `Resume` and forward the id to the CLI.
   */
 enum Dispatch[B <: BackendTag]:
-  case Fresh(id: SessionId[B])
-  case Resume(id: SessionId[B])
+  case Fresh(wireId: SessionId[B])
+  case Resume(wireId: SessionId[B])
 
 /** Backend-internal bookkeeping for the fresh-vs-resume decision.
   *
@@ -29,9 +29,20 @@ enum Dispatch[B <: BackendTag]:
   *     used. Backends with server-minted ids (codex) record the
   *     client→server mapping.
   *
-  * Implementations must be thread-safe — flows run reviewers in parallel
-  * via `mapParUnordered`, each holding its own session id; the backend is
-  * a per-flow singleton.
+  * When `commitSuccess` fires is a per-backend policy decision: claude
+  * commits as soon as the spawn succeeds (the client id is already on the
+  * wire); codex commits post-drain (autonomous) or post-`interaction.drive`
+  * (interactive) because the server id isn't known until the protocol
+  * surfaces `thread.started`. The SPI doesn't constrain timing.
+  *
+  * Thread safety: implementations must be safe under concurrent reads and
+  * writes — flows run reviewers in parallel via `mapParUnordered`, and the
+  * backend is a per-flow singleton. The `dispatchFor` → spawn →
+  * `commitSuccess` *sequence* is NOT atomic, however; two concurrent calls
+  * with the SAME client id would both see `Fresh` and both spawn. Callers
+  * must therefore not share a session id across concurrent calls — the
+  * reviewer fan-out is safe because each reviewer mints its own distinct
+  * id via `LlmTool.newSession`.
   */
 trait SessionRegistry[B <: BackendTag]:
   def dispatchFor(client: SessionId[B]): Dispatch[B]
@@ -42,7 +53,6 @@ object SessionRegistry:
   /** For backends whose client-supplied session id IS the canonical id on
     * the wire. The first use of an id is a fresh session; subsequent uses
     * resume it. `commitSuccess` just records that the id has been claimed.
-    * `server` is ignored — it equals `client` for these backends.
     *
     * Claude's `--session-id <uuid>` (claim) → `--resume <uuid>` (continue)
     * mapping uses this.
@@ -55,6 +65,9 @@ object SessionRegistry:
       if claimed.contains(SessionId.value(client)) then Dispatch.Resume(client)
       else Dispatch.Fresh(client)
 
+    /** The `server` parameter is ignored — for backends using this
+      * registry, the wire id IS the client id.
+      */
     def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit =
       val _ = claimed.add(SessionId.value(client))
 
@@ -62,6 +75,11 @@ object SessionRegistry:
     * from the protocol response. The framework hands the caller a stable
     * client id; the backend maps it to whatever the wire id turns out to
     * be and resumes against that.
+    *
+    * `commitSuccess` uses `putIfAbsent` — the first successful call wins.
+    * A subsequent commit with a different server id for the same client
+    * is silently dropped; this matches the protocol invariant that
+    * resuming a session never changes its server-side id.
     *
     * Codex's `codex exec` (mints) → `codex exec resume <server-id>`
     * (continue) mapping uses this.
