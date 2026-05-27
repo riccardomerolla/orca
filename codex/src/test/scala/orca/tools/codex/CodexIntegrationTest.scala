@@ -1,10 +1,8 @@
 package orca.tools.codex
 
 import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
-import orca.backend.ConversationEvent
+import orca.backend.{ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
-import ox.channels.BufferCapacity
-import ox.supervised
 
 /** End-to-end tests against the real `codex` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -26,14 +24,8 @@ class CodexIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     3.minutes
 
-  /** Build a `CodexBackend` inside a fresh `supervised:` scope (Ox
-    * capability the backend's constructor needs for the MCP server
-    * lifecycle) and release it before the test returns.
-    */
   private def withBackend(body: CodexBackend => Unit): Unit =
-    supervised:
-      given BufferCapacity = BufferCapacity(8)
-      body(new CodexBackend(OsProcCliRunner))
+    SupervisedBackend.using(new CodexBackend(OsProcCliRunner))(body)
 
   private val unsandboxed: LlmConfig =
     LlmConfig.default.copy(autoApprove = AutoApprove.All)

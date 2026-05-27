@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec,
   JsonCodecMaker
 }
-import orca.util.OrcaDebug
+import orca.util.{OrcaDebug, RawJson}
 
 import scala.util.control.NonFatal
 

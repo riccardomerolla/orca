@@ -94,29 +94,9 @@ private[codex] class CodexConversation(
 
   // Subclass fields above are assigned now; safe to spin up the reader +
   // stderr workers. See [[StreamConversation.start]].
-  askUserBridge.foreach: bridge =>
-    val t = new Thread(
-      () => askUserDrainLoop(bridge),
-      "codex-conversation-ask-user"
-    )
-    t.setDaemon(true)
-    t.start()
+  askUserBridge.foreach(startAskUserDrainer)
 
   start()
-
-  private def askUserDrainLoop(bridge: AskUserBridge): Unit =
-    try
-      while !Thread.currentThread().isInterrupted do
-        val q = bridge.nextQuestion()
-        eventQueue.enqueue(
-          ConversationEvent.UserQuestion(q.question, q.respond)
-        )
-    catch
-      // Bridge channel closure (onFinalize → bridge.close()) propagates as
-      // a ChannelClosedException from take(). Exit quietly. NonFatal so an
-      // InterruptedException still propagates if something else interrupts
-      // this thread.
-      case NonFatal(_) => ()
 
   // --- Conversation surface ---
 

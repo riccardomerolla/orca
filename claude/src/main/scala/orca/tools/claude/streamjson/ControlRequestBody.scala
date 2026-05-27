@@ -1,5 +1,7 @@
 package orca.tools.claude.streamjson
 
+import orca.util.RawJson
+
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 

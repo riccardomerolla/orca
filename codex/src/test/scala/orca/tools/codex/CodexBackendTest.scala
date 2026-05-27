@@ -1,25 +1,18 @@
 package orca.tools.codex
 
+import orca.backend.SupervisedBackend
 import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
-import ox.channels.BufferCapacity
-import ox.supervised
 
 class CodexBackendTest extends munit.FunSuite:
 
   private def clientSid: SessionId[BackendTag.Codex.type] =
     SessionId[BackendTag.Codex.type]("00000000-0000-0000-0000-000000000000")
 
-  /** Run a test body that needs a CodexBackend. `supervised:` provides the Ox
-    * capability the constructor requires (the MCP server lifecycle).
-    */
   private def withBackend[T](runner: SpawnStubCliRunner)(
       body: CodexBackend => T
-  ): T =
-    supervised:
-      given BufferCapacity = BufferCapacity(8)
-      body(new CodexBackend(runner))
+  ): T = SupervisedBackend.using(new CodexBackend(runner))(body)
 
   private def successfulProcess(
       threadId: String = "thr-test",

@@ -1,5 +1,6 @@
 package orca.backend
 
+import orca.backend.mcp.AskUserBridge
 import orca.llm.BackendTag
 import orca.subprocess.PipedCliProcess
 import orca.util.OrcaDebug
@@ -84,6 +85,38 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     // `onFinalize` immediately.
     stderrThread.start()
     readerThread.start()
+
+  /** Spin up a daemon thread that bridges an [[AskUserBridge]] into the
+    * conversation's event stream: each pending question becomes a
+    * `ConversationEvent.UserQuestion` whose `respond` closure delivers the
+    * user's typed answer back to the blocked MCP handler. Both claude and
+    * codex use this to surface the shared `AskUserMcpServer`'s `ask_user`
+    * tool calls into the renderer.
+    *
+    * Subclasses call this from their constructor (before [[start]]) when an
+    * MCP bridge is wired. The thread exits cleanly when
+    * `bridge.close()` raises `ChannelClosedException` from
+    * `nextQuestion()` — typically driven by the conversation's
+    * [[onFinalize]].
+    */
+  protected def startAskUserDrainer(bridge: AskUserBridge): Unit =
+    val t = new Thread(
+      () =>
+        try
+          while !Thread.currentThread().isInterrupted do
+            val q = bridge.nextQuestion()
+            eventQueue.enqueue(
+              ConversationEvent.UserQuestion(q.question, q.respond)
+            )
+        catch
+          // Bridge closure surfaces as ChannelClosedException; exit
+          // quietly. NonFatal so an InterruptedException still propagates
+          // if something else interrupts the thread.
+          case NonFatal(_) => (),
+      s"$backendName-conversation-ask-user"
+    )
+    t.setDaemon(true)
+    t.start()
 
   /** Fail loudly if a subclass constructor reached one of the public methods
     * without calling [[start]] — the symptom would otherwise be a silent

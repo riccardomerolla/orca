@@ -1,10 +1,9 @@
 package orca.tools.claude
 
+import orca.backend.SupervisedBackend
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
-import ox.channels.BufferCapacity
-import ox.supervised
 
 class ClaudeBackendTest extends munit.FunSuite:
 
@@ -33,15 +32,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.sendSigInt()
     p
 
-  /** Run a test body that needs a ClaudeBackend. `supervised:` provides the Ox
-    * capability the constructor requires.
-    */
   private def withBackend[T](runner: SpawnStubCliRunner)(
       body: ClaudeBackend => T
-  ): T =
-    supervised:
-      given BufferCapacity = BufferCapacity(8)
-      body(new ClaudeBackend(runner))
+  ): T = SupervisedBackend.using(new ClaudeBackend(runner))(body)
 
   private def freshSid: SessionId[BackendTag.ClaudeCode.type] =
     SessionId[BackendTag.ClaudeCode.type]("11111111-1111-1111-1111-111111111111")

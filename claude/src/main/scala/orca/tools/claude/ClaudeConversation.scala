@@ -99,44 +99,14 @@ private[claude] class ClaudeConversation(
   // initial prompt); it flows through the MCP tool result instead.
   def canAskUser: Boolean = askUserBridge.isDefined
 
-  // Drainer for the MCP bridge: when an ask_user tool invocation lands on
-  // the MCP handler thread, the handler enqueues a (question, reply) pair
-  // on the bridge; this thread reads them and surfaces them as
-  // ConversationEvent.UserQuestion. The renderer prompts the user and calls
-  // `respond` with the typed answer, which signals the bridge's reply
-  // channel, unblocking the MCP handler so it can return the answer as the
-  // tool result.
-  //
-  // Daemon thread mirrors the existing reader/stderr threads — the
-  // conversation lifecycle is managed via process tear-down, not Ox forks.
-  // Interrupted on cancel() via the process exit propagating up.
-  askUserBridge.foreach: bridge =>
-    val t = new Thread(
-      () => askUserDrainLoop(bridge),
-      "claude-conversation-ask-user"
-    )
-    t.setDaemon(true)
-    t.start()
+  // Drainer for the MCP bridge: each `ask_user` tool invocation surfaces
+  // as a `ConversationEvent.UserQuestion`; the renderer's `respond`
+  // closure delivers the typed answer back to the blocked handler.
+  askUserBridge.foreach(startAskUserDrainer)
 
   // Subclass fields above are assigned now; safe to spin up the reader +
   // stderr workers. See [[StreamConversation.start]].
   start()
-
-  private def askUserDrainLoop(
-      bridge: orca.backend.mcp.AskUserBridge
-  ): Unit =
-    try
-      while !Thread.currentThread().isInterrupted do
-        val q = bridge.nextQuestion()
-        eventQueue.enqueue(
-          ConversationEvent.UserQuestion(q.question, q.respond)
-        )
-    catch
-      // Bridge channel closure (onFinalize → bridge.close()) propagates as
-      // a ChannelClosedException from take(). Exit quietly. NonFatal so an
-      // InterruptedException still propagates if something else interrupts
-      // this thread.
-      case NonFatal(_) => ()
 
   // --- Reader hook ---
 
