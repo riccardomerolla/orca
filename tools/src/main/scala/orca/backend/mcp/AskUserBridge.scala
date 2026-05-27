@@ -1,4 +1,4 @@
-package orca.tools.claude.mcp
+package orca.backend.mcp
 
 import ox.channels.{BufferCapacity, Channel}
 import ox.discard
@@ -20,11 +20,11 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
   * **Closure.** [[close]] errors any still-blocked `reply.receive()` calls and
   * `done`s the question queue, so the drainer loop and Netty workers exit
   * cleanly when the owning conversation ends. The owner
-  * ([[orca.tools.claude.ClaudeConversation.onFinalize]]) calls `close` after
-  * the conversation's read loop drains — before the MCP server's Netty binding
-  * stops, so handlers see the bridge close first.
+  * (e.g. `ClaudeConversation.onFinalize` or `CodexConversation.onFinalize`)
+  * calls `close` after the conversation's read loop drains — before the MCP
+  * server's Netty binding stops, so handlers see the bridge close first.
   */
-private[claude] class AskUserBridge(using BufferCapacity):
+private[orca] class AskUserBridge(using BufferCapacity):
 
   private val pending: Channel[(String, Channel[String])] =
     Channel.bufferedDefault
@@ -81,7 +81,7 @@ private[claude] class AskUserBridge(using BufferCapacity):
   * supplied, plus a closure that delivers the user's typed answer back to the
   * blocked MCP handler.
   */
-private[claude] final case class PendingQuestion(
+private[orca] final case class PendingQuestion(
     question: String,
     respond: String => Unit
 )

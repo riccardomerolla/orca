@@ -386,7 +386,7 @@ class ClaudeConversationTest extends munit.FunSuite:
   ):
     import ox.{forkUser, supervised}
     import ox.channels.BufferCapacity
-    import orca.tools.claude.mcp.AskUserBridge
+    import orca.backend.mcp.AskUserBridge
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()

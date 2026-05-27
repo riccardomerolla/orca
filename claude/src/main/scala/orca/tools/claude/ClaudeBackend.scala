@@ -11,7 +11,7 @@ import orca.backend.{
   SessionMode
 }
 import orca.subprocess.CliRunner
-import orca.tools.claude.mcp.{AskUserBridge, AskUserMcpServer}
+import orca.backend.mcp.{AskUserBridge, AskUserMcpServer}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
 import ox.channels.BufferCapacity
@@ -309,18 +309,9 @@ object ClaudeBackend:
     * user is already typing an answer, no need for a y/n prompt first.
     */
   private[claude] val AskUserToolName: String =
-    s"mcp__${McpServerName}__${mcp.AskUserMcpServer.ToolSlug}"
+    s"mcp__${McpServerName}__${AskUserMcpServer.ToolSlug}"
 
-  /** Short hint appended to the system prompt on the interactive path, telling
-    * the agent it has an `ask_user` tool for clarifying questions. Worded
-    * conservatively — agents over-use tools they're told about.
+  /** Short hint appended to the system prompt on the interactive path. Shared
+    * with codex via [[orca.backend.mcp.AskUserMcpServer.Hint]].
     */
-  private[claude] val AskUserHint: String =
-    """When you genuinely need a piece of information from the user to
-      |proceed (and only then — don't ask for permission to do work, don't
-      |ask trivial confirmation questions), call the `ask_user` tool with a
-      |single short question. The tool blocks until the user types an
-      |answer; the answer comes back as the tool result, which you should
-      |use to continue your work. Prefer making reasonable assumptions over
-      |asking — only reach for `ask_user` when an assumption could send you
-      |meaningfully wrong.""".stripMargin
+  private[claude] val AskUserHint: String = AskUserMcpServer.Hint

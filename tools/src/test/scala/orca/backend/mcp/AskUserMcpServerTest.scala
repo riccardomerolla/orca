@@ -1,4 +1,4 @@
-package orca.tools.claude.mcp
+package orca.backend.mcp
 
 import ox.supervised
 import ox.channels.BufferCapacity

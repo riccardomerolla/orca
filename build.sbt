@@ -55,7 +55,12 @@ lazy val tools = (project in file("tools"))
       tapirApispec,
       sttpApispecCirce,
       ox,
-      jsonSchemaValidator
+      jsonSchemaValidator,
+      // The shared MCP server (orca.backend.mcp.AskUserMcpServer) is consumed
+      // by both claude and codex backends, so chimp + the netty backend live
+      // here rather than in claude.
+      chimp,
+      tapirNettySync
     )
   )
 
@@ -68,8 +73,6 @@ lazy val claude = (project in file("claude"))
       osLib,
       jsoniter,
       jsoniterMacros,
-      chimp,
-      tapirNettySync,
       logback
     )
   )

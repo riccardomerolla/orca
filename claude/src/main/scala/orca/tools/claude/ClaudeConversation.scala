@@ -31,7 +31,7 @@ private[claude] class ClaudeConversation(
     config: LlmConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    askUserBridge: Option[orca.tools.claude.mcp.AskUserBridge] = None,
+    askUserBridge: Option[orca.backend.mcp.AskUserBridge] = None,
     /** Session-scoped resources to release when this conversation ends —
       * typically the MCP server bound for this conversation's `ask_user` tool.
       * Closed from `onFinalize`, after the reader loop exits, so server
@@ -123,7 +123,7 @@ private[claude] class ClaudeConversation(
   start()
 
   private def askUserDrainLoop(
-      bridge: orca.tools.claude.mcp.AskUserBridge
+      bridge: orca.backend.mcp.AskUserBridge
   ): Unit =
     try
       while !Thread.currentThread().isInterrupted do

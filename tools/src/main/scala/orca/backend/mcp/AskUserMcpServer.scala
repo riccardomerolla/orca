@@ -1,4 +1,4 @@
-package orca.tools.claude.mcp
+package orca.backend.mcp
 
 import chimp.*
 import io.circe.Codec
@@ -9,7 +9,7 @@ import sttp.tapir.server.netty.sync.NettySyncServer
 /** Input shape of the `ask_user` MCP tool. The agent fills in `question`; we
   * hand the typed answer back as the tool result.
   */
-private[claude] case class AskUserInput(question: String) derives Codec, Schema
+private[orca] case class AskUserInput(question: String) derives Codec, Schema
 
 /** Boots a tiny MCP HTTP server exposing the `ask_user` tool. The handler
   * closes over an [[AskUserBridge]] — each tool invocation enqueues the
@@ -22,28 +22,28 @@ private[claude] case class AskUserInput(question: String) derives Codec, Schema
   * `Conversation.onFinalize`) so per-call bindings don't accumulate over a long
   * flow.
   */
-private[claude] class AskUserMcpServer private[mcp] (
+private[orca] class AskUserMcpServer private[mcp] (
     /** The bound port. Useful when the caller wants to disambiguate per-server
-      * filenames (e.g. `.orca-mcp-$port.json`).
+      * artefacts (e.g. claude's `.orca-mcp-$port.json` config file).
       */
     val port: Int,
     stopFn: () => Unit
 ) extends AutoCloseable:
-  /** The URL Claude Code's `.mcp.json` should target. */
+  /** The URL an MCP client (claude's `.mcp.json`, codex's
+    * `mcp_servers.<name>.url`) should target.
+    */
   val url: String = s"http://127.0.0.1:$port/mcp"
 
   override def close(): Unit = stopFn()
 
-private[claude] object AskUserMcpServer:
+private[orca] object AskUserMcpServer:
 
-  /** MCP-side tool slug. Claude's MCP convention prefixes this with the server
-    * name (set via the caller's `.mcp.json`) when advertising the tool to the
-    * agent — `mcp__<server>__$ToolSlug`. Single source of truth referenced by
-    * both the chimp `tool(...)` registration here and by
-    * `ClaudeBackend.AskUserToolName` (which builds the fully-qualified name); a
-    * rename ripples to both sites.
+  /** MCP tool slug as advertised over the protocol. Claude qualifies this with
+    * the server name from `.mcp.json` (`mcp__<server>__$ToolSlug`); codex
+    * surfaces it as the bare slug with the server name in a parallel field.
+    * Single source of truth — a rename ripples to every routing site.
     */
-  private[claude] val ToolSlug: String = "ask_user"
+  private[orca] val ToolSlug: String = "ask_user"
 
   /** Mount the `ask_user` MCP endpoint on a fresh Netty binding. The Ox
     * capability is used to start the server in the enclosing scope; the caller
@@ -62,3 +62,17 @@ private[claude] object AskUserMcpServer:
     val endpoint = mcpEndpoint(List(askUserTool), List("mcp"))
     val binding = NettySyncServer().port(0).addEndpoint(endpoint).start()
     new AskUserMcpServer(binding.port, () => binding.stop())
+
+  /** Short system-prompt hint telling the agent it has an `ask_user` tool for
+    * clarifying questions. Worded conservatively — agents over-use tools
+    * they're told about. Used by every backend's interactive setup.
+    */
+  val Hint: String =
+    """When you genuinely need a piece of information from the user to
+      |proceed (and only then — don't ask for permission to do work, don't
+      |ask trivial confirmation questions), call the `ask_user` tool with a
+      |single short question. The tool blocks until the user types an
+      |answer; the answer comes back as the tool result, which you should
+      |use to continue your work. Prefer making reasonable assumptions over
+      |asking — only reach for `ask_user` when an assumption could send you
+      |meaningfully wrong.""".stripMargin
