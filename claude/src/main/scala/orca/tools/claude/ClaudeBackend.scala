@@ -8,7 +8,8 @@ import orca.backend.{
   Conversations,
   LlmBackend,
   LlmResult,
-  SessionMode
+  SessionMode,
+  SessionRegistry
 }
 import orca.subprocess.CliRunner
 import orca.backend.mcp.{AskUserBridge, AskUserMcpServer}
@@ -51,15 +52,12 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       configFile: os.Path
   )
 
-  /** Session ids we've successfully started against `claude --session-id`.
-    * Subsequent calls with these ids go through `--resume` instead — the CLI
-    * refuses to reuse `--session-id` for an existing session.
-    *
-    * Thread-safe via the JCH key-set view; ClaudeBackend is a per-flow
-    * singleton but reviewers fan out in parallel via `mapParUnordered`.
+  /** Tracks which session ids we've already claimed via `--session-id` so
+    * subsequent calls use `--resume` (the CLI refuses to reuse
+    * `--session-id` once the session exists).
     */
-  private val startedSessions =
-    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+  private val sessions =
+    new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
 
   def runAutonomous(
       prompt: String,
@@ -82,11 +80,11 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       catch
         case e: OrcaFlowException =>
           throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
-    // Mark only after a successful drain: a subprocess that crashed before
+    // Commit only after a successful drain: a subprocess that crashed before
     // claude could register the session id (e.g. exit before `system.init`)
-    // would otherwise leave the mapping wedged, forcing a retry to `--resume`
-    // a session claude never created.
-    val _ = startedSessions.add(SessionId.value(session))
+    // would otherwise leave the registry wedged, forcing a retry to
+    // `--resume` a session claude never created.
+    sessions.commitSuccess(session, session)
     result
 
   def runInteractive(
@@ -105,12 +103,12 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       workDir = workDir,
       outputSchema = outputSchema
     )
-    // Interactive has no in-backend drain to gate on; mark once the
+    // Interactive has no in-backend drain to gate on; commit once the
     // conversation is up (the spawn succeeded, claude has parsed args).
     // A crash mid-conversation will still leave the mark in place, but
     // interactive sessions aren't auto-retried by the orchestrator —
     // the user reruns with a fresh `claude.newSession`.
-    val _ = startedSessions.add(SessionId.value(session))
+    sessions.commitSuccess(session, session)
     conv
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
@@ -168,21 +166,17 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
         if askUser.isDefined then
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
         else config
-      // First call with this id → claim it via `--session-id`; subsequent
-      // calls → `--resume`. `contains` is the read side; the `add` that
-      // records "we've successfully opened this session" runs *after* the
-      // conversation is up (below), so a spawn that fails before claude
-      // registers the session doesn't leave the mapping wedged — a retry
-      // will still try `--session-id`. Pre-condition for thread-safety:
-      // callers must not share a session id across concurrent calls.
+      // The registry decides fresh-vs-resume; commit happens only after the
+      // conversation is up (in the runAutonomous/runInteractive shells) so
+      // a spawn that fails before claude registers the session doesn't
+      // leave the registry wedged — a retry will still try `--session-id`.
+      // Callers must not share a session id across concurrent calls;
       // `reviewAndFixLoop`'s parallel reviewer fan-out is safe because each
       // reviewer mints its own distinct id via `LlmTool.newSession`.
-      val firstUse = !startedSessions.contains(SessionId.value(session))
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
-        session = session,
-        firstUse = firstUse,
+        dispatch = sessions.dispatchFor(session),
         outputSchema,
         mcpConfig = askUser.map(_.configFile)
       )

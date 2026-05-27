@@ -1,5 +1,6 @@
 package orca.tools.claude
 
+import orca.backend.Dispatch
 import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 class ClaudeArgsTest extends munit.FunSuite:
 
@@ -8,13 +9,12 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   private def streamJson(
       config: LlmConfig,
-      firstUse: Boolean = true
+      dispatch: Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(testSid)
   ): Seq[String] =
     ClaudeArgs.streamJson(
       config = config,
       systemPromptFile = None,
-      session = testSid,
-      firstUse = firstUse
+      dispatch = dispatch
     )
 
   test("stream-json shape: --print, --input/--output-format stream-json, etc."):
@@ -37,8 +37,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = Some(file),
-      session = testSid,
-      firstUse = true
+      dispatch = Dispatch.Fresh(testSid)
     )
     assert(
       args.containsSlice(Seq("--append-system-prompt-file", file.toString))
@@ -72,13 +71,13 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!args.contains("bypassPermissions"), args)
     assert(!args.contains("--allowedTools"), args)
 
-  test("firstUse=true emits --session-id <uuid>"):
-    val args = streamJson(LlmConfig.default, firstUse = true)
+  test("Dispatch.Fresh emits --session-id <uuid>"):
+    val args = streamJson(LlmConfig.default, dispatch = Dispatch.Fresh(testSid))
     assert(args.containsSlice(Seq("--session-id", SessionId.value(testSid))), args)
     assert(!args.contains("--resume"), args)
 
-  test("firstUse=false emits --resume <uuid>"):
-    val args = streamJson(LlmConfig.default, firstUse = false)
+  test("Dispatch.Resume emits --resume <uuid>"):
+    val args = streamJson(LlmConfig.default, dispatch = Dispatch.Resume(testSid))
     assert(args.containsSlice(Seq("--resume", SessionId.value(testSid))), args)
     assert(!args.contains("--session-id"), args)
 
@@ -87,8 +86,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = None,
-      session = testSid,
-      firstUse = true,
+      dispatch = Dispatch.Fresh(testSid),
       jsonSchema = Some(schema)
     )
     assert(args.containsSlice(Seq("--json-schema", schema)))
@@ -98,8 +96,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = None,
-      session = testSid,
-      firstUse = true,
+      dispatch = Dispatch.Fresh(testSid),
       mcpConfig = Some(cfg)
     )
     assert(args.containsSlice(Seq("--mcp-config", cfg.toString)))
@@ -112,8 +109,7 @@ class ClaudeArgsTest extends munit.FunSuite:
         autoApprove = AutoApprove.Only(Set("Read"))
       ),
       systemPromptFile = Some(file),
-      session = testSid,
-      firstUse = false
+      dispatch = Dispatch.Resume(testSid)
     )
     assert(args.containsSlice(Seq("--model", "opus-4")))
     assert(

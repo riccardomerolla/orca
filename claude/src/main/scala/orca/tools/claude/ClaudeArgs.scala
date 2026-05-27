@@ -1,5 +1,6 @@
 package orca.tools.claude
 
+import orca.backend.Dispatch
 import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 
 /** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
@@ -24,8 +25,7 @@ private[claude] object ClaudeArgs:
   def streamJson(
       config: LlmConfig,
       systemPromptFile: Option[os.Path],
-      session: SessionId[BackendTag.ClaudeCode.type],
-      firstUse: Boolean,
+      dispatch: Dispatch[BackendTag.ClaudeCode.type],
       jsonSchema: Option[String] = None,
       mcpConfig: Option[os.Path] = None
   ): Seq[String] =
@@ -41,7 +41,7 @@ private[claude] object ClaudeArgs:
     ) ++
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
-      sessionArgs(session, firstUse) ++
+      sessionArgs(dispatch) ++
       autoApproveArgs(config) ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
@@ -52,16 +52,15 @@ private[claude] object ClaudeArgs:
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt-file", f.toString))
 
-  /** First call with this id → `--session-id <uuid>` (creates the session
-    * with our pre-allocated UUID). Subsequent calls → `--resume <uuid>`
-    * (claude refuses to reuse `--session-id` once the session exists).
+  /** Fresh dispatch → `--session-id <uuid>` (creates the session with our
+    * pre-allocated UUID). Resume → `--resume <uuid>` (claude refuses to
+    * reuse `--session-id` once the session exists).
     */
   private def sessionArgs(
-      session: SessionId[BackendTag.ClaudeCode.type],
-      firstUse: Boolean
-  ): Seq[String] =
-    val flag = if firstUse then "--session-id" else "--resume"
-    Seq(flag, SessionId.value(session))
+      dispatch: Dispatch[BackendTag.ClaudeCode.type]
+  ): Seq[String] = dispatch match
+    case Dispatch.Fresh(id)  => Seq("--session-id", SessionId.value(id))
+    case Dispatch.Resume(id) => Seq("--resume", SessionId.value(id))
 
   /** claude's CLI only accepts `--json-schema <inline>` — there's no
     * `--json-schema-file` form. For typical Orca schemas (a few KB) inlining is

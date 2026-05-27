@@ -6,9 +6,11 @@ import orca.OrcaFlowException
 import orca.backend.{
   Conversation,
   Conversations,
+  Dispatch,
   LlmBackend,
   LlmResult,
-  SessionMode
+  SessionMode,
+  SessionRegistry
 }
 import orca.backend.mcp.{AskUserBridge, AskUserMcpServer}
 import orca.subprocess.CliRunner
@@ -51,16 +53,12 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
   )
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
-    * to codex's server-allocated thread id (returned in the first response's
-    * `thread.started` event). `codex exec` doesn't accept a caller-supplied
-    * id, so we mint a UUID upfront, learn the real thread id after the first
-    * call, and use it for `codex exec resume` on subsequent calls.
-    *
-    * Per-backend instance; the backend is a per-flow singleton, so the map
-    * stays small (one entry per active session).
+    * to codex's server-allocated thread id (learned from `thread.started`).
+    * `codex exec` mints its own id, so we keep this mapping so subsequent
+    * calls dispatch through `codex exec resume <server-id>`.
     */
-  private val clientToServer =
-    new java.util.concurrent.ConcurrentHashMap[String, String]()
+  private val sessions =
+    new SessionRegistry.ClientToServer[BackendTag.Codex.type]
 
   def runAutonomous(
       prompt: String,
@@ -87,9 +85,9 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
     )
     try
       val result = Conversations.drainAutonomous(conv, events)
-      registerSession(session, result.sessionId)
+      sessions.commitSuccess(session, result.sessionId)
       // Hide the server-allocated id from the caller — they keep using the
-      // client id they passed in. Future calls resolve via clientToServer.
+      // client id they passed in. Future calls resolve via the registry.
       result.copy(sessionId = session)
     catch
       case e: OrcaFlowException =>
@@ -151,15 +149,15 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
       )
       val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
       val mcpUrl = askUser.map(_.server.url)
-      val args = Option(clientToServer.get(SessionId.value(session))) match
-        case Some(serverId) =>
+      val args = sessions.dispatchFor(session) match
+        case Dispatch.Resume(serverId) =>
           CodexArgs.execResume(
-            SessionId[BackendTag.Codex.type](serverId),
+            serverId,
             finalPrompt,
             config,
             mcpServerUrl = mcpUrl
           )
-        case None =>
+        case Dispatch.Fresh(_) =>
           CodexArgs.exec(
             finalPrompt,
             config,
@@ -219,20 +217,16 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
     try r.server.close()
     catch case NonFatal(_) => ()
 
-  /** Record the server-allocated thread id learned from a call's response so
-    * subsequent calls with the same client id resume that thread. Idempotent
-    * via `putIfAbsent`. Called by [[runAutonomous]] post-drain and by
-    * [[orca.llm.DefaultLlmCall]] post-`interaction.drive` on the interactive
-    * path.
+  /** Record the server-allocated thread id so subsequent calls with the
+    * same client id resume that thread. Called by [[runAutonomous]]
+    * post-drain and by [[orca.llm.DefaultLlmCall]] post-`interaction.drive`
+    * on the interactive path; delegates to the registry's
+    * `commitSuccess`.
     */
   override def registerSession(
       client: SessionId[BackendTag.Codex.type],
       server: SessionId[BackendTag.Codex.type]
-  ): Unit =
-    val _ = clientToServer.putIfAbsent(
-      SessionId.value(client),
-      SessionId.value(server)
-    )
+  ): Unit = sessions.commitSuccess(client, server)
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
     * files in the working directory for static instructions). Fold the
