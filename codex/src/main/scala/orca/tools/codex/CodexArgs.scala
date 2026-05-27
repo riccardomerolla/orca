@@ -14,14 +14,24 @@ import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
   */
 private[codex] object CodexArgs:
 
+  /** MCP server name codex sees in `mcp_servers.<name>.url`. Combined with the
+    * tool's bare slug, the agent invokes it as `tool: "ask_user"` on
+    * `server: "$AskUserMcpName"` in the JSONL stream. Referenced by both the
+    * arg builder here and by [[CodexConversation]]'s routing.
+    */
+  val AskUserMcpName: String = "orca"
+
   /** Single-turn `codex exec --json [<prompt>]` invocation. */
   def exec(
       prompt: String,
       config: LlmConfig,
       outputSchemaFile: Option[os.Path],
-      workDir: os.Path
+      workDir: os.Path,
+      mcpServerUrl: Option[String] = None
   ): Seq[String] =
-    Seq("codex", "exec", "--json") ++
+    Seq("codex") ++
+      mcpServerArgs(mcpServerUrl) ++
+      Seq("exec", "--json") ++
       sandboxArgs(config) ++
       modelArgs(config) ++
       cwdArgs(workDir) ++
@@ -49,13 +59,25 @@ private[codex] object CodexArgs:
   def execResume(
       sessionId: SessionId[BackendTag.Codex.type],
       prompt: String,
-      config: LlmConfig
+      config: LlmConfig,
+      mcpServerUrl: Option[String] = None
   ): Seq[String] =
-    Seq("codex", "exec", "resume", "--json", SessionId.value(sessionId)) ++
+    Seq("codex") ++
+      mcpServerArgs(mcpServerUrl) ++
+      Seq("exec", "resume", "--json", SessionId.value(sessionId)) ++
       sandboxArgs(config) ++
       modelArgs(config) ++
       Seq("--skip-git-repo-check") ++
       Seq(prompt)
+
+  /** Top-level `-c mcp_servers.<name>.url="<url>"` override. Placed BEFORE the
+    * subcommand so it lands in codex's global-config slot (the subcommand
+    * inherits it). The value is wrapped in TOML double-quotes since codex
+    * parses `-c` values as TOML literals.
+    */
+  private def mcpServerArgs(url: Option[String]): Seq[String] =
+    url.toSeq.flatMap: u =>
+      Seq("-c", s"""mcp_servers.${AskUserMcpName}.url="$u"""")
 
   private def modelArgs(config: LlmConfig): Seq[String] =
     config.model.toSeq.flatMap(m => Seq("--model", m.name))

@@ -63,6 +63,36 @@ class CodexArgsTest extends munit.FunSuite:
     assert(args.contains("--full-auto"))
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
 
+  test(
+    "exec emits -c mcp_servers.orca.url=… when an MCP url is supplied"
+  ):
+    // The `-c` override registers an MCP server for the duration of the
+    // codex invocation, which is how we plug in the ask_user bridge.
+    val args = CodexArgs.exec(
+      "x",
+      LlmConfig.default,
+      None,
+      os.pwd,
+      mcpServerUrl = Some("http://127.0.0.1:9876/mcp")
+    )
+    // -c must precede the `exec` subcommand so codex parses it as a
+    // top-level config override, not as an exec-specific flag.
+    val cIdx = args.indexOf("-c")
+    val execIdx = args.indexOf("exec")
+    assert(cIdx >= 0 && execIdx > cIdx, s"expected -c before exec; got: $args")
+    val value = args(cIdx + 1)
+    assertEquals(
+      value,
+      """mcp_servers.orca.url="http://127.0.0.1:9876/mcp""""
+    )
+
+  test("exec omits -c mcp_servers when no MCP url is supplied"):
+    val args = CodexArgs.exec("x", LlmConfig.default, None, os.pwd)
+    assert(
+      !args.exists(_.startsWith("mcp_servers.")),
+      s"args should not mention mcp_servers; got: $args"
+    )
+
   test("execResume builds codex exec resume <id> [...] <prompt>"):
     val sid = SessionId[BackendTag.Codex.type]("019dc-thread")
     val args = CodexArgs.execResume(
@@ -88,3 +118,17 @@ class CodexArgsTest extends munit.FunSuite:
       LlmConfig.default.copy(model = Some(Model("gpt-5.4-mini")))
     )
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))
+
+  test(
+    "execResume also emits -c mcp_servers.orca.url=… (resume sees same MCP servers)"
+  ):
+    val sid = SessionId[BackendTag.Codex.type]("sid")
+    val args = CodexArgs.execResume(
+      sid,
+      "x",
+      LlmConfig.default,
+      mcpServerUrl = Some("http://127.0.0.1:9876/mcp")
+    )
+    val cIdx = args.indexOf("-c")
+    val execIdx = args.indexOf("exec")
+    assert(cIdx >= 0 && execIdx > cIdx, s"expected -c before exec; got: $args")
