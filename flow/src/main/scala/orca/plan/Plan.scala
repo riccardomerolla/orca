@@ -84,9 +84,10 @@ object Plan:
     * `llm.newSession`).
     *
     * The `B: CanAskUser` constraint means these helpers compile only with
-    * backends that can host an `ask_user` tool — today, Claude. Calling
-    * `Plan.interactive.from(prompt, codex)` is a compile error rather than a
-    * silent degradation. Use `Plan.autonomous.*` if you don't need mid-session
+    * backends that can host an `ask_user` tool — claude and codex (both via
+    * the shared `AskUserMcpServer`). A future stdin-only backend without
+    * MCP support would fail this at compile time rather than degrade
+    * silently. Use `Plan.autonomous.*` if you don't need mid-session
     * questions.
     */
   object interactive:

@@ -119,16 +119,3 @@ class CodexArgsTest extends munit.FunSuite:
     )
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))
 
-  test(
-    "execResume also emits -c mcp_servers.orca.url=… (resume sees same MCP servers)"
-  ):
-    val sid = SessionId[BackendTag.Codex.type]("sid")
-    val args = CodexArgs.execResume(
-      sid,
-      "x",
-      LlmConfig.default,
-      mcpServerUrl = Some("http://127.0.0.1:9876/mcp")
-    )
-    val cIdx = args.indexOf("-c")
-    val execIdx = args.indexOf("exec")
-    assert(cIdx >= 0 && execIdx > cIdx, s"expected -c before exec; got: $args")

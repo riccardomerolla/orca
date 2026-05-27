@@ -52,8 +52,8 @@ enum ConversationEvent:
     * tool result (the backend-specific machinery surfaces these via an
     * `ask_user` MCP tool or equivalent).
     *
-    * Only emitted by backends whose [[Conversation.canAskUser]] is true — at
-    * the moment, Claude. Codex sessions never emit this event.
+    * Only emitted by backends whose [[Conversation.canAskUser]] is true —
+    * claude and codex (both via the shared `AskUserMcpServer`).
     */
   case UserQuestion(question: String, respond: String => Unit)
 

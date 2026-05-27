@@ -398,6 +398,68 @@ class CodexConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   test(
+    "mcp_tool_call ToolResult drops non-text content fragments"
+  ):
+    // The MCP content array can carry text + image + resource fragments;
+    // we only know how to render text. Non-text fragments must not leak
+    // their wire shape into the user-facing ToolResult.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-mx"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"i_mx","type":"mcp_tool_call","server":"docs","tool":"search","arguments":{},"result":{"content":[{"type":"text","text":"text1"},{"type":"image","data":"…"},{"type":"text","text":"text2"}],"structured_content":null},"error":null,"status":"completed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"i_a","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    val result = events.collectFirst {
+      case ConversationEvent.ToolResult("docs.search", _, content) => content
+    }
+    assertEquals(result, Some("text1text2"))
+    val _ = conv.awaitResult()
+
+  test(
+    "mcp_tool_call ToolResult surfaces raw JSON when result fails to parse"
+  ):
+    // MCP servers in the wild emit non-standard result shapes too; the
+    // parser must fall back to the raw JSON so the diagnostic isn't lost.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-bad"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"i_bad","type":"mcp_tool_call","server":"odd","tool":"do","arguments":{},"result":["this","is","not","an","object"],"error":null,"status":"completed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"i_a","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    val result = events.collectFirst {
+      case ConversationEvent.ToolResult("odd.do", _, content) => content
+    }
+    assert(
+      result.exists(_.contains("not")),
+      s"expected raw JSON fallback to include the array content; got: $result"
+    )
+    val _ = conv.awaitResult()
+
+  test(
     "ask_user mcp_tool_call items are suppressed (no echo in event stream)"
   ):
     // The host-side AskUserBridge raises a UserQuestion for the same

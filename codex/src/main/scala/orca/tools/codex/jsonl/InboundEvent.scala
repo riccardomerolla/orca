@@ -4,6 +4,8 @@ import orca.events.{Usage}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
+import scala.util.control.NonFatal
+
 /** One event parsed off codex's stdout when it runs with `exec --json`.
   *
   * The shape is documented in
@@ -132,10 +134,15 @@ private[codex] object InboundEvent:
 
   /** Flatten an MCP `result` object's `content` array into a displayable
     * string. The standard MCP result shape is
-    * `{"content":[{"type":"text","text":"…"}, …],"isError":bool}`. We pull
-    * out the text fragments and join them; non-text fragments are dropped.
-    * Returns `None` for an empty result (e.g. item.started's null) so the
-    * caller can distinguish "no result yet" from "empty result".
+    * `{"content":[{"type":"text","text":"…"}, …],"isError":bool}`; text
+    * fragments are concatenated, non-text fragments dropped.
+    *
+    * Returns `None` only when the raw value is missing or JSON `null` —
+    * i.e. the call is still in-flight (`item.started`). A completed call
+    * with an empty or text-free content array returns `Some("")` so the
+    * caller can tell "completed with no payload" from "not done yet".
+    * On parse failure, returns `Some(trimmed)` so the diagnostic raw JSON
+    * still reaches the renderer.
     */
   private def renderMcpResultText(raw: RawJson): Option[String] =
     val trimmed = raw.value.trim
@@ -148,7 +155,7 @@ private[codex] object InboundEvent:
           .mkString
         Some(joined)
       catch
-        case _: Throwable =>
+        case NonFatal(_) =>
           // Result shapes vary across MCP servers; if parsing fails, surface
           // the raw JSON rather than dropping the diagnostic.
           Some(trimmed)

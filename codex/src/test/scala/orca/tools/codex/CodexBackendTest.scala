@@ -301,3 +301,31 @@ class CodexBackendTest extends munit.FunSuite:
         finalPrompt.contains("ask_user"),
         s"final prompt should fold in the ask_user hint; got: $finalPrompt"
       )
+
+  test(
+    "runInteractive with a systemPrompt folds BOTH it and the ask_user hint"
+  ):
+    // The 4-way combination of (systemPrompt, askUserHint) is concat-prone;
+    // pin the both-present case explicitly (the other three are exercised
+    // by adjacent tests: (None,false) via runAutonomous, (Some,false) via
+    // "systemPrompt is folded", (None,true) via the test above).
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runInteractive(
+        "list files",
+        clientSid,
+        displayPrompt = "list files",
+        LlmConfig.default.copy(systemPrompt = Some("be terse")),
+        os.temp.dir(),
+        outputSchema = None
+      )
+      val finalPrompt = runner.calls.head.last
+      assert(finalPrompt.contains("be terse"))
+      assert(finalPrompt.contains("ask_user"))
+      // The two pieces must be separated, not concatenated.
+      val terseIdx = finalPrompt.indexOf("be terse")
+      val askIdx = finalPrompt.indexOf("ask_user")
+      assert(
+        terseIdx < askIdx && askIdx - terseIdx > "be terse".length + 2,
+        s"systemPrompt and ask_user hint should be separated; got: $finalPrompt"
+      )

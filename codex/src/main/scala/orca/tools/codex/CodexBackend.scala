@@ -147,7 +147,7 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
       val finalPrompt = mergeSystemPrompt(
         config,
         prompt,
-        includeAskUserHint = askUser.isDefined
+        extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
       )
       val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
       val mcpUrl = askUser.map(_.server.url)
@@ -183,15 +183,20 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
         )
       catch
         case e: Exception =>
+          // SIGINT the process; the outer catch closes askUser. Avoid
+          // closing here too — double-close would only be saved by
+          // bridge/server close-idempotency, which is paper-thin to lean
+          // on.
           process.sendSigInt()
-          askUser.foreach(closeAskUser)
           throw OrcaFlowException(
             s"Failed to open codex session: ${e.getMessage}"
           )
     catch
       case e: Throwable =>
-        // Pre-spawn failure (system-prompt build, args build): tear down
-        // anything we already allocated.
+        // Any failure between resource allocation and a fully-constructed
+        // CodexConversation: tear down the MCP server so the Netty
+        // binding doesn't leak. Once the conversation owns the resources
+        // they ride through `onFinalize`.
         askUser.foreach(closeAskUser)
         throw e
 
@@ -231,28 +236,23 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
     * files in the working directory for static instructions). Fold the
-    * configured `systemPrompt` AND, on the interactive path, the shared
-    * `ask_user` hint into the user prompt as a preamble — a low-tech but
-    * predictable substitute.
+    * configured `systemPrompt` and any caller-supplied `extraHint` (e.g.
+    * the shared `ask_user` hint on interactive calls) into the user
+    * prompt as a preamble — a low-tech but predictable substitute.
     */
   private def mergeSystemPrompt(
       config: LlmConfig,
       userPrompt: String,
-      includeAskUserHint: Boolean
+      extraHint: Option[String]
   ): String =
-    val body = (config.systemPrompt, includeAskUserHint) match
-      case (Some(s), true)  => Some(s + "\n\n" + AskUserMcpServer.Hint)
-      case (None, true)     => Some(AskUserMcpServer.Hint)
-      case (Some(s), false) => Some(s)
-      case (None, false)    => None
-    body match
-      case None => userPrompt
-      case Some(text) =>
-        s"""System guidance:
-           |$text
-           |
-           |User request:
-           |$userPrompt""".stripMargin
+    val pieces = List(config.systemPrompt, extraHint).flatten
+    if pieces.isEmpty then userPrompt
+    else
+      s"""System guidance:
+         |${pieces.mkString("\n\n")}
+         |
+         |User request:
+         |$userPrompt""".stripMargin
 
   private def writeSchemaIfPresent(
       schema: Option[String],
