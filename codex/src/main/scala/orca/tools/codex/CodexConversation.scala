@@ -5,6 +5,7 @@ import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
 import orca.backend.StreamConversation
+import orca.backend.mcp.{AskUserBridge, AskUserMcpServer}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 
@@ -12,6 +13,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.util.control.NonFatal
 
 /** Drives a `codex exec --json` session to completion.
   *
@@ -47,7 +49,11 @@ private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    askUserBridge: Option[orca.backend.mcp.AskUserBridge] = None,
+    askUserBridge: Option[AskUserBridge] = None,
+    /** Resources to close when this conversation ends — typically the MCP
+      * server bound for this conversation's `ask_user` tool. Closed from
+      * `onFinalize` after the reader loop exits.
+      */
     sessionResources: List[AutoCloseable] = Nil
 ) extends StreamConversation[BackendTag.Codex.type](
       process = process,
@@ -75,9 +81,42 @@ private[codex] class CodexConversation(
     */
   private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
+  /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side
+    * bridge has already surfaced the corresponding `UserQuestion` event, so
+    * rendering the tool call on top would be noise. The matching
+    * `item.completed` is also suppressed: the user's typed answer would
+    * otherwise re-render as `⎿ <answer>` after the prompt surfaced it.
+    *
+    * Single-threaded reader (the JSONL reader thread is the sole writer),
+    * so a plain `var` Set is enough.
+    */
+  private var suppressedMcpItemIds: Set[String] = Set.empty
+
   // Subclass fields above are assigned now; safe to spin up the reader +
   // stderr workers. See [[StreamConversation.start]].
+  askUserBridge.foreach: bridge =>
+    val t = new Thread(
+      () => askUserDrainLoop(bridge),
+      "codex-conversation-ask-user"
+    )
+    t.setDaemon(true)
+    t.start()
+
   start()
+
+  private def askUserDrainLoop(bridge: AskUserBridge): Unit =
+    try
+      while !Thread.currentThread().isInterrupted do
+        val q = bridge.nextQuestion()
+        eventQueue.enqueue(
+          ConversationEvent.UserQuestion(q.question, q.respond)
+        )
+    catch
+      // Bridge channel closure (onFinalize → bridge.close()) propagates as
+      // a ChannelClosedException from take(). Exit quietly. NonFatal so an
+      // InterruptedException still propagates if something else interrupts
+      // this thread.
+      case NonFatal(_) => ()
 
   // --- Conversation surface ---
 
@@ -87,10 +126,11 @@ private[codex] class CodexConversation(
     */
   def sendUserMessage(text: String): Unit = ()
 
-  // codex exec consumes stdin once and has no mid-session user-message
-  // channel (ADR 0007); a fresh process is needed for follow-up turns.
-  // Flows that depend on mid-session Q&A must run on Claude.
-  def canAskUser: Boolean = false
+  // Codex exec has no in-session user-message channel over stdin (ADR
+  // 0007), but the agent CAN reach the user via the `ask_user` MCP tool
+  // when a bridge is wired. The flag tracks the bridge's presence rather
+  // than the stdin channel.
+  def canAskUser: Boolean = askUserBridge.isDefined
 
   // --- Reader hooks ---
 
@@ -117,10 +157,11 @@ private[codex] class CodexConversation(
       val _ = stderrBuffer.updateAndGet(appendBounded(_, trimmed))
 
   /** Bounded wait for the stderr drain so any trailing error lines (which the
-    * consumer can't see once we close the queue) reach the events queue. The
-    * cap is short — by the time stdout EOFs, the process has exited and stderr
-    * should EOF nearly simultaneously; if it doesn't, we'd rather lose a late
-    * stderr line than hold `awaitResult` hostage on a stalled child.
+    * consumer can't see once we close the queue) reach the events queue.
+    * Then release session-scoped resources: close the ask_user bridge first
+    * (errors any in-flight `ask`), then the MCP server's Netty binding.
+    * Both wrapped in NonFatal — close-time failure mustn't mask whatever
+    * already failed upstream.
     */
   override protected def onFinalize(): Unit =
     try stderrDrainThread.join(StderrDrainTimeoutMs)
@@ -128,6 +169,12 @@ private[codex] class CodexConversation(
       // Interrupt while joining means the parent is shutting down.
       // Restore the flag so callers up-stack can react.
       case _: InterruptedException => Thread.currentThread().interrupt()
+    askUserBridge.foreach: bridge =>
+      try bridge.close()
+      catch case NonFatal(_) => ()
+    sessionResources.foreach: r =>
+      try r.close()
+      catch case NonFatal(_) => ()
 
   override protected def cleanExitWithoutResult(): Throwable =
     // Defer the framing to the base so the diagnosticContext below gets
@@ -177,6 +224,20 @@ private[codex] class CodexConversation(
           rawInput = writeToString(FileChangeInput(changes.map(toWire)))
         )
       )
+    case Item.McpToolCall(id, server, tool, _, _, _)
+        if server == CodexArgs.AskUserMcpName &&
+          tool == AskUserMcpServer.ToolSlug =>
+      // ask_user is surfaced through the host-side bridge as a
+      // UserQuestion event; the matching item.completed echo is dropped
+      // too — the user has already seen their typed answer at the prompt.
+      suppressedMcpItemIds = suppressedMcpItemIds + id
+    case Item.McpToolCall(_, server, tool, args, _, _) =>
+      eventQueue.enqueue(
+        ConversationEvent.AssistantToolCall(
+          toolName = mcpToolName(server, tool),
+          rawInput = args
+        )
+      )
     case _ =>
       // agent_message / reasoning announce themselves at completion;
       // Other items pass through without a started event. Nothing to do.
@@ -206,8 +267,29 @@ private[codex] class CodexConversation(
           content = changes.map(c => s"${c.kind} ${c.path}").mkString("\n")
         )
       )
+    case Item.McpToolCall(id, _, _, _, _, _)
+        if suppressedMcpItemIds.contains(id) =>
+      // Matched a suppressed ask_user call started above; drop the
+      // mirrored completion and clear the id.
+      suppressedMcpItemIds = suppressedMcpItemIds - id
+    case Item.McpToolCall(_, server, tool, _, result, status) =>
+      eventQueue.enqueue(
+        ConversationEvent.ToolResult(
+          toolName = mcpToolName(server, tool),
+          ok = status == "completed",
+          content = result.getOrElse("")
+        )
+      )
     case Item.Other(_, _) =>
       ()
+
+  /** Compose the user-facing tool name from codex's `(server, tool)` pair.
+    * Codex namespaces MCP tools by server, so a dotted form reads naturally
+    * in the renderer log and stays distinct from the bare `bash` /
+    * `file_change` names used by codex's built-in items.
+    */
+  private def mcpToolName(server: String, tool: String): String =
+    s"$server.$tool"
 
   private def handleTurnCompleted(usage: Usage): Unit =
     val result = LlmResult(

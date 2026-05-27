@@ -358,6 +358,136 @@ class CodexConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
     assertEquals(process.writes, Nil)
 
+  test("mcp_tool_call emits AssistantToolCall + ToolResult"):
+    // A non-ask_user MCP tool: started and completed items round-trip
+    // into matching AssistantToolCall + ToolResult events using the
+    // dotted `server.tool` naming.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-mcp"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"item.started","item":{"id":"i_m","type":"mcp_tool_call","server":"docs","tool":"search","arguments":{"q":"hi"},"result":null,"error":null,"status":"in_progress"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"i_m","type":"mcp_tool_call","server":"docs","tool":"search","arguments":{"q":"hi"},"result":{"content":[{"type":"text","text":"page-1"}],"structured_content":null},"error":null,"status":"completed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"i_a","type":"agent_message","text":"done"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.contains(
+        ConversationEvent.AssistantToolCall("docs.search", """{"q":"hi"}""")
+      ),
+      s"expected AssistantToolCall for docs.search; got: $events"
+    )
+    assert(
+      events.contains(
+        ConversationEvent.ToolResult("docs.search", ok = true, "page-1")
+      ),
+      s"expected matching ToolResult; got: $events"
+    )
+    val _ = conv.awaitResult()
+
+  test(
+    "ask_user mcp_tool_call items are suppressed (no echo in event stream)"
+  ):
+    // The host-side AskUserBridge raises a UserQuestion for the same
+    // exchange (covered by its own test below); rendering the agent's
+    // tool call and the answer-as-tool-result on top would be noise.
+    import ox.supervised
+    import ox.channels.BufferCapacity
+    import orca.backend.mcp.AskUserBridge
+    supervised:
+      given BufferCapacity = BufferCapacity(8)
+      val process = new FakePipedCliProcess()
+      val bridge = new AskUserBridge
+      val conv = new CodexConversation(
+        process,
+        askUserBridge = Some(bridge)
+      )
+
+      process.enqueueStdout(
+        """{"type":"thread.started","thread_id":"thr-au"}"""
+      )
+      process.enqueueStdout("""{"type":"turn.started"}""")
+      process.enqueueStdout(
+        """{"type":"item.started","item":{"id":"i_au","type":"mcp_tool_call","server":"orca","tool":"ask_user","arguments":{"question":"q?"},"result":null,"error":null,"status":"in_progress"}}"""
+      )
+      process.enqueueStdout(
+        """{"type":"item.completed","item":{"id":"i_au","type":"mcp_tool_call","server":"orca","tool":"ask_user","arguments":{"question":"q?"},"result":{"content":[{"type":"text","text":"a"}],"structured_content":null},"error":null,"status":"completed"}}"""
+      )
+      process.enqueueStdout(
+        """{"type":"item.completed","item":{"id":"i_msg","type":"agent_message","text":"hi"}}"""
+      )
+      process.enqueueStdout(
+        """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+      )
+      process.closeStdout()
+      process.closeStderr()
+
+      val events = conv.events.toList
+      assert(
+        !events.exists {
+          case ConversationEvent.AssistantToolCall("orca.ask_user", _) => true
+          case _                                                       => false
+        },
+        s"ask_user MCP call must be suppressed; got: $events"
+      )
+      assert(
+        !events.exists {
+          case ConversationEvent.ToolResult("orca.ask_user", _, _) => true
+          case _                                                   => false
+        },
+        s"ask_user ToolResult must be suppressed; got: $events"
+      )
+      val _ = conv.awaitResult()
+
+  test(
+    "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
+  ):
+    // Mirror of the equivalent ClaudeConversation test. Verifies the
+    // drainer thread converts bridge questions into UserQuestion events
+    // and the respond closure unblocks the originating `ask`.
+    import ox.{forkUser, supervised}
+    import ox.channels.BufferCapacity
+    import orca.backend.mcp.AskUserBridge
+    supervised:
+      given BufferCapacity = BufferCapacity(8)
+      val process = new FakePipedCliProcess()
+      val bridge = new AskUserBridge
+      val conv = new CodexConversation(
+        process,
+        askUserBridge = Some(bridge)
+      )
+      assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
+
+      val askResult = forkUser:
+        bridge.ask("What's your favourite colour?")
+
+      val firstEvent = conv.events.next()
+      val (question, respond) = firstEvent match
+        case ConversationEvent.UserQuestion(q, r) => (q, r)
+        case other => fail(s"expected UserQuestion; got: $other")
+      assertEquals(question, "What's your favourite colour?")
+      respond("magenta")
+      assertEquals(askResult.join(), "magenta")
+
+  test("canAskUser is false when no bridge is provided"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+    assertEquals(conv.canAskUser, false)
+    process.closeStdout()
+    val _ = conv.events.toList
+
   test("unknown top-level events are ignored without surfacing"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
