@@ -5,7 +5,7 @@ import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
 import orca.backend.StreamConversation
-import orca.backend.mcp.{AskUserBridge, AskUserMcpServer}
+import orca.backend.mcp.{AskUserMcpServer, AskUserResources}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 
@@ -13,7 +13,6 @@ import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 import java.util.concurrent.atomic.AtomicReference
-import scala.util.control.NonFatal
 
 /** Drives a `codex exec --json` session to completion.
   *
@@ -49,12 +48,11 @@ private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    askUserBridge: Option[AskUserBridge] = None,
-    /** Resources to close when this conversation ends — typically the MCP
-      * server bound for this conversation's `ask_user` tool. Closed from
-      * `onFinalize` after the reader loop exits.
+    /** The ask_user resource bundle for this conversation, or `None` for
+      * autonomous calls / tests. Wired drives `canAskUser`, spawns the
+      * bridge drainer thread, and closes on `onFinalize`.
       */
-    sessionResources: List[AutoCloseable] = Nil
+    askUser: Option[AskUserResources] = None
 ) extends StreamConversation[BackendTag.Codex.type](
       process = process,
       backendName = "codex",
@@ -94,7 +92,7 @@ private[codex] class CodexConversation(
 
   // Subclass fields above are assigned now; safe to spin up the reader +
   // stderr workers. See [[StreamConversation.start]].
-  askUserBridge.foreach(startAskUserDrainer)
+  askUser.foreach(r => startAskUserDrainer(r.bridge))
 
   start()
 
@@ -110,7 +108,7 @@ private[codex] class CodexConversation(
   // 0007), but the agent CAN reach the user via the `ask_user` MCP tool
   // when a bridge is wired. The flag tracks the bridge's presence rather
   // than the stdin channel.
-  def canAskUser: Boolean = askUserBridge.isDefined
+  def canAskUser: Boolean = askUser.isDefined
 
   // --- Reader hooks ---
 
@@ -138,10 +136,8 @@ private[codex] class CodexConversation(
 
   /** Bounded wait for the stderr drain so any trailing error lines (which the
     * consumer can't see once we close the queue) reach the events queue.
-    * Then release session-scoped resources: close the ask_user bridge first
-    * (errors any in-flight `ask`), then the MCP server's Netty binding.
-    * Both wrapped in NonFatal — close-time failure mustn't mask whatever
-    * already failed upstream.
+    * Then close the ask_user resource bundle (bridge first, then MCP
+    * server, then any extras) — see [[AskUserResources.close]].
     */
   override protected def onFinalize(): Unit =
     try stderrDrainThread.join(StderrDrainTimeoutMs)
@@ -149,12 +145,7 @@ private[codex] class CodexConversation(
       // Interrupt while joining means the parent is shutting down.
       // Restore the flag so callers up-stack can react.
       case _: InterruptedException => Thread.currentThread().interrupt()
-    askUserBridge.foreach: bridge =>
-      try bridge.close()
-      catch case NonFatal(_) => ()
-    sessionResources.foreach: r =>
-      try r.close()
-      catch case NonFatal(_) => ()
+    askUser.foreach(_.close())
 
   override protected def cleanExitWithoutResult(): Throwable =
     // Defer the framing to the base so the diagnosticContext below gets

@@ -15,7 +15,6 @@ import orca.tools.claude.streamjson.{
   StreamEventPayload
 }
 
-import scala.util.control.NonFatal
 
 /** Drives a stream-json conversation with claude to completion.
   *
@@ -31,15 +30,14 @@ private[claude] class ClaudeConversation(
     config: LlmConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    askUserBridge: Option[orca.backend.mcp.AskUserBridge] = None,
-    /** Session-scoped resources to release when this conversation ends —
-      * typically the MCP server bound for this conversation's `ask_user` tool.
-      * Closed from `onFinalize`, after the reader loop exits, so server
-      * lifetime tracks the conversation rather than the enclosing supervised
-      * scope. Without this, a long flow that opens many interactive
-      * conversations would leak one Netty binding per call.
+    /** The ask_user resource bundle for this conversation, or `None` for
+      * autonomous calls / tests. Drives `canAskUser`, spawns the bridge
+      * drainer thread, and closes on `onFinalize` (closing the bridge first
+      * so any in-flight `ask` errors before the Netty binding tears down,
+      * then the server, then any `extras` — the workDir-local
+      * `.orca-mcp-<port>.json` config file).
       */
-    sessionResources: List[AutoCloseable] = Nil
+    askUser: Option[orca.backend.mcp.AskUserResources] = None
 ) extends StreamConversation[BackendTag.ClaudeCode.type](
       process = process,
       backendName = "claude",
@@ -92,17 +90,16 @@ private[claude] class ClaudeConversation(
   def sendUserMessage(text: String): Unit =
     writeOutbound(OutboundMessage.UserText(text))
 
-  // canAskUser tracks whether the MCP host-bridge is wired — true when the
-  // backend spun up an AskUserMcpServer for this session, false for headless
-  // calls or backends that don't expose ask_user. Mid-session user input
-  // doesn't flow through `sendUserMessage` (stdin is closed right after the
-  // initial prompt); it flows through the MCP tool result instead.
-  def canAskUser: Boolean = askUserBridge.isDefined
+  // True when the backend spun up an AskUserMcpServer for this session.
+  // Mid-session user input doesn't flow through `sendUserMessage` (stdin
+  // is closed right after the initial prompt); it flows through the MCP
+  // tool result instead.
+  def canAskUser: Boolean = askUser.isDefined
 
   // Drainer for the MCP bridge: each `ask_user` tool invocation surfaces
   // as a `ConversationEvent.UserQuestion`; the renderer's `respond`
   // closure delivers the typed answer back to the blocked handler.
-  askUserBridge.foreach(startAskUserDrainer)
+  askUser.foreach(r => startAskUserDrainer(r.bridge))
 
   // Subclass fields above are assigned now; safe to spin up the reader +
   // stderr workers. See [[StreamConversation.start]].
@@ -118,25 +115,13 @@ private[claude] class ClaudeConversation(
       "claude exited cleanly but never sent a result message"
     )
 
-  /** Release session-scoped resources once the read loop has drained.
-    *
-    * Order matters: close the bridge **before** the MCP server. Closing the
-    * bridge errors any Netty worker currently blocked on `reply.receive()` (the
-    * handler returns with a tool error to the agent) and `done`s the pending
-    * queue (the drainer thread unwinds). If we stopped the server first, those
-    * workers would be parked when the binding tore them down, losing the chance
-    * to return a clean tool result.
-    *
-    * Failures here are swallowed — the conversation is already winding down and
-    * a close-time throw would only mask the real cause upstream.
+  /** Release the ask_user resource bundle once the read loop has drained.
+    * `AskUserResources.close` handles ordering (bridge → server → extras)
+    * and swallows close-time failures so a winding-down conversation
+    * doesn't mask the upstream cause.
     */
   override protected def onFinalize(): Unit =
-    askUserBridge.foreach: bridge =>
-      try bridge.close()
-      catch case NonFatal(_) => ()
-    sessionResources.foreach: r =>
-      try r.close()
-      catch case NonFatal(_) => ()
+    askUser.foreach(_.close())
 
   // --- Per-message dispatch ---
 

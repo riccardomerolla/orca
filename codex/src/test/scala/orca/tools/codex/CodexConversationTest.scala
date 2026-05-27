@@ -467,14 +467,13 @@ class CodexConversationTest extends munit.FunSuite:
     // tool call and the answer-as-tool-result on top would be noise.
     import ox.supervised
     import ox.channels.BufferCapacity
-    import orca.backend.mcp.AskUserBridge
+    import orca.backend.mcp.AskUserResources
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val bridge = new AskUserBridge
       val conv = new CodexConversation(
         process,
-        askUserBridge = Some(bridge)
+        askUser = Some(AskUserResources.allocate())
       )
 
       process.enqueueStdout(
@@ -521,15 +520,16 @@ class CodexConversationTest extends munit.FunSuite:
     // and the respond closure unblocks the originating `ask`.
     import ox.{forkUser, supervised}
     import ox.channels.BufferCapacity
-    import orca.backend.mcp.AskUserBridge
+    import orca.backend.mcp.AskUserResources
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val bridge = new AskUserBridge
+      val askUser = AskUserResources.allocate()
       val conv = new CodexConversation(
         process,
-        askUserBridge = Some(bridge)
+        askUser = Some(askUser)
       )
+      val bridge = askUser.bridge
       assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
 
       val askResult = forkUser:

@@ -386,16 +386,17 @@ class ClaudeConversationTest extends munit.FunSuite:
   ):
     import ox.{forkUser, supervised}
     import ox.channels.BufferCapacity
-    import orca.backend.mcp.AskUserBridge
+    import orca.backend.mcp.AskUserResources
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val bridge = new AskUserBridge
+      val askUser = AskUserResources.allocate()
       val conv = new ClaudeConversation(
         process,
         LlmConfig.default,
-        askUserBridge = Some(bridge)
+        askUser = Some(askUser)
       )
+      val bridge = askUser.bridge
       assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
 
       // From a separate fork, ask the bridge — simulates the MCP handler.

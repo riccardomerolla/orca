@@ -12,12 +12,10 @@ import orca.backend.{
   SessionMode,
   SessionRegistry
 }
-import orca.backend.mcp.{AskUserBridge, AskUserMcpServer}
+import orca.backend.mcp.{AskUserMcpServer, AskUserResources}
 import orca.subprocess.CliRunner
 import ox.Ox
 import ox.channels.BufferCapacity
-
-import scala.util.control.NonFatal
 
 /** Codex backend. Both autonomous and interactive paths drive `codex exec
   * --json` over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the
@@ -41,16 +39,6 @@ import scala.util.control.NonFatal
   */
 class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.Codex.type]:
-
-  /** Resources standing up the `ask_user` MCP tool for one interactive
-    * conversation: the host-side bridge and the Netty-backed MCP server.
-    * Unlike claude, codex doesn't need a workDir-local config file (we use
-    * the `-c` override). Bundled so failure-path teardown can be one call.
-    */
-  private case class AskUserResources(
-      bridge: AskUserBridge,
-      server: AskUserMcpServer
-  )
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (learned from `thread.started`).
@@ -139,7 +127,7 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): Conversation[BackendTag.Codex.type] =
     val (askUser, displayPrompt): (Option[AskUserResources], String) =
       mode match
-        case SessionMode.Interactive(p) => (Some(allocateAskUser()), p)
+        case SessionMode.Interactive(p) => (Some(AskUserResources.allocate()), p)
         case SessionMode.Autonomous     => (None, "")
     try
       val finalPrompt = mergeSystemPrompt(
@@ -176,15 +164,11 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
           process,
           initialPrompt = displayPrompt,
           outputSchema = outputSchema,
-          askUserBridge = askUser.map(_.bridge),
-          sessionResources = askUser.toList.map(_.server)
+          askUser = askUser
         )
       catch
         case e: Exception =>
-          // SIGINT the process; the outer catch closes askUser. Avoid
-          // closing here too — double-close would only be saved by
-          // bridge/server close-idempotency, which is paper-thin to lean
-          // on.
+          // SIGINT the process; the outer catch closes askUser.
           process.sendSigInt()
           throw OrcaFlowException(
             s"Failed to open codex session: ${e.getMessage}"
@@ -195,27 +179,8 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
         // CodexConversation: tear down the MCP server so the Netty
         // binding doesn't leak. Once the conversation owns the resources
         // they ride through `onFinalize`.
-        askUser.foreach(closeAskUser)
+        askUser.foreach(_.close())
         throw e
-
-  /** Stand up the bridge + MCP server. On failure between bridge creation
-    * and server start, the bridge has no resources to release; on failure
-    * after server start the caller's outer catch invokes [[closeAskUser]].
-    */
-  private def allocateAskUser(): AskUserResources =
-    val bridge = new AskUserBridge
-    val server = AskUserMcpServer.start(bridge)
-    AskUserResources(bridge, server)
-
-  /** Best-effort teardown of every resource attached to an ask_user session.
-    * Each close is wrapped so one resource's failure doesn't skip the next
-    * (and so the failure-path caller's original throw isn't masked).
-    */
-  private def closeAskUser(r: AskUserResources): Unit =
-    try r.bridge.close()
-    catch case NonFatal(_) => ()
-    try r.server.close()
-    catch case NonFatal(_) => ()
 
   /** Record the server-allocated thread id so subsequent calls with the
     * same client id resume that thread. Called by [[runAutonomous]]
