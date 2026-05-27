@@ -46,7 +46,9 @@ import java.util.concurrent.atomic.AtomicReference
 private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
-    val outputSchema: Option[String] = None
+    val outputSchema: Option[String] = None,
+    askUserBridge: Option[orca.backend.mcp.AskUserBridge] = None,
+    sessionResources: List[AutoCloseable] = Nil
 ) extends StreamConversation[BackendTag.Codex.type](
       process = process,
       backendName = "codex",

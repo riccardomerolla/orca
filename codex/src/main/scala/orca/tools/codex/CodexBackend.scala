@@ -10,7 +10,12 @@ import orca.backend.{
   LlmResult,
   SessionMode
 }
+import orca.backend.mcp.{AskUserBridge, AskUserMcpServer}
 import orca.subprocess.CliRunner
+import ox.Ox
+import ox.channels.BufferCapacity
+
+import scala.util.control.NonFatal
 
 /** Codex backend. Both autonomous and interactive paths drive `codex exec
   * --json` over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the
@@ -25,8 +30,25 @@ import orca.subprocess.CliRunner
   * drive. Multi-turn: subsequent `runAutonomous` / `runInteractive` calls with
   * the same session id route through `codex exec resume <server-id>` via the
   * [[clientToServer]] mapping.
+  *
+  * Interactive calls additionally stand up an `ask_user` MCP host bridge
+  * ([[AskUserMcpServer]]) on an ephemeral port and register it with codex via
+  * the top-level `-c mcp_servers.orca.url=…` config override, so the agent
+  * can call `ask_user` to surface a clarifying question to the user.
+  * Autonomous calls skip the bridge entirely.
   */
-class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
+class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
+    extends LlmBackend[BackendTag.Codex.type]:
+
+  /** Resources standing up the `ask_user` MCP tool for one interactive
+    * conversation: the host-side bridge and the Netty-backed MCP server.
+    * Unlike claude, codex doesn't need a workDir-local config file (we use
+    * the `-c` override). Bundled so failure-path teardown can be one call.
+    */
+  private case class AskUserResources(
+      bridge: AskUserBridge,
+      server: AskUserMcpServer
+  )
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (returned in the first response's
@@ -98,6 +120,16 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
     * seen this client session id before, we know the server id to resume;
     * otherwise we start fresh and the post-call [[registerSession]] records
     * the mapping.
+    *
+    * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
+    * Netty server, hand the URL to `CodexArgs` for the `-c mcp_servers.orca`
+    * override, fold the system-prompt hint into the user prompt (codex has
+    * no `--append-system-prompt`), and hand the bridge + server to
+    * `CodexConversation` so it can surface `UserQuestion` events and close
+    * the binding on finalize. `Autonomous` skips all of it.
+    *
+    * If anything between resource allocation and conversation construction
+    * throws we tear down the server so no Netty binding leaks.
     */
   private def openConversation(
       prompt: String,
@@ -107,37 +139,80 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Codex.type] =
-    val displayPrompt = mode match
-      case SessionMode.Interactive(p) => p
-      case SessionMode.Autonomous     => ""
-    val finalPrompt = mergeSystemPrompt(config, prompt)
-    val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
-    val args = Option(clientToServer.get(SessionId.value(session))) match
-      case Some(serverId) =>
-        CodexArgs.execResume(
-          SessionId[BackendTag.Codex.type](serverId),
-          finalPrompt,
-          config
-        )
-      case None => CodexArgs.exec(finalPrompt, config, schemaFile, workDir)
-    val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+    val (askUser, displayPrompt): (Option[AskUserResources], String) =
+      mode match
+        case SessionMode.Interactive(p) => (Some(allocateAskUser()), p)
+        case SessionMode.Autonomous     => (None, "")
     try
-      // codex doesn't accept user turns over stdin once the initial
-      // prompt has been argv-supplied; close immediately so the
-      // child stops waiting on stdin EOF. Same reflex as claude's
-      // single-shot stream-json path.
-      process.closeStdin()
-      new CodexConversation(
-        process,
-        initialPrompt = displayPrompt,
-        outputSchema = outputSchema
+      val finalPrompt = mergeSystemPrompt(
+        config,
+        prompt,
+        includeAskUserHint = askUser.isDefined
       )
-    catch
-      case e: Exception =>
-        process.sendSigInt()
-        throw OrcaFlowException(
-          s"Failed to open codex session: ${e.getMessage}"
+      val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
+      val mcpUrl = askUser.map(_.server.url)
+      val args = Option(clientToServer.get(SessionId.value(session))) match
+        case Some(serverId) =>
+          CodexArgs.execResume(
+            SessionId[BackendTag.Codex.type](serverId),
+            finalPrompt,
+            config,
+            mcpServerUrl = mcpUrl
+          )
+        case None =>
+          CodexArgs.exec(
+            finalPrompt,
+            config,
+            schemaFile,
+            workDir,
+            mcpServerUrl = mcpUrl
+          )
+      val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+      try
+        // codex doesn't accept user turns over stdin once the initial
+        // prompt has been argv-supplied; close immediately so the
+        // child stops waiting on stdin EOF. Same reflex as claude's
+        // single-shot stream-json path.
+        process.closeStdin()
+        new CodexConversation(
+          process,
+          initialPrompt = displayPrompt,
+          outputSchema = outputSchema,
+          askUserBridge = askUser.map(_.bridge),
+          sessionResources = askUser.toList.map(_.server)
         )
+      catch
+        case e: Exception =>
+          process.sendSigInt()
+          askUser.foreach(closeAskUser)
+          throw OrcaFlowException(
+            s"Failed to open codex session: ${e.getMessage}"
+          )
+    catch
+      case e: Throwable =>
+        // Pre-spawn failure (system-prompt build, args build): tear down
+        // anything we already allocated.
+        askUser.foreach(closeAskUser)
+        throw e
+
+  /** Stand up the bridge + MCP server. On failure between bridge creation
+    * and server start, the bridge has no resources to release; on failure
+    * after server start the caller's outer catch invokes [[closeAskUser]].
+    */
+  private def allocateAskUser(): AskUserResources =
+    val bridge = new AskUserBridge
+    val server = AskUserMcpServer.start(bridge)
+    AskUserResources(bridge, server)
+
+  /** Best-effort teardown of every resource attached to an ask_user session.
+    * Each close is wrapped so one resource's failure doesn't skip the next
+    * (and so the failure-path caller's original throw isn't masked).
+    */
+  private def closeAskUser(r: AskUserResources): Unit =
+    try r.bridge.close()
+    catch case NonFatal(_) => ()
+    try r.server.close()
+    catch case NonFatal(_) => ()
 
   /** Record the server-allocated thread id learned from a call's response so
     * subsequent calls with the same client id resume that thread. Idempotent
@@ -155,16 +230,26 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
     )
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
-    * files in the working directory for static instructions). Fold a configured
-    * `systemPrompt` into the user prompt as a preamble — a low-tech but
+    * files in the working directory for static instructions). Fold the
+    * configured `systemPrompt` AND, on the interactive path, the shared
+    * `ask_user` hint into the user prompt as a preamble — a low-tech but
     * predictable substitute.
     */
-  private def mergeSystemPrompt(config: LlmConfig, userPrompt: String): String =
-    config.systemPrompt match
+  private def mergeSystemPrompt(
+      config: LlmConfig,
+      userPrompt: String,
+      includeAskUserHint: Boolean
+  ): String =
+    val body = (config.systemPrompt, includeAskUserHint) match
+      case (Some(s), true)  => Some(s + "\n\n" + AskUserMcpServer.Hint)
+      case (None, true)     => Some(AskUserMcpServer.Hint)
+      case (Some(s), false) => Some(s)
+      case (None, false)    => None
+    body match
       case None => userPrompt
-      case Some(body) =>
+      case Some(text) =>
         s"""System guidance:
-           |$body
+           |$text
            |
            |User request:
            |$userPrompt""".stripMargin

@@ -3,6 +3,8 @@ package orca.tools.codex
 import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 import orca.backend.ConversationEvent
 import orca.subprocess.OsProcCliRunner
+import ox.channels.BufferCapacity
+import ox.supervised
 
 /** End-to-end tests against the real `codex` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -24,7 +26,14 @@ class CodexIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     3.minutes
 
-  private val backend = new CodexBackend(OsProcCliRunner)
+  /** Build a `CodexBackend` inside a fresh `supervised:` scope (Ox
+    * capability the backend's constructor needs for the MCP server
+    * lifecycle) and release it before the test returns.
+    */
+  private def withBackend(body: CodexBackend => Unit): Unit =
+    supervised:
+      given BufferCapacity = BufferCapacity(8)
+      body(new CodexBackend(OsProcCliRunner))
 
   private val unsandboxed: LlmConfig =
     LlmConfig.default.copy(autoApprove = AutoApprove.All)
@@ -32,102 +41,107 @@ class CodexIntegrationTest extends munit.FunSuite:
   private def fresh = SessionId.fresh[BackendTag.Codex.type]
 
   test("headless prompt returns the requested literal output"):
-    val result = backend.runAutonomous(
-      prompt =
-        "Reply with the single word: READY. Reply with that word and nothing else.",
-      session = fresh,
-      config = unsandboxed,
-      workDir = os.temp.dir()
-    )
-    assert(
-      result.output.toUpperCase.contains("READY"),
-      s"expected output to contain READY, got: ${result.output}"
-    )
-    assert(SessionId.value(result.sessionId).nonEmpty)
-
-  test("a resumed call carries conversational context across turns"):
-    val workDir = os.temp.dir()
-    val session = fresh
-    val _ = backend.runAutonomous(
-      prompt = "Remember the number 42. Reply with the single word: stored.",
-      session = session,
-      config = unsandboxed,
-      workDir = workDir
-    )
-    val second = backend.runAutonomous(
-      prompt =
-        "What number did I ask you to remember? Reply with just the number.",
-      session = session,
-      config = unsandboxed,
-      workDir = workDir
-    )
-    assert(
-      second.output.contains("42"),
-      s"expected resumed session to recall '42', got: ${second.output}"
-    )
-
-  test("interactive session reaches a result with a session id"):
-    val conversation = backend.runInteractive(
-      prompt = "Reply with just the number 7. Nothing else.",
-      session = fresh,
-      displayPrompt = "reply with 7",
-      config = unsandboxed,
-      workDir = os.temp.dir(),
-      outputSchema = None
-    )
-    try
-      conversation.events.foreach(_ => ())
-      val Right(result) = conversation.awaitResult(): @unchecked
+    withBackend: backend =>
+      val result = backend.runAutonomous(
+        prompt =
+          "Reply with the single word: READY. Reply with that word and nothing else.",
+        session = fresh,
+        config = unsandboxed,
+        workDir = os.temp.dir()
+      )
       assert(
-        result.output.contains("7"),
-        s"expected a reply containing '7', got: ${result.output}"
+        result.output.toUpperCase.contains("READY"),
+        s"expected output to contain READY, got: ${result.output}"
       )
       assert(SessionId.value(result.sessionId).nonEmpty)
-    finally conversation.cancel()
+
+  test("a resumed call carries conversational context across turns"):
+    withBackend: backend =>
+      val workDir = os.temp.dir()
+      val session = fresh
+      val _ = backend.runAutonomous(
+        prompt = "Remember the number 42. Reply with the single word: stored.",
+        session = session,
+        config = unsandboxed,
+        workDir = workDir
+      )
+      val second = backend.runAutonomous(
+        prompt =
+          "What number did I ask you to remember? Reply with just the number.",
+        session = session,
+        config = unsandboxed,
+        workDir = workDir
+      )
+      assert(
+        second.output.contains("42"),
+        s"expected resumed session to recall '42', got: ${second.output}"
+      )
+
+  test("interactive session reaches a result with a session id"):
+    withBackend: backend =>
+      val conversation = backend.runInteractive(
+        prompt = "Reply with just the number 7. Nothing else.",
+        session = fresh,
+        displayPrompt = "reply with 7",
+        config = unsandboxed,
+        workDir = os.temp.dir(),
+        outputSchema = None
+      )
+      try
+        conversation.events.foreach(_ => ())
+        val Right(result) = conversation.awaitResult(): @unchecked
+        assert(
+          result.output.contains("7"),
+          s"expected a reply containing '7', got: ${result.output}"
+        )
+        assert(SessionId.value(result.sessionId).nonEmpty)
+      finally conversation.cancel()
 
   test("interactive session emits AssistantTextDelta + AssistantTurnEnd"):
-    val conversation = backend.runInteractive(
-      prompt =
-        "Reply with: 1, 2, 3. Just those three numbers separated by commas, nothing else.",
-      session = fresh,
-      displayPrompt = "list 1..3",
-      config = unsandboxed,
-      workDir = os.temp.dir(),
-      outputSchema = None
-    )
-    try
-      val events = conversation.events.toList
-      val _ = conversation.awaitResult()
-      assert(
-        events.exists(_.isInstanceOf[ConversationEvent.AssistantTextDelta]),
-        s"expected an AssistantTextDelta; got: $events"
+    withBackend: backend =>
+      val conversation = backend.runInteractive(
+        prompt =
+          "Reply with: 1, 2, 3. Just those three numbers separated by commas, nothing else.",
+        session = fresh,
+        displayPrompt = "list 1..3",
+        config = unsandboxed,
+        workDir = os.temp.dir(),
+        outputSchema = None
       )
-      assert(
-        events.contains(ConversationEvent.AssistantTurnEnd),
-        s"expected an AssistantTurnEnd; got: $events"
-      )
-    finally conversation.cancel()
+      try
+        val events = conversation.events.toList
+        val _ = conversation.awaitResult()
+        assert(
+          events.exists(_.isInstanceOf[ConversationEvent.AssistantTextDelta]),
+          s"expected an AssistantTextDelta; got: $events"
+        )
+        assert(
+          events.contains(ConversationEvent.AssistantTurnEnd),
+          s"expected an AssistantTurnEnd; got: $events"
+        )
+      finally conversation.cancel()
 
   test("a tool-using prompt surfaces a ToolResult"):
-    val workDir = os.temp.dir()
-    os.write(workDir / "marker.txt", "orca-codex-marker")
-    val conversation = backend.runInteractive(
-      prompt =
-        "You MUST run the shell command `cat marker.txt` first to read the file. Then tell me what it contained. Reply briefly.",
-      session = fresh,
-      displayPrompt = "read marker.txt",
-      config = unsandboxed,
-      workDir = workDir,
-      outputSchema = None
-    )
-    try
-      val events = conversation.events.toList
-      val _ = conversation.awaitResult()
-      // Models occasionally answer from context without invoking bash.
-      // Assert the ToolResult side specifically — if codex did run the
-      // shell, we'll see one.
-      assert(
-        events.exists(_.isInstanceOf[ConversationEvent.ToolResult]),
-        s"expected a ToolResult after a directed tool-using prompt; got: $events"
+    withBackend: backend =>
+      val workDir = os.temp.dir()
+      os.write(workDir / "marker.txt", "orca-codex-marker")
+      val conversation = backend.runInteractive(
+        prompt =
+          "You MUST run the shell command `cat marker.txt` first to read the file. Then tell me what it contained. Reply briefly.",
+        session = fresh,
+        displayPrompt = "read marker.txt",
+        config = unsandboxed,
+        workDir = workDir,
+        outputSchema = None
       )
-    finally conversation.cancel()
+      try
+        val events = conversation.events.toList
+        val _ = conversation.awaitResult()
+        // Models occasionally answer from context without invoking bash.
+        // Assert the ToolResult side specifically — if codex did run the
+        // shell, we'll see one.
+        assert(
+          events.exists(_.isInstanceOf[ConversationEvent.ToolResult]),
+          s"expected a ToolResult after a directed tool-using prompt; got: $events"
+        )
+      finally conversation.cancel()
