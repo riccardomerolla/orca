@@ -9,7 +9,8 @@ import orca.backend.{
   LlmBackend,
   LlmResult,
   SessionMode,
-  SessionRegistry
+  SessionRegistry,
+  SystemPromptComposer
 }
 import orca.subprocess.CliRunner
 import orca.backend.mcp.{AskUserMcpServer, AskUserResources}
@@ -222,30 +223,20 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       s"""{"mcpServers":{"${ClaudeBackend.McpServerName}":{"type":"http","url":"${server.url}"}}}"""
     )
 
-  /** Build the per-session system-prompt file. Optionally includes a short note
-    * about the `ask_user` MCP tool — only the interactive path passes
-    * `includeAskUserHint = true`, so autonomous calls don't waste tokens on a
-    * tool they have no MCP server for.
-    *
-    * Writes to a JVM temp file (auto-cleaned on exit) rather than the user's
-    * workDir — the file is purely an IPC mechanism between orca and the
-    * `claude` subprocess (claude reads it once on startup via
-    * `--append-system-prompt-file`) and has no business surviving in the user's
-    * repo as `.claude/orca-system-prompt.md`.
+  /** Build the per-session system-prompt file. Composes
+    * `config.systemPrompt` with the shared ask_user hint (interactive only),
+    * then writes to a JVM temp file (auto-cleaned on exit) rather than the
+    * user's workDir — the file is purely an IPC mechanism between orca and
+    * the `claude` subprocess (read once on startup via
+    * `--append-system-prompt-file`).
     */
   private def writeSystemPromptIfPresent(
       config: LlmConfig,
       includeAskUserHint: Boolean = false
   ): Option[os.Path] =
-    val body = (config.systemPrompt, includeAskUserHint) match
-      case (Some(s), true)  => Some(s + "\n\n" + ClaudeBackend.AskUserHint)
-      case (None, true)     => Some(ClaudeBackend.AskUserHint)
-      case (Some(s), false) => Some(s)
-      case (None, false)    => None
-    body.map: text =>
-      val file =
-        os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
-      file
+    val hint = Option.when(includeAskUserHint)(AskUserMcpServer.Hint)
+    SystemPromptComposer.combine(config, hint).map: text =>
+      os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
 

@@ -10,7 +10,8 @@ import orca.backend.{
   LlmBackend,
   LlmResult,
   SessionMode,
-  SessionRegistry
+  SessionRegistry,
+  SystemPromptComposer
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserResources}
 import orca.subprocess.CliRunner
@@ -195,8 +196,7 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
     * files in the working directory for static instructions). Fold the
-    * configured `systemPrompt` and any caller-supplied `extraHint` (e.g.
-    * the shared `ask_user` hint on interactive calls) into the user
+    * composed system prompt (config + optional extra hint) into the user
     * prompt as a preamble — a low-tech but predictable substitute.
     */
   private def mergeSystemPrompt(
@@ -204,14 +204,14 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
       userPrompt: String,
       extraHint: Option[String]
   ): String =
-    val pieces = List(config.systemPrompt, extraHint).flatten
-    if pieces.isEmpty then userPrompt
-    else
-      s"""System guidance:
-         |${pieces.mkString("\n\n")}
-         |
-         |User request:
-         |$userPrompt""".stripMargin
+    SystemPromptComposer.combine(config, extraHint) match
+      case None => userPrompt
+      case Some(text) =>
+        s"""System guidance:
+           |$text
+           |
+           |User request:
+           |$userPrompt""".stripMargin
 
   private def writeSchemaIfPresent(
       schema: Option[String],
