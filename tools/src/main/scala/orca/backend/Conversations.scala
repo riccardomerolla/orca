@@ -4,28 +4,17 @@ import orca.OrcaInteractiveCancelled
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.BackendTag
 
-/** Drains a [[Conversation]] for the autonomous path: walks every
-  * [[ConversationEvent]] off the iterator, emits a matching [[OrcaEvent]] to
-  * the listener for the user-visible ones, then returns the awaited
-  * `LlmResult`.
+/** Drains a [[Conversation]] for the autonomous path, mapping conversation
+  * events to [[OrcaEvent]]s and returning the awaited `LlmResult`.
   *
-  * Buffered text flushes at every `AssistantTurnEnd` (as `OrcaEvent.AssistantMessage`).
-  * Structured mode (`conv.outputSchema.isDefined`) withholds the most recent
-  * turn — if another turn follows it was intermediate prose (flush); if the
-  * stream ends with it withheld it was the JSON payload (drop, the caller
-  * surfaces it via `OrcaEvent.StructuredResult`). End-of-stream flushes any
-  * unfinished buffer outside structured mode so a mid-turn crash doesn't lose
-  * partial output.
+  * Structured mode (`conv.outputSchema.isDefined`) withholds the last assistant
+  * turn so the closing JSON payload doesn't surface as an `AssistantMessage` —
+  * the caller emits it via `OrcaEvent.StructuredResult` instead. Outside
+  * structured mode every turn flushes; end-of-stream flushes any unfinished
+  * buffer so a mid-turn crash doesn't lose partial output.
   *
-  * Other mappings: `AssistantToolCall(name, raw)` → `OrcaEvent.ToolUse(name,
-  * raw)` (raw JSON passes through; the terminal listener summarises);
-  * `AssistantThinkingDelta` dropped; `ConversationEvent.Error` re-emits;
-  * `ToolResult`/`UserMessage`/`ApproveTool`/`UserQuestion` swallowed.
-  *
-  * `awaitResult()`'s `Left(OrcaInteractiveCancelled)` becomes a thrown
-  * `OrcaInteractiveCancelled` so autonomous callers — which never expose a
-  * cancel button — don't have to special-case a value they could never have
-  * produced.
+  * `Left(OrcaInteractiveCancelled)` from `awaitResult()` is rethrown — the
+  * autonomous shape never exposes a cancel button to the caller.
   */
 private[orca] object Conversations:
 

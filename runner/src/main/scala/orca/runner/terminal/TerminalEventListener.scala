@@ -5,17 +5,11 @@ import orca.events.{OrcaEvent, OrcaListener}
 /** Renders `OrcaEvent`s — stage transitions, steps, tool uses, errors — via a
   * [[TerminalOutput]] and tracks the active stage stack + indent depth.
   *
-  * `EventDispatcher` fans events out to listeners concurrently (see its
-  * scaladoc), so this listener serialises its own mutable state (`StageStack`,
-  * `StageDepth`) with `lock.synchronized`. The lock guards **only** the state
-  * mutation + formatted-string computation — output tells happen after the lock
-  * releases, so a slow actor mailbox can't pin the lock and block body-thread
-  * reads of [[currentIndent]].
-  *
-  * Ordering: within one `onEvent` call, the (state mutation, format) + (tell)
-  * split preserves visible order — both happen on the same thread. Across
-  * concurrent `onEvent` calls from different dispatcher threads, mailbox
-  * arrival order matches lock-release order, which is what callers expect.
+  * Listeners must be thread-safe (the `EventDispatcher` fans out concurrently).
+  * The stage stack and depth are serialised under `lock`, but the lock is
+  * released BEFORE the `output.log` tell so a slow actor mailbox can't block
+  * lock-free [[currentIndent]] readers (the conversation renderer running on
+  * another thread).
   */
 private[runner] class TerminalEventListener(
     output: TerminalOutput,
