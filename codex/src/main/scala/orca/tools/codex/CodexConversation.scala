@@ -48,13 +48,7 @@ private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    /** The ask_user resource bundle for this conversation, or `None` for
-      * autonomous calls / tests. When wired: drives `canAskUser`, spawns
-      * the bridge drainer thread, and closes on `onFinalize` (closing
-      * happens in [[AskUserResources.close]] order: bridge → server →
-      * extras).
-      */
-    askUser: Option[AskUserResources] = None
+    override val askUser: Option[AskUserResources] = None
 ) extends StreamConversation[BackendTag.Codex.type](
       process = process,
       backendName = "codex",
@@ -93,9 +87,8 @@ private[codex] class CodexConversation(
   private var suppressedMcpItemIds: Set[String] = Set.empty
 
   // Subclass fields above are assigned now; safe to spin up the reader +
-  // stderr workers. See [[StreamConversation.start]].
-  askUser.foreach(r => startAskUserDrainer(r.bridge))
-
+  // stderr workers. See [[StreamConversation.start]] — the base also
+  // spawns the ask_user drainer if one was wired.
   start()
 
   // --- Conversation surface ---
@@ -106,11 +99,10 @@ private[codex] class CodexConversation(
     */
   def sendUserMessage(text: String): Unit = ()
 
-  // Codex exec has no in-session user-message channel over stdin (ADR
-  // 0007), but the agent CAN reach the user via the `ask_user` MCP tool
-  // when a bridge is wired. The flag tracks the bridge's presence rather
-  // than the stdin channel.
-  def canAskUser: Boolean = askUser.isDefined
+  // `canAskUser` is owned by the base — true when this conversation was
+  // constructed with `askUser = Some(...)`. Codex exec has no in-session
+  // stdin channel (ADR 0007), but the agent CAN reach the user via the
+  // ask_user MCP tool when the bridge is wired.
 
   // --- Reader hooks ---
 
@@ -138,8 +130,7 @@ private[codex] class CodexConversation(
 
   /** Bounded wait for the stderr drain so any trailing error lines (which the
     * consumer can't see once we close the queue) reach the events queue.
-    * Then close the ask_user resource bundle (bridge first, then MCP
-    * server, then any extras) — see [[AskUserResources.close]].
+    * The base closes the ask_user bundle after this hook returns.
     */
   override protected def onFinalize(): Unit =
     try stderrDrainThread.join(StderrDrainTimeoutMs)
@@ -147,7 +138,6 @@ private[codex] class CodexConversation(
       // Interrupt while joining means the parent is shutting down.
       // Restore the flag so callers up-stack can react.
       case _: InterruptedException => Thread.currentThread().interrupt()
-    askUser.foreach(_.close())
 
   override protected def cleanExitWithoutResult(): Throwable =
     // Defer the framing to the base so the diagnosticContext below gets

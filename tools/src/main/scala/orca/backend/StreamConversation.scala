@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.backend.mcp.AskUserBridge
+import orca.backend.mcp.{AskUserBridge, AskUserResources}
 import orca.llm.BackendTag
 import orca.subprocess.PipedCliProcess
 import orca.util.OrcaDebug
@@ -50,6 +50,17 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     AtomicReference(None)
   protected val cancelled: AtomicBoolean = new AtomicBoolean(false)
 
+  /** Optional `ask_user` MCP resource bundle for this conversation.
+    * Subclasses on interactive calls override (via `override val askUser`
+    * on the ctor param) to point the base at the bundle; the base spawns
+    * the drainer thread inside [[start]] and closes the bundle in
+    * [[finalizeLoop]] post-`onFinalize`. Autonomous calls leave the
+    * default `None` and the wiring is a no-op.
+    */
+  protected def askUser: Option[AskUserResources] = None
+
+  final def canAskUser: Boolean = askUser.isDefined
+
   // Surface the opening prompt to the channel before any agent
   // output. Without this, the channel sits silent while the agent
   // warms up — giving the user nothing to anchor the eventual
@@ -85,21 +96,20 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     // `onFinalize` immediately.
     stderrThread.start()
     readerThread.start()
+    // Drainer spawn lands here so the subclass's `askUser` override has
+    // already initialized by the time we read it.
+    askUser.foreach(r => startAskUserDrainer(r.bridge))
 
   /** Spin up a daemon thread that bridges an [[AskUserBridge]] into the
     * conversation's event stream: each pending question becomes a
     * `ConversationEvent.UserQuestion` whose `respond` closure delivers the
-    * user's typed answer back to the blocked MCP handler. Both claude and
-    * codex use this to surface the shared `AskUserMcpServer`'s `ask_user`
-    * tool calls into the renderer.
-    *
-    * Subclasses call this from their constructor (before [[start]]) when an
-    * MCP bridge is wired. The thread exits cleanly when
-    * `bridge.close()` raises `ChannelClosedException` from
-    * `nextQuestion()` — typically driven by the conversation's
-    * [[onFinalize]].
+    * user's typed answer back to the blocked MCP handler. Called from
+    * [[start]] for every conversation whose [[askUser]] is `Some`; the
+    * thread exits cleanly when `bridge.close()` raises
+    * `ChannelClosedException` from `nextQuestion()` — driven by
+    * [[finalizeLoop]].
     */
-  protected def startAskUserDrainer(bridge: AskUserBridge): Unit =
+  private def startAskUserDrainer(bridge: AskUserBridge): Unit =
     val t = new Thread(
       () =>
         try
@@ -255,11 +265,16 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
   protected def stderrDrainThread: Thread = stderrThread
 
   private def finalizeLoop(): Unit =
-    // Drain background streams + release session-scoped resources before
-    // computing the outcome — codex's stderr-drain join updates the
-    // buffer that diagnosticContext reads, and claude's bridge close is
-    // expected to happen as soon as the read loop has drained.
+    // 1. Subclass hook — typically drains background streams whose buffered
+    //    state `diagnosticContext` / `cleanExitWithoutResult` depend on
+    //    (codex joins its stderr-drain thread here).
     onFinalize()
+    // 2. Close the ask_user resource bundle if one was wired. Happens after
+    //    `onFinalize` so any subclass cleanup that might depend on the
+    //    bridge / MCP server runs first; in practice neither backend does.
+    //    `AskUserResources.close` handles ordering (bridge → server →
+    //    extras) and swallows close-time failures.
+    askUser.foreach(_.close())
     val finalOutcome: Outcome[B] = outcomeRef.get() match
       case Some(existing)          => existing
       case None if cancelled.get() => Outcome.cancelled[B]

@@ -15,7 +15,6 @@ private class UnstartedConversation(process: FakePipedCliProcess)
     ):
   val outputSchema: Option[String] = None
   def sendUserMessage(text: String): Unit = ()
-  def canAskUser: Boolean = false
   protected def handleLine(line: String): Unit = ()
 
 class StreamConversationTest extends munit.FunSuite:
