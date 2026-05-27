@@ -18,7 +18,7 @@ import orca.events.{OrcaEvent, OrcaListener}
   *   - the model accessors (`haiku`/`sonnet`/`opus`, `mini`, …) — these are
   *     backend-specific and stay on the subclass.
   */
-abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
+abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
     backend: LlmBackend[B],
     config: LlmConfig,
     prompts: Prompts,

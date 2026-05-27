@@ -4,11 +4,11 @@ import orca.llm.{BackendTag, CodexTool, LlmConfig, Model, Prompts}
 import orca.events.{OrcaListener}
 
 import orca.backend.{Interaction, LlmBackend}
-import orca.llm.AbstractDefaultLlmTool
+import orca.llm.BaseLlmTool
 
 /** Default [[CodexTool]] implementation. Inherits the autonomous-text +
-  * `resultAs[O]` plumbing from [[AbstractDefaultLlmTool]] and only adds the
-  * Codex-specific `mini` model accessor.
+  * `resultAs[O]` plumbing from [[BaseLlmTool]] and only adds the Codex-specific
+  * `mini` model accessor.
   */
 class DefaultCodexTool(
     backend: LlmBackend[BackendTag.Codex.type],
@@ -18,7 +18,7 @@ class DefaultCodexTool(
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends AbstractDefaultLlmTool[BackendTag.Codex.type, CodexTool](
+) extends BaseLlmTool[BackendTag.Codex.type, CodexTool](
       backend,
       config,
       prompts,

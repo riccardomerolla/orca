@@ -4,17 +4,17 @@ import orca.llm.{BackendTag, ClaudeTool, LlmConfig, Model, Prompts}
 import orca.events.{OrcaListener}
 
 import orca.backend.{Interaction, LlmBackend}
-import orca.llm.AbstractDefaultLlmTool
+import orca.llm.BaseLlmTool
 
 /** Default ClaudeTool implementation. Inherits the autonomous-text +
-  * `resultAs[O]` plumbing from [[AbstractDefaultLlmTool]] and only adds the
+  * `resultAs[O]` plumbing from [[BaseLlmTool]] and only adds the
   * Claude-specific model accessors (`haiku` / `sonnet` / `opus`).
   *
   * Free-form text `autonomous.run` and structured `resultAs[O].autonomous.run`
   * go through the backend's headless mode. Interactive structured calls
   * (`resultAs[O].interactive.run`) spawn claude in stream-json mode and wrap
-  * the subprocess in a `Conversation` that the supplied `interaction` drives
-  * to completion.
+  * the subprocess in a `Conversation` that the supplied `interaction` drives to
+  * completion.
   */
 class DefaultClaudeTool(
     backend: LlmBackend[BackendTag.ClaudeCode.type],
@@ -24,7 +24,7 @@ class DefaultClaudeTool(
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends AbstractDefaultLlmTool[BackendTag.ClaudeCode.type, ClaudeTool](
+) extends BaseLlmTool[BackendTag.ClaudeCode.type, ClaudeTool](
       backend,
       config,
       prompts,
