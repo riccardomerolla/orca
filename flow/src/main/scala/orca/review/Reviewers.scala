@@ -11,7 +11,7 @@ import scala.util.matching.Regex
   * restricts the reviewer to changes that touch at least one matching file —
   * the selector drops the reviewer before the picker LLM sees it.
   */
-case class Reviewer(
+private[review] case class Reviewer(
     name: String,
     description: String,
     systemPrompt: String,
@@ -27,7 +27,7 @@ case class Reviewer(
   *   - `files:` — substring-matched regex; the reviewer is only offered to the
   *     picker when at least one changed file matches (optional).
   */
-object ReviewerPrompts:
+private[review] object ReviewerPrompts:
 
   private def load(slug: String): Reviewer =
     val parsed = PromptResource.loadWithMetadata(
