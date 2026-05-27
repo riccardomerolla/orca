@@ -74,13 +74,9 @@ private[claude] class ClaudeConversation(
     */
   private var suppressedToolUseIds: Set[String] = Set.empty
 
-  /** Tool-use content blocks currently being assembled from streaming events.
-    * Keyed by the per-message `content_block` index; populated on
-    * `content_block_start`, fed by `input_json_delta`, drained on
-    * `content_block_stop` (where we emit `AssistantToolCall` with the
-    * accumulated input). Lets tool uses surface as soon as their JSON args
-    * finish streaming rather than waiting for the end-of-turn full-message
-    * snapshot — UX wants per-tool-call feedback, not a turn-end batch.
+  /** Tool-use blocks currently being assembled from streaming events. Keyed
+    * by the per-message `content_block` index; drained on `content_block_stop`
+    * where the assembled `AssistantToolCall` is emitted.
     */
   private var inProgressToolUses: Map[Int, ClaudeConversation.ToolUseAccum] =
     Map.empty
@@ -364,8 +360,8 @@ private[claude] class ClaudeConversation(
           None
         case _ => None
     case StreamEventPayload.InputJsonDelta(idx, partial) =>
-      inProgressToolUses.get(idx).foreach: acc =>
-        inProgressToolUses = inProgressToolUses.updated(idx, acc.append(partial))
+      inProgressToolUses =
+        inProgressToolUses.updatedWith(idx)(_.map(_.append(partial)))
       None
     case StreamEventPayload.ContentBlockStop(idx) =>
       inProgressToolUses.get(idx).map: acc =>
@@ -386,12 +382,15 @@ private[claude] class ClaudeConversation(
 
 private[claude] object ClaudeConversation:
 
-  /** Accumulator state for a tool-use block being assembled from streaming
-    * events. `id` and `name` arrive on `content_block_start`; `input` grows
-    * via [[append]] as `input_json_delta` chunks land; the value is consumed
-    * as one `AssistantToolCall` on `content_block_stop`. Immutable so the
-    * surrounding `Map[Int, ToolUseAccum]` retains structural-equality
-    * semantics and the case class's `copy`/`==` stay meaningful.
+  /** Accumulator for a tool-use block being assembled from `input_json_delta`
+    * chunks. Holds each chunk separately and joins them only once at
+    * `content_block_stop` — concat-on-append would be O(N²) over a long
+    * stream of small chunks.
     */
-  case class ToolUseAccum(id: String, name: String, input: String = ""):
-    def append(chunk: String): ToolUseAccum = copy(input = input + chunk)
+  case class ToolUseAccum(
+      id: String,
+      name: String,
+      chunks: Vector[String] = Vector.empty
+  ):
+    def append(chunk: String): ToolUseAccum = copy(chunks = chunks :+ chunk)
+    def input: String = chunks.mkString

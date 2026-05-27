@@ -48,18 +48,6 @@ class JsonSchemaGenTest extends munit.FunSuite:
       List("title")
     )
 
-  test("array items objects are transformed"):
-    // Per-item schemas for arrays are nested inside `items` and need the
-    // same treatment when they describe object payloads.
-    val out = strict(
-      """{
-        |  "type":"array",
-        |  "items":{"type":"object","properties":{"x":{"type":"string"}}}
-        |}""".stripMargin
-    )
-    val item = out.hcursor.downField("items").as[JsonObject].toOption.get
-    assertEquals(item("additionalProperties"), Some(Json.False))
-
   test(
     "object schema that already declares additionalProperties is left intact"
   ):

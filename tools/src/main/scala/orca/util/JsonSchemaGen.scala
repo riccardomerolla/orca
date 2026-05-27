@@ -15,12 +15,9 @@ import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
   *
   * Tapir's default output is JSON-Schema-valid but more permissive than
   * OpenAI's strict mode, so codex rejects it with `invalid_json_schema`.
-  * Optional fields are already marked nullable (`{"type": ["X", "null"]}`) via
-  * `markOptionsAsNullable = true`, so requiring them is safe — the agent
-  * emits `null` rather than omitting the field. Same applies to fields with a
-  * Scala-side default (e.g. `List` defaulting to `Nil`): the agent must
-  * always emit them, possibly as an empty list — which is what the consuming
-  * code already handles.
+  * Optional fields and fields with Scala-side defaults (`List` → `Nil`, etc.)
+  * are marked nullable via `markOptionsAsNullable = true`, so requiring them
+  * is safe — the agent emits `null` or an empty list rather than omitting.
   */
 object JsonSchemaGen:
   def apply[O](using schema: Schema[O]): String =
@@ -28,9 +25,9 @@ object JsonSchemaGen:
       TapirSchemaToJsonSchema(schema, markOptionsAsNullable = true)
     toOpenAiStrict(jsonSchema.asJson).noSpaces
 
-  /** Walk every object subtree (top-level + `$defs`) and inject the two
-    * OpenAI-strict-mode constraints. Exposed for tests; production code uses
-    * [[apply]] which applies it automatically.
+  /** Walk every object subtree and inject the two OpenAI-strict-mode
+    * constraints. Exposed for tests; production code uses [[apply]] which
+    * applies it automatically.
     */
   private[util] def toOpenAiStrict(json: Json): Json =
     json.fold(
