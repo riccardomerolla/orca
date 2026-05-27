@@ -5,7 +5,7 @@ import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
 import orca.backend.StreamConversation
-import orca.backend.mcp.{AskUserMcpServer, AskUserResources}
+import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 
@@ -14,41 +14,28 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Drives a `codex exec --json` session to completion.
-  *
-  * Boilerplate (reader thread, event queue, outcome lifecycle, stderr drain)
-  * lives in [[StreamConversation]]; this class supplies the codex-specific
-  * protocol translation: JSONL → [[InboundEvent]] → `ConversationEvent`s.
+/** Drives a `codex exec --json` session to completion. Boilerplate lives in
+  * [[StreamConversation]]; this class supplies the codex-specific protocol
+  * translation: JSONL → [[InboundEvent]] → `ConversationEvent`s.
   *
   * Notable parity gaps vs. claude (deliberate, driven by codex's JSONL protocol
-  * — see [[../../../adr/0007-codex-exec-jsonl-driver.md ADR 0007]]):
-  *   - codex emits whole `agent_message` items, not per-token deltas. Each
-  *     agent message becomes one [[ConversationEvent.AssistantTextDelta]]
-  *     followed by [[ConversationEvent.AssistantTurnEnd]].
-  *   - codex doesn't negotiate tool approvals over the JSONL stream;
-  *     `LlmConfig.autoApprove` is pre-baked into the spawn args by
-  *     [[CodexArgs]]. [[ConversationEvent.ApproveTool]] is never emitted from
-  *     this driver.
-  *   - `codex exec` reads one prompt and exits; multi-turn happens by spawning
-  *     a fresh `codex exec resume`. So `sendUserMessage` is a no-op (write to a
-  *     closed pipe) — the channel reaches the next turn via
-  *     [[orca.LlmBackend.continueInteractive]].
-  *   - **`LlmResult.output` is synthesised, not delivered.** ADR 0006's "the
-  *     final result message carries the structured output" description fits
-  *     claude (an explicit `result` line on stdout with a `result` field).
-  *     codex has no equivalent terminal message — it just emits
-  *     `turn.completed` with usage. We treat the *last* `item.completed` of
-  *     type `agent_message` before `turn.completed` as the structured payload,
-  *     snapshotting its text into [[lastAgentMessage]] on every agent message
-  *     and building the `LlmResult` from that snapshot when the turn closes.
-  *     The `DefaultPromptTemplate` already instructs the agent to make its
-  *     final message JSON-only, so the snapshot contract holds in practice.
+  * — see ADR 0007):
+  *   - codex emits whole `agent_message` items, not per-token deltas; each
+  *     becomes one `AssistantTextDelta` + one `AssistantTurnEnd`.
+  *   - codex doesn't negotiate tool approvals over the wire; `autoApprove` is
+  *     pre-baked into spawn args. `ApproveTool` is never emitted here.
+  *   - `codex exec` is one-shot; multi-turn happens via `codex exec resume` on
+  *     a fresh spawn, so `sendUserMessage` is a no-op.
+  *   - **`LlmResult.output` is synthesised**: codex has no terminal message
+  *     carrying the structured payload, so [[lastAgentMessage]] snapshots each
+  *     agent message and the result builder reads the last one at
+  *     `turn.completed`. The prompt template makes the last message JSON.
   */
 private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    override val askUser: Option[AskUserResources] = None
+    override val askUser: Option[AskUserSession] = None
 ) extends StreamConversation[BackendTag.Codex.type](
       process = process,
       backendName = "codex",
@@ -75,14 +62,14 @@ private[codex] class CodexConversation(
     */
   private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
-  /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side
-    * bridge has already surfaced the corresponding `UserQuestion` event, so
-    * rendering the tool call on top would be noise. The matching
-    * `item.completed` is also suppressed: the user's typed answer would
-    * otherwise re-render as `⎿ <answer>` after the prompt surfaced it.
+  /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side bridge
+    * has already surfaced the corresponding `UserQuestion` event, so rendering
+    * the tool call on top would be noise. The matching `item.completed` is also
+    * suppressed: the user's typed answer would otherwise re-render as `⎿
+    * <answer>` after the prompt surfaced it.
     *
-    * Single-threaded reader (the JSONL reader thread is the sole writer),
-    * so a plain `var` Set is enough.
+    * Single-threaded reader (the JSONL reader thread is the sole writer), so a
+    * plain `var` Set is enough.
     */
   private var suppressedMcpItemIds: Set[String] = Set.empty
 
@@ -111,8 +98,8 @@ private[codex] class CodexConversation(
 
   /** codex prints known-benign noise on every exec invocation:
     *
-    *   - `Reading additional input from stdin…` whenever stdin is piped
-    *     (we always pipe stdin, even though we immediately close it).
+    *   - `Reading additional input from stdin…` whenever stdin is piped (we
+    *     always pipe stdin, even though we immediately close it).
     *   - `ERROR codex_core::session: failed to record rollout items: thread
     *     <id> not found` during shutdown — fires inside codex's cleanup after
     *     the rollout writer is already torn down. The rollout file is still
@@ -129,8 +116,8 @@ private[codex] class CodexConversation(
       val _ = stderrBuffer.updateAndGet(appendBounded(_, trimmed))
 
   /** Bounded wait for the stderr drain so any trailing error lines (which the
-    * consumer can't see once we close the queue) reach the events queue.
-    * The base closes the ask_user bundle after this hook returns.
+    * consumer can't see once we close the queue) reach the events queue. The
+    * base closes the ask_user bundle after this hook returns.
     */
   override protected def onFinalize(): Unit =
     try stderrDrainThread.join(StderrDrainTimeoutMs)
@@ -188,7 +175,7 @@ private[codex] class CodexConversation(
         )
       )
     case Item.McpToolCall(id, server, tool, _, _, _)
-        if server == CodexArgs.AskUserMcpName &&
+        if server == AskUserMcpServer.ServerName &&
           tool == AskUserMcpServer.ToolSlug =>
       // ask_user is surfaced through the host-side bridge as a
       // UserQuestion event; the matching item.completed echo is dropped
@@ -247,9 +234,9 @@ private[codex] class CodexConversation(
       ()
 
   /** Compose the user-facing tool name from codex's `(server, tool)` pair.
-    * Codex namespaces MCP tools by server, so a dotted form reads naturally
-    * in the renderer log and stays distinct from the bare `bash` /
-    * `file_change` names used by codex's built-in items.
+    * Codex namespaces MCP tools by server, so a dotted form reads naturally in
+    * the renderer log and stays distinct from the bare `bash` / `file_change`
+    * names used by codex's built-in items.
     */
   private def mcpToolName(server: String, tool: String): String =
     s"$server.$tool"
@@ -268,8 +255,8 @@ private[codex] class CodexConversation(
 
 private[codex] object CodexConversation:
 
-  /** Stderr lines codex emits unconditionally that carry no diagnostic
-    * value — filtered before they reach the event queue. See
+  /** Stderr lines codex emits unconditionally that carry no diagnostic value —
+    * filtered before they reach the event queue. See
     * [[CodexConversation.handleStderr]] for what each line means.
     */
   private[codex] def isKnownStderrNoise(line: String): Boolean =

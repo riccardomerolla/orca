@@ -13,11 +13,10 @@ import orca.backend.{
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
-import orca.backend.mcp.{AskUserMcpServer, AskUserResources}
+import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
 import ox.channels.BufferCapacity
-
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
   * stream-json subprocess through [[ClaudeConversation]]; the only difference
@@ -42,8 +41,8 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
 
   /** Tracks which session ids we've already claimed via `--session-id` so
-    * subsequent calls use `--resume` (the CLI refuses to reuse
-    * `--session-id` once the session exists).
+    * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`
+    * once the session exists).
     */
   private val sessions =
     new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
@@ -142,12 +141,14 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     // deterministically on a downstream failure. `None` for autonomous —
     // those calls don't expose the tool. Claude's `extras` deletes the
     // workDir-local `.orca-mcp-<port>.json` when the conversation ends.
-    val (askUser, displayPrompt): (Option[AskUserResources], String) =
+    val (askUser, displayPrompt): (Option[AskUserSession], String) =
       mode match
         case SessionMode.Interactive(p) =>
-          val resources = AskUserResources.allocate: server =>
+          val resources = AskUserSession.allocate: server =>
             writeMcpConfig(server, workDir)
-            List(ClaudeBackend.deleteFileResource(mcpConfigPath(server, workDir)))
+            List(
+              ClaudeBackend.deleteFileResource(mcpConfigPath(server, workDir))
+            )
           (Some(resources), p)
         case SessionMode.Autonomous => (None, "")
     try
@@ -205,8 +206,8 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
         throw e
 
   /** Path of the workDir-local MCP config file advertising the host's MCP
-    * server. Named with the bound port so two interactive conversations
-    * sharing a `workDir` don't overwrite each other's config.
+    * server. Named with the bound port so two interactive conversations sharing
+    * a `workDir` don't overwrite each other's config.
     */
   private def mcpConfigPath(
       server: AskUserMcpServer,
@@ -220,43 +221,38 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): Unit =
     os.write.over(
       mcpConfigPath(server, workDir),
-      s"""{"mcpServers":{"${ClaudeBackend.McpServerName}":{"type":"http","url":"${server.url}"}}}"""
+      s"""{"mcpServers":{"${AskUserMcpServer.ServerName}":{"type":"http","url":"${server.url}"}}}"""
     )
 
-  /** Build the per-session system-prompt file. Composes
-    * `config.systemPrompt` with the shared ask_user hint (interactive only),
-    * then writes to a JVM temp file (auto-cleaned on exit) rather than the
-    * user's workDir — the file is purely an IPC mechanism between orca and
-    * the `claude` subprocess (read once on startup via
-    * `--append-system-prompt-file`).
+  /** Build the per-session system-prompt file. Composes `config.systemPrompt`
+    * with the shared ask_user hint (interactive only), then writes to a JVM
+    * temp file (auto-cleaned on exit) rather than the user's workDir — the file
+    * is purely an IPC mechanism between orca and the `claude` subprocess (read
+    * once on startup via `--append-system-prompt-file`).
     */
   private def writeSystemPromptIfPresent(
       config: LlmConfig,
       includeAskUserHint: Boolean = false
   ): Option[os.Path] =
     val hint = Option.when(includeAskUserHint)(AskUserMcpServer.Hint)
-    SystemPromptComposer.combine(config, hint).map: text =>
-      os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
+    SystemPromptComposer
+      .combine(config, hint)
+      .map: text =>
+        os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
 
   /** Returns an `AutoCloseable` that best-effort deletes the given file when
-    * closed. Used as an `AskUserResources.extras` entry so each
-    * conversation's `.orca-mcp-<port>.json` is removed when the conversation
-    * ends — without this, long flows would accumulate orphan config files
-    * in `workDir`.
+    * closed. Used as an `AskUserSession.extras` entry so each conversation's
+    * `.orca-mcp-<port>.json` is removed when the conversation ends — without
+    * this, long flows would accumulate orphan config files in `workDir`.
     */
   private[claude] def deleteFileResource(path: os.Path): AutoCloseable =
-    () => if os.exists(path) then os.remove(path)
-
-  /** MCP server name as it appears in `.mcp.json`. Combined with the tool name,
-    * the agent sees `mcp__orca__ask_user`.
-    */
-  private[claude] val McpServerName: String = "orca"
+    () => if os.exists(path) then os.remove(path): Unit
 
   /** Fully-qualified tool name the agent uses, derived from the MCP server name
     * + the tool's bare slug. Always auto-approved on the interactive path — the
     * user is already typing an answer, no need for a y/n prompt first.
     */
   private[claude] val AskUserToolName: String =
-    s"mcp__${McpServerName}__${AskUserMcpServer.ToolSlug}"
+    s"mcp__${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"

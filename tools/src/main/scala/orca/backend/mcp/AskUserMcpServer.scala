@@ -38,6 +38,14 @@ private[orca] class AskUserMcpServer private[mcp] (
 
 private[orca] object AskUserMcpServer:
 
+  /** MCP server name advertised to every backend (`mcp_servers.<name>` in
+    * codex's config, the `mcpServers` map key in claude's `.mcp.json`). The two
+    * backends are required to use the same name so a single MCP host binding
+    * serves both; promoting the literal here keeps that identity explicit
+    * instead of letting each backend re-declare it.
+    */
+  private[orca] val ServerName: String = "orca"
+
   /** MCP tool slug as advertised over the protocol. Claude qualifies this with
     * the server name from `.mcp.json` (`mcp__<server>__$ToolSlug`); codex
     * surfaces it as the bare slug with the server name in a parallel field.

@@ -1,7 +1,7 @@
 package orca.tools.claude
 
-import orca.backend.Dispatch
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.backend.{CliArgs, Dispatch}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 /** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
   * by the backend (written to a file whose path is passed in via
@@ -39,22 +39,19 @@ private[claude] object ClaudeArgs:
       "--verbose",
       "--include-partial-messages"
     ) ++
-      modelArgs(config) ++
+      CliArgs.modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
       autoApproveArgs(config) ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
 
-  private def modelArgs(config: LlmConfig): Seq[String] =
-    config.model.toSeq.flatMap(m => Seq("--model", m.name))
-
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt-file", f.toString))
 
   /** Fresh dispatch → `--session-id <uuid>` (creates the session with our
-    * pre-allocated UUID). Resume → `--resume <uuid>` (claude refuses to
-    * reuse `--session-id` once the session exists).
+    * pre-allocated UUID). Resume → `--resume <uuid>` (claude refuses to reuse
+    * `--session-id` once the session exists).
     */
   private def sessionArgs(
       dispatch: Dispatch[BackendTag.ClaudeCode.type]
@@ -74,10 +71,10 @@ private[claude] object ClaudeArgs:
   private def mcpConfigArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--mcp-config", f.toString))
 
-  /** `readOnly` overrides any `autoApprove` setting: claude's `--permission-mode
-    * plan` makes Edit/Write/Bash unavailable to the agent (not just
-    * non-auto-approved). The planner's "don't edit files" instruction in the
-    * prompt is advisory; this turns it into a hard guarantee.
+  /** `readOnly` overrides any `autoApprove` setting: claude's
+    * `--permission-mode plan` makes Edit/Write/Bash unavailable to the agent
+    * (not just non-auto-approved). The planner's "don't edit files" instruction
+    * in the prompt is advisory; this turns it into a hard guarantee.
     */
   private def autoApproveArgs(config: LlmConfig): Seq[String] =
     if config.readOnly then Seq("--permission-mode", "plan")

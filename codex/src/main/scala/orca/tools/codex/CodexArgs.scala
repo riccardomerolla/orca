@@ -1,6 +1,8 @@
 package orca.tools.codex
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.backend.CliArgs
+import orca.backend.mcp.AskUserMcpServer
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 /** Maps `LlmConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent
@@ -14,13 +16,6 @@ import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
   */
 private[codex] object CodexArgs:
 
-  /** MCP server name codex sees in `mcp_servers.<name>.url`. Combined with the
-    * tool's bare slug, the agent invokes it as `tool: "ask_user"` on
-    * `server: "$AskUserMcpName"` in the JSONL stream. Referenced by both the
-    * arg builder here and by [[CodexConversation]]'s routing.
-    */
-  val AskUserMcpName: String = "orca"
-
   /** Single-turn `codex exec --json [<prompt>]` invocation. */
   def exec(
       prompt: String,
@@ -33,7 +28,7 @@ private[codex] object CodexArgs:
       mcpServerArgs(mcpServerUrl) ++
       Seq("exec", "--json") ++
       sandboxArgs(config) ++
-      modelArgs(config) ++
+      CliArgs.modelArgs(config) ++
       cwdArgs(workDir) ++
       // --skip-git-repo-check is permissive — codex bails if it can't
       // tell whether cwd is a git repo, which is a poor fit for tests
@@ -66,7 +61,7 @@ private[codex] object CodexArgs:
       mcpServerArgs(mcpServerUrl) ++
       Seq("exec", "resume", "--json", SessionId.value(sessionId)) ++
       sandboxArgs(config) ++
-      modelArgs(config) ++
+      CliArgs.modelArgs(config) ++
       Seq("--skip-git-repo-check") ++
       Seq(prompt)
 
@@ -77,10 +72,7 @@ private[codex] object CodexArgs:
     */
   private def mcpServerArgs(url: Option[String]): Seq[String] =
     url.toSeq.flatMap: u =>
-      Seq("-c", s"""mcp_servers.${AskUserMcpName}.url="$u"""")
-
-  private def modelArgs(config: LlmConfig): Seq[String] =
-    config.model.toSeq.flatMap(m => Seq("--model", m.name))
+      Seq("-c", s"""mcp_servers.${AskUserMcpServer.ServerName}.url="$u"""")
 
   private def cwdArgs(workDir: os.Path): Seq[String] =
     Seq("-C", workDir.toString)
