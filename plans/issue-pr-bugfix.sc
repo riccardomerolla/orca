@@ -75,6 +75,11 @@ flow(OrcaArgs(args)):
         )
 
     case Triage.Testable(summary, branchName, failingTestPath) =>
+      // Stash pre-existing local edits before switching branches — otherwise
+      // they'd ride onto the bugfix branch and get folded into the
+      // failing-test commit. `ensureClean` emits a Step the user can act on
+      // (`git stash pop`) once the flow finishes.
+      val _ = git.ensureClean("orca: pre-bugfix stash")
       git.checkoutOrCreate(branchName)
 
       stage("Write the failing test"):
