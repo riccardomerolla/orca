@@ -71,17 +71,18 @@ private[codex] object CodexArgs:
     * since codex parses `-c` values as TOML literals.
     *
     * The `tool_timeout_sec` override extends codex's per-tool timeout from its
-    * 60s default to one hour, matching the Netty server-side `requestTimeout`
-    * we set on [[AskUserMcpServer]]. Without it, codex gives up on `ask_user`
-    * after 60s and fires a follow-up — the user ends up answering twice.
+    * 60s default to [[AskUserMcpServer.ToolTimeout]]. Without it, codex gives
+    * up on `ask_user` after 60s and fires a follow-up — the user ends up
+    * answering twice.
     */
   private def mcpServerArgs(url: Option[String]): Seq[String] =
     url.toSeq.flatMap: u =>
+      val timeoutSec = AskUserMcpServer.ToolTimeout.toSeconds
       Seq(
         "-c",
         s"""mcp_servers.${AskUserMcpServer.ServerName}.url="$u"""",
         "-c",
-        s"mcp_servers.${AskUserMcpServer.ServerName}.tool_timeout_sec=3600"
+        s"mcp_servers.${AskUserMcpServer.ServerName}.tool_timeout_sec=$timeoutSec"
       )
 
   private def cwdArgs(workDir: os.Path): Seq[String] =

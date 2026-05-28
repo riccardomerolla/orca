@@ -6,7 +6,7 @@ import ox.Ox
 import sttp.tapir.Schema
 import sttp.tapir.server.netty.sync.NettySyncServer
 
-import scala.concurrent.duration.DurationInt
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 /** Input shape of the `ask_user` MCP tool. The agent fills in `question`; we
   * hand the typed answer back as the tool result.
@@ -55,6 +55,17 @@ private[orca] object AskUserMcpServer:
     */
   private[orca] val ToolSlug: String = "ask_user"
 
+  /** Upper bound on how long one `ask_user` invocation can take, from the
+    * agent's MCP request to the user's answer. Both backend MCP clients
+    * (claude, codex) and this server's Netty binding must agree on a value
+    * larger than any reasonable user delay — otherwise the client times out
+    * client-side, the agent synthesises a tool failure, and a follow-up
+    * `ask_user` fires while the user is still typing. Each consumer converts to
+    * its native unit (claude wants ms, codex wants seconds, Netty wants
+    * `FiniteDuration`).
+    */
+  private[orca] val ToolTimeout: FiniteDuration = 1.hour
+
   /** Mount the `ask_user` MCP endpoint on a fresh Netty binding. The Ox
     * capability is used to start the server in the enclosing scope; the caller
     * is responsible for calling `close()` (or relying on scope tear-down) to
@@ -62,8 +73,10 @@ private[orca] object AskUserMcpServer:
     *
     * The handler blocks until the host user types an answer, which can take
     * arbitrarily long. Netty's default 20s `requestTimeout` (and 60s
-    * `idleTimeout`) would close the connection mid-prompt; raise both so a
-    * thoughtful user gets time without leaving the binding open forever.
+    * `idleTimeout`) would close the connection mid-prompt; raise both to match
+    * [[ToolTimeout]] so a thoughtful user gets time without leaving the binding
+    * open forever. `idleTimeout` adds a minute of slop because Netty's docs
+    * require `idleTimeout > requestTimeout`.
     */
   def start(bridge: AskUserBridge)(using Ox): AskUserMcpServer =
     val askUserTool =
@@ -77,7 +90,9 @@ private[orca] object AskUserMcpServer:
     val endpoint = mcpEndpoint(List(askUserTool), List("mcp"))
     val binding = NettySyncServer()
       .port(0)
-      .modifyConfig(_.requestTimeout(1.hour).idleTimeout(1.hour + 1.minute))
+      .modifyConfig(
+        _.requestTimeout(ToolTimeout).idleTimeout(ToolTimeout + 1.minute)
+      )
       .addEndpoint(endpoint)
       .start()
     new AskUserMcpServer(binding.port, () => binding.stop())
