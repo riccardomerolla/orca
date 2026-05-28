@@ -332,12 +332,16 @@ private[orca] object OsGitHubTool:
   private val LegacyStatePending = "PENDING"
 
   /** Reduce a heterogeneous list of check entries to a single outcome. Empty
-    * list is treated as Success — GitHub returns no checks when none are
-    * configured, and callers would otherwise block forever on an empty list of
-    * "pending" checks.
+    * list is treated as Pending: just after a push, GitHub returns zero
+    * checks for several seconds while the workflow is being registered, so
+    * collapsing empty to Success would race with CI startup and surface as a
+    * false "build green" before CI even ran. Callers that hit a repo with no
+    * CI configured at all will see Pending until `waitForBuild`'s timeout
+    * fires and converts to `BuildTimedOut`, which is the right diagnostic
+    * for that case anyway.
     */
   def aggregateOutcome(checks: List[GhCheck]): BuildOutcome =
-    if checks.isEmpty then BuildOutcome.Success
+    if checks.isEmpty then BuildOutcome.Pending
     else if checks.exists(isPending) then BuildOutcome.Pending
     else if checks.forall(isSuccess) then BuildOutcome.Success
     else BuildOutcome.Failure

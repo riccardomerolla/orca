@@ -149,6 +149,12 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (_, gh) = stubGh(CliResult(0, json, ""))
     assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
 
+  test("buildStatus reports Pending on an empty check list (CI not registered yet)"):
+    // Closes the race where waitForBuild would return Success on the first
+    // poll after a push, before GitHub had registered the workflow run.
+    val (_, gh) = stubGh(CliResult(0, """{"statusCheckRollup":[]}""", ""))
+    assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
+
   test("waitForBuild polls until the build finishes"):
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
