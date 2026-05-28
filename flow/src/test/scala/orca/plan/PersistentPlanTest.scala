@@ -224,3 +224,29 @@ class PersistentPlanTest extends munit.FunSuite:
         os.proc("git", "show", "HEAD~1:plan.md").call(cwd = dir).out.text()
       val planAfterT2 = Plan.parse(showT2)
       assertEquals(planAfterT2.tasks.map(_.completed), List(true, true))
+
+  test(
+    "in-memory implementTaskLoop runs body + commits per task, no file activity"
+  ):
+    withRepoCtx: (ctx, dir, _) =>
+      given FlowContext = ctx
+      val plan = Plan(
+        epicId = "feat-mem",
+        description = "",
+        tasks = List(
+          Task(Title("t1"), "body1"),
+          Task(Title("t2"), "body2")
+        )
+      )
+
+      val bodyRan = collection.mutable.ListBuffer[String]()
+      Plan.implementTaskLoop(plan): task =>
+        bodyRan += task.title.value
+        os.write(dir / s"${task.title.value}.txt", task.description)
+
+      assertEquals(bodyRan.toList, List("t1", "t2"))
+      // No plan file is created or removed by the in-memory variant.
+      assert(!os.exists(dir / ".orca"))
+      // Two per-task commits; no chore-remove since there's no file.
+      val commits = ctx.git.log(10).map(_.message)
+      assertEquals(commits.take(3), List("task: t2", "task: t1", "seed"))

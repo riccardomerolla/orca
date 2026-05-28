@@ -10,8 +10,8 @@ import orca.llm.{Announce, JsonData}
   * Field combinations the agent should produce:
   *
   *   - `isBug = false` → set `notBugExplanation`; leave the other fields with
-  *     reasonable empty defaults. The flow surfaces the explanation back on
-  *     the original issue and stops.
+  *     reasonable empty defaults. The flow surfaces the explanation back on the
+  *     original issue and stops.
   *   - `isBug = true`, `canTest = false` → set `reproductionSteps`; the flow
   *     posts them on the issue and stops (no PR for docs-only repros).
   *   - `isBug = true`, `canTest = true` → set `failingTestPath`, `branchName`,

@@ -277,34 +277,65 @@ object Plan:
   def implementTaskLoop(file: os.Path, plan: Plan)(body: Task => Unit)(using
       ctx: FlowContext
   ): Unit =
-    var current = plan
+    runTaskLoop(
+      initial = plan,
+      advance = (_, t) =>
+        persistComplete(file, t.title)
+        val next = parse(os.read(file))
+        // Defense in depth: persistComplete + a clean re-read should always
+        // advance past the just-processed title. If it didn't, the on-disk plan
+        // diverged from what we just wrote — surface it instead of spinning.
+        if next.firstIncomplete.map(_.title).contains(t.title) then
+          throw OrcaFlowException(
+            s"implementTaskLoop: task '${t.title.value}' is still the first incomplete entry " +
+              s"after persistComplete. The plan file at $file may have been " +
+              "edited so the title still matches an unchecked task."
+          )
+        next
+      ,
+      // Cleanup commit only fires if there's actually a file to remove —
+      // skipping the no-op branch avoids a wasted `git add -A` subprocess and
+      // a misleading "chore: remove …" commit-message intent when the file
+      // never existed (e.g. caller pre-removed it).
+      cleanup = () =>
+        if os.exists(file) then
+          val _ = os.remove(file)
+          // `NothingToCommit` swallowed so a `.gitignore`d plan dir (untracked
+          // file → no diff after removal) doesn't crash the whole run.
+          val _ = ctx.git.commit(s"chore: remove ${file.last}")
+    )(body)
+
+  /** In-memory variant of [[implementTaskLoop]] for flows that aren't
+    * resumable: same per-task `task: <title>` commit cadence, but completion is
+    * tracked in memory (no plan file, no chore-remove commit). Use when the
+    * surrounding flow has its own non-restartable state machine and a
+    * `.orca/plan-*.md` file would just be dead weight (e.g. a bugfix flow whose
+    * earlier stages — triage, CI red, repro verification — can't be resumed
+    * from a plan-file alone).
+    */
+  def implementTaskLoop(plan: Plan)(body: Task => Unit)(using
+      FlowContext
+  ): Unit =
+    runTaskLoop(
+      initial = plan,
+      advance = (cur, t) => cur.markComplete(t.title),
+      cleanup = () => ()
+    )(body)
+
+  private def runTaskLoop(
+      initial: Plan,
+      advance: (Plan, Task) => Plan,
+      cleanup: () => Unit
+  )(body: Task => Unit)(using ctx: FlowContext): Unit =
+    var current = initial
     var task = current.firstIncomplete
     while task.isDefined do
       val t = task.get
       body(t)
-      persistComplete(file, t.title)
+      current = advance(current, t)
       ctx.git.commit(s"task: ${t.title}").orThrow
-      val next = parse(os.read(file))
-      // Defense in depth: persistComplete + a clean re-read should always
-      // advance past the just-processed title. If it didn't, the on-disk plan
-      // diverged from what we just wrote — surface it instead of spinning.
-      if next.firstIncomplete.map(_.title).contains(t.title) then
-        throw OrcaFlowException(
-          s"implementTaskLoop: task '${t.title.value}' is still the first incomplete entry " +
-            s"after persistComplete + commit. The plan file at $file may have been " +
-            "edited so the title still matches an unchecked task."
-        )
-      current = next
       task = current.firstIncomplete
-    // Cleanup commit only fires if there's actually a file to remove —
-    // skipping the no-op branch avoids a wasted `git add -A` subprocess and
-    // a misleading "chore: remove …" commit-message intent when the file
-    // never existed (e.g. caller pre-removed it).
-    if os.exists(file) then
-      val _ = os.remove(file)
-      // `NothingToCommit` swallowed so a `.gitignore`d plan dir (untracked
-      // file → no diff after removal) doesn't crash the whole run.
-      val _ = ctx.git.commit(s"chore: remove ${file.last}")
+    cleanup()
 
   /** Parse a plan from its markdown representation. Strict — throws
     * [[PlanParseException]] on any deviation from the schema. CRLF line endings

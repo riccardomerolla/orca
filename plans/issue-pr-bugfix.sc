@@ -170,22 +170,19 @@ flow(OrcaArgs(args)):
       if !verdict.matches then
         fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
-    // Plan + implement the fix. Instruct the planner to reuse the branch
-    // we're already on as the epic id so `recoverOrCreate`'s checkout is a
-    // no-op (and a re-run keys off the same plan file).
-    val planFile = Plan.defaultPath(userPrompt)
+    // Plan + implement the fix. The flow's earlier stages (triage, failing
+    // test push, CI-red wait, repro verification) aren't restartable from a
+    // plan file alone, so no `.orca/plan-*.md` — use the in-memory
+    // `implementTaskLoop` variant.
     val fixPlan = stage("Plan the fix"):
-      Plan.recoverOrCreate(planFile, "orca: starting fix"):
-        Plan.autonomous.from(
-          s"""Implement the fix for ${issueHandle.shortRef}. A failing test
-             |is already on this branch (`${triage.branchName}`) — the fix
-             |must make it pass without regressing other tests. Use
-             |`${triage.branchName}` as the epic id (the branch is already
-             |checked out).""".stripMargin,
-          claude
-        )
+      Plan.autonomous.from(
+        s"""Implement the fix for ${issueHandle.shortRef}. A failing test is
+           |already on this branch (`${triage.branchName}`) — the fix must
+           |make it pass without regressing other tests.""".stripMargin,
+        claude
+      )
 
-    Plan.implementTaskLoop(planFile, fixPlan): task =>
+    Plan.implementTaskLoop(fixPlan): task =>
       stage(s"Implement task: ${task.title}"):
         stage("Implementation"):
           val _ = claude.autonomous.run(task.description, session)
