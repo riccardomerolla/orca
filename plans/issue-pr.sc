@@ -105,13 +105,12 @@ flow(OrcaArgs(args)):
     stage("Push branch"):
       git.push().orThrow
 
-    // Haiku summarises the diff — cheap model, summarisation task.
     val summary = stage("Generate PR title and description"):
       summarisePr(
         llm = claude.haiku,
         diff = git.diff(),
         context = Some(
-          s"""Originating issue: ${issueHandle.owner}/${issueHandle.repo}#${issueHandle.number}
+          s"""Originating issue: ${issueHandle.shortRef}
              |Issue title: ${issue.title}""".stripMargin
         )
       )
@@ -120,5 +119,5 @@ flow(OrcaArgs(args)):
       val body =
         s"""${summary.body}
            |
-           |Closes ${issueHandle.owner}/${issueHandle.repo}#${issueHandle.number}.""".stripMargin
+           |Closes ${issueHandle.shortRef}.""".stripMargin
       val _ = gh.createPr(title = summary.title, body = body).orThrow

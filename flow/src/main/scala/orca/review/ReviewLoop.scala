@@ -401,7 +401,7 @@ private[review] object ReviewLoop:
 def lint(
     command: String,
     llm: LlmTool[?],
-    instructions: String = ReviewLoopPrompts.SummarizeLint
+    instructions: String = ReviewLoopPrompts.SummariseLint
 )(using FlowContext): ReviewResult =
   val proc = os
     .proc("bash", "-c", command)

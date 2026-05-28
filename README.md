@@ -193,7 +193,7 @@ Plan.interactive.from(
 Where the defaults live:
 - `orca.plan.PlanPrompts` — `Planning`
 - `orca.pr.PrPrompts` — `Summarise`
-- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
+- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `allReviewers`/`minimalReviewers`)
 

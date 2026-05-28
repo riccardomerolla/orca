@@ -42,8 +42,8 @@ object ReviewLoopPrompts:
     * `ReviewResult`. Override when the lint produces unusual shapes the default
     * phrasing doesn't fit.
     */
-  val SummarizeLint: String =
-    PromptResource.load("/orca/review/prompts/summarize-lint.md")
+  val SummariseLint: String =
+    PromptResource.load("/orca/review/prompts/summarise-lint.md")
 
   private val InitialReviewTemplate: String =
     PromptResource.load("/orca/review/prompts/initial-review.md")

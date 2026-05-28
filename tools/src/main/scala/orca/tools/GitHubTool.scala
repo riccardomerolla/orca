@@ -13,12 +13,20 @@ import orca.subprocess.CliRunner
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
-case class PrHandle(owner: String, repo: String, number: Int)
+case class PrHandle(owner: String, repo: String, number: Int):
+  /** `<owner>/<repo>#<number>` — the canonical GitHub short-form. Used in
+    * commit messages, PR descriptions (`Closes …`), and log output.
+    */
+  def shortRef: String = s"$owner/$repo#$number"
 
 /** Lightweight reference to a GitHub issue. The number is what `gh issue view
   * <n>` shows; the owner/repo route the API call.
   */
-case class IssueHandle(owner: String, repo: String, number: Int)
+case class IssueHandle(owner: String, repo: String, number: Int):
+  /** `<owner>/<repo>#<number>` — the canonical GitHub short-form. Used in
+    * commit messages, PR descriptions (`Closes …`), and log output.
+    */
+  def shortRef: String = s"$owner/$repo#$number"
 
 case class Comment(author: String, body: String)
 

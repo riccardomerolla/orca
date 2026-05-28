@@ -38,7 +38,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
 1. **Place a public `object XxxPrompts` beside the helper**, in the same
    package. Each entry is a complete instruction block as a `val`.
    - `orca.plan.PlanPrompts` — `Planning`
-   - `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
+   - `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`
    - `orca.review.ReviewerPrompts` — per-reviewer system prompts
      (`Performance`, `Readability`, …)
    - For per-call wrappers, the equivalent stays the `Prompts` trait + flow-
@@ -51,14 +51,14 @@ For every domain helper that bundles an LLM brief, follow this pattern:
    def lint(
        command: String,
        llm: LlmTool[?],
-       instructions: String = ReviewLoopPrompts.SummarizeLint
+       instructions: String = ReviewLoopPrompts.SummariseLint
    )(using FlowContext): ReviewResult
    ```
 
    Three call shapes fall out for free:
    - I want defaults → `lint(cmd, claude.haiku)`
    - I want a different brief → `lint(cmd, claude.haiku, instructions = "...")`
-   - I want to extend → `instructions = ReviewLoopPrompts.SummarizeLint + "\n\n..."`
+   - I want to extend → `instructions = ReviewLoopPrompts.SummariseLint + "\n\n..."`
 
 3. **For helpers that produce many configurations** (e.g.
    `allReviewers` / `minimalReviewers`), the same `XxxPrompts` object hosts the prompts; the
