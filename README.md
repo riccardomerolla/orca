@@ -15,7 +15,7 @@ Python, but with types - so you get quick feedback if your flow script has any
 problems.
 
 Orca assumes that it has configured, logged-in access to Claude, Codex
-(depending which provider you use), as well as gh and git.
+(depending which provider you use), as well as `gh` and `git`.
 
 ## An example flow
 
@@ -145,8 +145,8 @@ hidden behind a parameter default — `Plan.interactive.*` and `Plan.autonomous.
 are sibling namespaces with the same method shapes.
 
 Persistent plans are the default mode for multi-task flows — `implement.sc`,
-`implement-interactive.sc`, and `epic.sc` all use `Plan.defaultPath` +
-`Plan.recover` + `Plan.implementTaskLoop`. See ADR
+`implement-interactive.sc`, `epic.sc`, and `issue-pr.sc` all use
+`Plan.defaultPath` + `Plan.recover` + `Plan.implementTaskLoop`. See ADR
 [0013](adr/0013-persistent-plans.md) for the convention and migration notes.
 
 Review utilities, available via `import orca.review.*`:
