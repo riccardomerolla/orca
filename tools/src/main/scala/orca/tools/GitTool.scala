@@ -98,6 +98,17 @@ trait GitTool:
   /** All changes since the last commit (staged and unstaged). */
   def diff(): String
 
+  /** Diff of the current branch vs `base` — the cumulative change a PR against
+    * `base` would carry. Uses three-dot syntax so the diff is taken against the
+    * merge-base of `base` (same semantics GitHub renders in a PR view).
+    *
+    * Typical bases: `"origin/HEAD"` (the remote's default branch, set
+    * automatically on `git clone`), `"main"`, `"master"`. For a freshly `git
+    * init`ed local repo, `origin/HEAD` may not be set — pass an explicit branch
+    * name in that case.
+    */
+  def diffSince(base: String): String
+
   def log(n: Int = 10): List[CommitInfo]
 
   /** Verify the working tree is clean. If it isn't, `git stash push` with the
@@ -255,6 +266,9 @@ private[orca] class OsGitTool(
   def diff(): String =
     // vs HEAD: show both staged and unstaged changes since the last commit.
     git("diff", "HEAD")
+
+  def diffSince(base: String): String =
+    git("diff", s"$base...HEAD")
 
   def log(n: Int): List[CommitInfo] =
     // Fields are separated with the ASCII unit separator (0x1F) so commit

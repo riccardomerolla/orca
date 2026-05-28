@@ -99,7 +99,9 @@ flow(OrcaArgs(args)):
     val summary = stage("Generate PR title and description"):
       summarisePr(
         llm = claude.haiku,
-        diff = git.diff(),
+        // Branch-vs-default-branch diff — `git.diff()` (vs HEAD) would be
+        // empty here since `implementTaskLoop` already committed every task.
+        diff = git.diffSince("origin/HEAD"),
         context = Some(
           s"""Originating issue: ${issueHandle.shortRef}
              |Issue title: ${issue.title}""".stripMargin

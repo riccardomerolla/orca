@@ -78,6 +78,27 @@ class OsGitToolTest extends munit.FunSuite:
       assert(d.contains("-first"))
       assert(d.contains("+second"))
 
+  test("diffSince returns the cumulative branch diff vs base"):
+    withRepo: (git, dir) =>
+      // base branch with one commit
+      os.write(dir / "file.txt", "first")
+      git.commit("initial").orThrow
+      val baseBranch = git.currentBranch()
+      // feature branch with two commits — both should appear in the diff
+      git.createBranch("feature").orThrow
+      os.write.over(dir / "file.txt", "second")
+      git.commit("second").orThrow
+      os.write(dir / "new.txt", "added")
+      git.commit("third").orThrow
+
+      val d = git.diffSince(baseBranch)
+      assert(d.contains("-first"))
+      assert(d.contains("+second"))
+      assert(d.contains("+added"))
+      // diff() on the (clean) working tree returns nothing —
+      // diffSince() does the work diff() can't.
+      assertEquals(git.diff(), "")
+
   test("log respects the limit, returns newest-first, and parses the author"):
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "a")

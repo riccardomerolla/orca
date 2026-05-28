@@ -91,11 +91,12 @@ flow(OrcaArgs(args)):
 
       // Tentative description — only the failing test has landed. Haiku
       // folds the issue context + diff into the draft so the PR is
-      // informative before the fix arrives.
+      // informative before the fix arrives. `git.diff()` (vs HEAD) would be
+      // empty here since the failing test is already committed.
       val prSummary = stage("Generate tentative PR title and description"):
         summarisePr(
           llm = claude.haiku,
-          diff = git.diff(),
+          diff = git.diffSince("origin/HEAD"),
           context = Some(
             s"""Originating issue: ${issueHandle.shortRef}
                |Issue title: ${issue.title}
