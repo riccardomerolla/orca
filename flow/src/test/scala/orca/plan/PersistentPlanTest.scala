@@ -226,6 +226,31 @@ class PersistentPlanTest extends munit.FunSuite:
       assertEquals(planAfterT2.tasks.map(_.completed), List(true, true))
 
   test(
+    "implementTaskLoop tolerates a no-op body (NothingToCommit is non-fatal)"
+  ):
+    // Regression: previously `commit().orThrow` would abort the loop on a
+    // body that produced no tracked change — even though the on-disk plan
+    // already had the tick written, so the next resume would skip the
+    // task. Now the loop advances cleanly past a no-op body.
+    withRepoCtx: (ctx, dir, _) =>
+      given FlowContext = ctx
+      val plan = Plan(
+        epicId = "feat-noop",
+        description = "",
+        tasks = List(Task(Title("t1"), "body1"), Task(Title("t2"), "body2"))
+      )
+
+      var bodyCalls = 0
+      Plan.implementTaskLoop(plan): _ =>
+        bodyCalls += 1
+        // intentionally produce nothing the working tree would record
+
+      assertEquals(bodyCalls, 2)
+      // Loop reached its end (no abort); only the seed commit exists.
+      val commits = ctx.git.log(10).map(_.message)
+      assertEquals(commits, List("seed"))
+
+  test(
     "in-memory implementTaskLoop runs body + commits per task, no file activity"
   ):
     withRepoCtx: (ctx, dir, _) =>

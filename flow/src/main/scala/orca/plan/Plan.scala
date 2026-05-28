@@ -4,8 +4,6 @@ import orca.{FlowContext, OrcaFlowException}
 import orca.llm.{Announce, BackendTag, CanAskUser, JsonData, LlmTool, given}
 import orca.events.OrcaEvent
 
-import ox.either.orThrow
-
 /** A development plan: an ordered list of [[Task]]s the agent will work
   * through, all on a single branch named by `epicId` (kebab-case, used directly
   * as the git branch name).
@@ -333,7 +331,12 @@ object Plan:
       val t = task.get
       body(t)
       current = advance(current, t)
-      ctx.git.commit(s"task: ${t.title}").orThrow
+      // `NothingToCommit` is non-fatal here: a body that produced only
+      // gitignored output (the plan-file tick when `.orca/` is in
+      // `.gitignore`, or a no-op task by design) shouldn't abort the loop
+      // and leave the next run skipping a task on the strength of an
+      // on-disk tick alone. Same swallow the cleanup commit already does.
+      val _ = ctx.git.commit(s"task: ${t.title}")
       task = current.firstIncomplete
     cleanup()
 
