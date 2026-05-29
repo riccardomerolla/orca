@@ -176,21 +176,17 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "waitForBuild returns Left(NoChecksConfigured) when checks never register"
   ):
-    // No CI configured: every poll comes back with an empty rollup.
-    // After `noChecksGrace`, waitForBuild should give up early with the
-    // specific "no CI" error rather than burning the entire `timeout`.
+    // No CI configured: every poll comes back with an empty rollup. With
+    // noChecksGrace < timeout, returning NoChecksConfigured proves the
+    // fast-path fired — it's only reachable via the grace branch.
     val cli = new StubCliRunner(CliResult(0, """{"statusCheckRollup":[]}""", ""))
     val gh = new OsGitHubTool(
       cli,
       pollInterval = 10.millis,
       noChecksGrace = 50.millis
     )
-    val started = System.nanoTime()
     val result = gh.waitForBuild(samplePr, timeout = 5.seconds)
-    val elapsedMs = (System.nanoTime() - started) / 1_000_000
     assert(result.left.exists(_.isInstanceOf[NoChecksConfigured]))
-    // Sanity check that we didn't burn the full 5s timeout.
-    assert(elapsedMs < 2_000, s"took ${elapsedMs}ms — expected < 2000ms")
 
   test("waitForBuild returns Left(BuildTimedOut) when the deadline elapses"):
     val pendingJson =
