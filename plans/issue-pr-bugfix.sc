@@ -48,11 +48,12 @@ flow(OrcaArgs(args)):
   val issue = stage(s"Read issue ${issueHandle.shortRef}"):
     gh.readIssue(issueHandle)
 
-  // Interactive triage so the agent can clarify edge cases. The session
-  // returned here is reused below for the failing-test write and the fix
-  // implementation, so the implementer inherits the triage's mental model.
+  // Autonomous triage — no human in the loop. Runs read-only (read/grep to
+  // verify the report), but the session it returns is reused below for the
+  // failing-test write and the fix: resuming it with a writable call restores
+  // write access, and the implementer inherits the triage's exploration.
   val Sessioned(session, triage) = stage("Triage"):
-    Plan.interactive.triage(
+    Plan.autonomous.triage(
       s"""Title: ${issue.title}
          |Reporter: ${issue.author}
          |

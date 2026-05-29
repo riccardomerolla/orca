@@ -26,10 +26,11 @@ Only after those three gates does the implementation start.
 ## Stages
 
 1. **Read issue** — `gh.readIssue`.
-2. **Triage** *(opus, interactive)* — `Plan.interactive.triage` returns
+2. **Triage** *(opus, autonomous)* — `Plan.autonomous.triage` returns
    a `Sessioned[B, Triage]`: the triage agent's session (reused for the
-   fix) paired with a `Triage` sum type — `NotABug(explanation)`,
-   `Untestable(summary, steps)`, or `Testable(summary, branch, testPath)`.
+   fix — resuming it writably restores write access) paired with a
+   `Triage` sum type — `NotABug(explanation)`, `Untestable(summary,
+   steps)`, or `Testable(summary, branch, testPath)`.
 3. **Bail-out paths** — `NotABug` and `Untestable` post a comment on
    the issue and stop.
 4. **Write the failing test** — autonomous turn, same session. Committed.
