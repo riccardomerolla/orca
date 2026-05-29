@@ -148,6 +148,16 @@ trait GitHubTool:
     * no PR will be opened.
     */
   def writeComment(issue: IssueHandle, body: String): Unit
+  /** Aggregate status of the checks attached to `pr`.
+    *
+    * Contract for the empty-rollup case: implementations MUST treat an
+    * empty check list as `BuildOutcome.Pending`, not `Success`. GitHub
+    * returns an empty rollup for several seconds after a push while the
+    * workflow is being registered — collapsing to `Success` there races
+    * with CI startup and produces a false "build green". The
+    * [[waitForBuild]] grace period is what disambiguates the "no CI
+    * configured" case after the fact.
+    */
   def buildStatus(pr: PrHandle): BuildStatus
 
   /** Poll [[buildStatus]] every `pollInterval` (impl-defined) until the build
@@ -159,8 +169,6 @@ trait GitHubTool:
     *     "repo has no CI workflow configured" case. When no check has
     *     registered after that grace, returns `Left(NoChecksConfigured)`
     *     immediately rather than burning the rest of `timeout`.
-    *
-    * Empty check list → Pending (not Success) — see [[buildStatus]] note.
     */
   def waitForBuild(
       pr: PrHandle,
