@@ -8,6 +8,7 @@ import ox.channels.BufferCapacity
 import ox.either.orThrow
 
 import java.io.PrintStream
+import java.nio.charset.StandardCharsets.UTF_8
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
   * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
@@ -24,9 +25,11 @@ import java.io.PrintStream
   * `NO_COLOR`/`ORCA_NO_ANIMATION`), the output degrades to plain inline writes
   * without ANSI escapes.
   *
-  * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8 default
-  * charset the caller should pass a PrintStream constructed with `new
-  * PrintStream(out, true, "UTF-8")`.
+  * The default output stream is forced to UTF-8 (see [[start]]): orca's UI is
+  * built from non-ASCII glyphs, and when the process is launched under a
+  * non-UTF-8 default charset (a `C`/`POSIX` locale — common in containers and
+  * editor sandboxes) the JVM's `System.err` would otherwise encode each glyph
+  * to `?`.
   *
   * `drive` runs on the caller's thread (no actor ask). It iterates the
   * conversation's event stream and tells the output. The spinner runs on a
@@ -68,7 +71,7 @@ object TerminalInteraction:
     * before the scope joins, draining pending writes.
     */
   def start(
-      out: PrintStream = System.err,
+      out: PrintStream = utf8Stderr,
       useColor: Boolean = defaultUseColor,
       animated: Boolean = defaultAnimated,
       workDir: Option[os.Path] = None
@@ -90,6 +93,19 @@ object TerminalInteraction:
     */
   def defaultAnimated: Boolean =
     defaultUseColor && !sys.env.contains("ORCA_NO_ANIMATION")
+
+  /** `System.err`, re-encoded as UTF-8 regardless of the JVM's default charset.
+    * orca's UI is built from non-ASCII glyphs (`…`, `✖`, `▸`, `●`, braille
+    * spinner); when launched under a non-UTF-8 locale (`C`/`POSIX`, common in
+    * containers and editor sandboxes) the JVM resolves `stderr.encoding` to
+    * US-ASCII and `System.err` would encode each glyph to `?`. Wrapping forces
+    * UTF-8 char→byte encoding; the bytes pass through the underlying
+    * `System.err` unchanged (`PrintStream.write(byte[])` doesn't re-encode).
+    * Never closed by [[TerminalOutput]] (it only prints/flushes), so the
+    * underlying `System.err` stays open.
+    */
+  private[terminal] def utf8Stderr: PrintStream =
+    new PrintStream(System.err, true, UTF_8)
 
   private def consolePresent: Boolean = System.console() != null
 
