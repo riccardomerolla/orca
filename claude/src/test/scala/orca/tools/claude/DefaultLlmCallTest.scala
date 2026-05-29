@@ -1,5 +1,6 @@
 package orca.tools.claude
 
+import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.llm.{BackendTag, JsonData, LlmConfig, SessionId}
 import orca.events.{OrcaListener, Usage}
 
@@ -7,7 +8,7 @@ import orca.backend.{Interaction, LlmBackend, LlmResult}
 import orca.llm.{DefaultLlmCall, DefaultPrompts}
 import ox.supervised
 
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 case class Answer(value: Int) derives JsonData
 
@@ -324,6 +325,65 @@ class DefaultLlmCallTest extends munit.FunSuite:
         prompts(2).contains("garbage two"),
         s"second retry prompt must quote the second failure; got: ${prompts(2)}"
       )
+
+  test(
+    "autonomous does not retry AgentTurnFailed and attributes it to the agent"
+  ):
+    // A turn that ran and failed (e.g. "Prompt is too long") leaves the
+    // session id registered; retrying would only collide ("already in use").
+    // It must propagate after a single attempt, named + sized.
+    val calls = new AtomicInteger(0)
+    val backend = new SequencedBackend(Nil):
+      override def runAutonomous(
+          prompt: String,
+          session: SessionId[BackendTag.ClaudeCode.type],
+          config: LlmConfig,
+          workDir: os.Path,
+          events: OrcaListener,
+          outputSchema: Option[String]
+      ): LlmResult[BackendTag.ClaudeCode.type] =
+        val _ = calls.incrementAndGet()
+        throw new AgentTurnFailed("Prompt is too long")
+    supervised:
+      val ex = intercept[AgentTurnFailed]:
+        makeCall(backend).autonomous.run("the original input")
+      assertEquals(calls.get(), 1, "AgentTurnFailed must not be retried")
+      assert(ex.getMessage.contains("agent 'claude'"), ex.getMessage)
+      assert(ex.getMessage.contains("Prompt is too long"), ex.getMessage)
+
+  test(
+    "autonomous still retries a non-AgentTurnFailed backend failure"
+  ):
+    // A pre-spawn open failure (transient broken pipe) is retryable — the
+    // session was never registered. Pins that the AgentTurnFailed carve-out
+    // didn't disable transient-failure retries.
+    val calls = new AtomicInteger(0)
+    val backend = new SequencedBackend(List("""{"value":8}""")):
+      override def runAutonomous(
+          prompt: String,
+          session: SessionId[BackendTag.ClaudeCode.type],
+          config: LlmConfig,
+          workDir: os.Path,
+          events: OrcaListener,
+          outputSchema: Option[String]
+      ): LlmResult[BackendTag.ClaudeCode.type] =
+        if calls.getAndIncrement() == 0 then
+          throw new OrcaFlowException(
+            "Failed to open claude stream-json session: Broken pipe"
+          )
+        else
+          super.runAutonomous(
+            prompt,
+            session,
+            config,
+            workDir,
+            events,
+            outputSchema
+          )
+    supervised:
+      val (_, answer) = makeCall(backend).autonomous.run("q")
+      assertEquals(answer, Answer(8))
+      assertEquals(calls.get(), 2, "transient failure should be retried once")
 
   test(
     "interactive.run registers (clientSid, serverSid) and returns the client id"

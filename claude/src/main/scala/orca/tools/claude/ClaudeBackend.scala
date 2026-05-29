@@ -2,7 +2,7 @@ package orca.tools.claude
 
 import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
-import orca.{OrcaFlowException}
+import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -66,6 +66,9 @@ private[orca] class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     val result =
       try Conversations.drainAutonomous(conv, events)
       catch
+        // Preserve the non-retryable type: a turn that ran and failed must not
+        // be retried (it would reopen the now-registered session id).
+        case e: AgentTurnFailed => throw e
         case e: OrcaFlowException =>
           throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
     // Commit only after a successful drain: a subprocess that crashed before

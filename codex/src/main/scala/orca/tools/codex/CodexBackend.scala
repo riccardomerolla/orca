@@ -2,7 +2,7 @@ package orca.tools.codex
 
 import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
-import orca.OrcaFlowException
+import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -79,6 +79,9 @@ private[orca] class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
       // client id they passed in. Future calls resolve via the registry.
       result.copy(sessionId = session)
     catch
+      // Preserve the non-retryable type: a turn that ran and failed must not
+      // be retried (it would reopen the now-registered session id).
+      case e: AgentTurnFailed => throw e
       case e: OrcaFlowException =>
         throw new OrcaFlowException(s"codex CLI failed: ${e.getMessage}")
 

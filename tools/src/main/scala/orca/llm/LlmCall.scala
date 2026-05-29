@@ -1,9 +1,10 @@
 package orca.llm
 
+import orca.AgentTurnFailed
 import orca.backend.{Interaction, LlmBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
-import ox.resilience.retry
+import ox.resilience.{ResultPolicy, RetryConfig, retry}
 
 /** Structured-output gateway — obtained via `tool.resultAs[O]`. Splits the
   * autonomous-vs-interactive choice into two sibling objects so the call site
@@ -130,41 +131,64 @@ class DefaultLlmCall[B <: BackendTag, O](
     // allowed by the project's FP conventions.
     var lastFailure: Option[FailedAttempt] = None
 
-    retry(effective.retrySchedule):
-      val promptText = lastFailure match
-        case Some(f) =>
-          val corrective = prompts.retry(f.response, f.parserError)
-          if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
-          corrective
-        case None => initialPrompt
-      val result = backend.runAutonomous(
-        promptText,
-        session,
-        effective,
-        workDir,
-        events,
-        outputSchema = Some(outputSchema)
+    // Retry parse failures (corrective re-prompt, resumed) and transient OPEN
+    // failures (a fresh spawn), but never an `AgentTurnFailed` — a turn that
+    // ran and failed (e.g. "Prompt is too long") leaves the session id
+    // registered, so reopening it would only yield "already in use" / broken
+    // pipe. Propagate it immediately with the real cause instead.
+    val retryConfig = RetryConfig(
+      effective.retrySchedule,
+      ResultPolicy.retryWhen[Throwable, (SessionId[B], O)](e =>
+        !e.isInstanceOf[AgentTurnFailed]
       )
-      events.onEvent(
-        OrcaEvent.TokensUsed(
-          agentName,
-          result.model.orElse(effective.model),
-          result.usage
+    )
+
+    try
+      retry(retryConfig):
+        val promptText = lastFailure match
+          case Some(f) =>
+            val corrective = prompts.retry(f.response, f.parserError)
+            if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
+            corrective
+          case None => initialPrompt
+        val result = backend.runAutonomous(
+          promptText,
+          session,
+          effective,
+          workDir,
+          events,
+          outputSchema = Some(outputSchema)
         )
-      )
-      try
-        val parsed = ResponseParser.parse[O](result.output)
-        emitStructuredResult(result.output, parsed)
-        (result.sessionId, parsed)
-      catch
-        case e: MalformedAgentOutputException =>
-          lastFailure = Some(
-            FailedAttempt(
-              response = e.rawOutput,
-              parserError = e.shortCause
-            )
+        events.onEvent(
+          OrcaEvent.TokensUsed(
+            agentName,
+            result.model.orElse(effective.model),
+            result.usage
           )
-          throw e
+        )
+        try
+          val parsed = ResponseParser.parse[O](result.output)
+          emitStructuredResult(result.output, parsed)
+          (result.sessionId, parsed)
+        catch
+          case e: MalformedAgentOutputException =>
+            lastFailure = Some(
+              FailedAttempt(
+                response = e.rawOutput,
+                parserError = e.shortCause
+              )
+            )
+            throw e
+    catch
+      // Attribute the failure: name the agent and the size of this turn's
+      // input, so "Prompt is too long" becomes actionable (which agent, how
+      // big). The session's accumulated context is larger than this turn's
+      // input — full prompts are captured by the debug log.
+      case e: AgentTurnFailed =>
+        throw new AgentTurnFailed(
+          s"agent '$agentName' turn failed " +
+            s"(this turn's input ≈${serialized.length} chars): ${e.getMessage}"
+        )
 
   /** Interactive variant. No retry: the user is steering the session and a
     * parse failure here means the session's final payload didn't match the

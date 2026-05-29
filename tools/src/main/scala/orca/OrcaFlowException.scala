@@ -26,3 +26,19 @@ class OrcaFlowException private[orca] (
 class OrcaInteractiveCancelled(
     message: String = "interactive session cancelled"
 ) extends OrcaFlowException(message)
+
+/** A semantic failure of an agent *turn that actually ran*: the conversation
+  * was spawned — so the backend has already registered the session id — and
+  * then ended in a terminal error (`is_error` such as "Prompt is too long", a
+  * rate limit, a non-zero CLI exit, or a clean exit with no result).
+  *
+  * Distinct from a pre-spawn *open* failure (e.g. a transient broken pipe
+  * before the session was registered), which stays a plain
+  * [[OrcaFlowException]]. The distinction drives retry: the autonomous retry
+  * loop reuses the same session id, which the backend locks once the turn has
+  * run, so reopening it only yields "session already in use" / "broken pipe".
+  * `AgentTurnFailed` is therefore NOT retried — it propagates immediately with
+  * the real cause instead of that misleading cascade. Open failures and parse
+  * failures remain retryable.
+  */
+class AgentTurnFailed(message: String) extends OrcaFlowException(message)

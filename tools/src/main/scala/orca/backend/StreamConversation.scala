@@ -4,7 +4,7 @@ import orca.backend.mcp.{AskUserBridge, AskUserSession}
 import orca.llm.BackendTag
 import orca.subprocess.PipedCliProcess
 import orca.util.OrcaDebug
-import orca.{OrcaFlowException, OrcaInteractiveCancelled}
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
@@ -150,7 +150,14 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     outcomeRef.get() match
       case Some(Outcome.Success(r))  => Right(r)
       case Some(Outcome.Cancelled()) => Left(new OrcaInteractiveCancelled())
-      case Some(Outcome.Failed(e))   => throw e
+      // A failure here means the turn ran (the session is registered) and then
+      // errored — tag it non-retryable so the autonomous retry loop doesn't
+      // reopen the locked session id. See [[AgentTurnFailed]].
+      case Some(Outcome.Failed(e: AgentTurnFailed)) => throw e
+      case Some(Outcome.Failed(e)) =>
+        throw new AgentTurnFailed(
+          Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.toString)
+        )
       case None =>
         throw new OrcaFlowException(
           s"$backendName interactive session ended without producing a result"
