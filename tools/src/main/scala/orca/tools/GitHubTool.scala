@@ -11,6 +11,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.CliRunner
+import ox.sleep
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -360,7 +361,7 @@ private[orca] class OsGitHubTool(
         Left(new NoChecksConfigured(noChecksGrace))
       else if now >= deadline then Left(new BuildTimedOut(timeout))
       else
-        Thread.sleep(pollInterval.toMillis)
+        sleep(pollInterval)
         loop()
 
     loop()
