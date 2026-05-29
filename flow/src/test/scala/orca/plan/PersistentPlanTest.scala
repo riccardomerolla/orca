@@ -243,7 +243,7 @@ class PersistentPlanTest extends munit.FunSuite:
       var bodyCalls = 0
       Plan.implementTaskLoop(plan): _ =>
         bodyCalls += 1
-        // intentionally produce nothing the working tree would record
+      // intentionally produce nothing the working tree would record
 
       assertEquals(bodyCalls, 2)
       // Each no-op task emits a Step so the silent advance is observable.
@@ -280,7 +280,7 @@ class PersistentPlanTest extends munit.FunSuite:
       var bodyCalls = 0
       Plan.implementTaskLoop(planFile, plan): _ =>
         bodyCalls += 1
-        // no tracked output
+      // no tracked output
 
       // Both bodies ran — the loop didn't abort on NothingToCommit even
       // though every per-task commit had nothing to record. The commit

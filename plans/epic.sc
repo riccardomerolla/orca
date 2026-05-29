@@ -46,7 +46,9 @@ flow(OrcaArgs(args)):
   // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
   val plan = stage("Acquire epic"):
     Plan.recoverOrCreate(planFile, "orca: starting epic"):
-      Plan.autonomous.from(userPrompt, claude.opus)
+      // `.value` drops the planner's read-only session — the coder below
+      // mints a fresh one.
+      Plan.autonomous.from(userPrompt, claude.opus).value
 
   // Stable coder session reused across every task (and the docs pass at the
   // end) so the agent retains cross-task context. Fresh session (not the

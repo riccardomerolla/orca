@@ -8,19 +8,29 @@ import orca.events.OrcaEvent
   * through, all on a single branch named by `epicId` (kebab-case, used directly
   * as the git branch name).
   *
-  * The same type covers two usage shapes:
-  *   - **In-memory** — `Plan.interactive.from` / `Plan.autonomous.from` return
-  *     one. The flow iterates `tasks` and forgets the plan when it exits.
-  *   - **Markdown-backed** — `Plan.interactive.loadOrGenerate` /
-  *     `Plan.autonomous.loadOrGenerate`, plus `Plan.persistComplete`,
-  *     round-trip the plan through a `## Task: …` markdown file so a flow that
-  *     crashes mid-loop can resume without re-planning. The on-disk format is
-  *     parsed/rendered by [[Plan.parse]] / [[Plan.render]].
+  * ==Planning grid==
   *
-  * Whether the planning round-trip lets the agent ask clarifying questions
-  * (`interactive`) or runs as a single agentic turn with no human in the loop
-  * (`autonomous`) is chosen by selecting the matching nested object — visible
-  * at the call site rather than hidden behind a parameter default.
+  * The planning entry points form a `mode × operation` grid. Mode and operation
+  * are orthogonal — every combination is valid:
+  *
+  *   - **mode** — [[autonomous]] (single agentic turn, read-only, no human) or
+  *     [[interactive]] (a conversation the agent can drive via `ask_user`).
+  *     Chosen by the nested object so it's visible at the call site, mirroring
+  *     `claude.autonomous.run` / `claude.resultAs[O].interactive.run`.
+  *   - **operation** — `from` (produce a [[Plan]] directly), `assessThenPlan`
+  *     (skeptically assess first, returning a [[Verdict]] that either proceeds
+  *     with a plan or rejects), or `triage` (classify a bug report into a
+  *     [[Triage]] verdict).
+  *
+  * Every cell returns a [[Sessioned]] — the result plus the agent session that
+  * produced it, so the caller can continue that session into implementation or
+  * discard it and mint a fresh one.
+  *
+  * ==Persistence==
+  *
+  * [[recoverOrCreate]] + [[persistComplete]] + [[implementTaskLoop]] round-trip
+  * a plan through a `## Task: …` markdown file (parsed/rendered by [[parse]] /
+  * [[render]]) so a flow that crashes mid-loop resumes without re-planning.
   *
   * `derives JsonData` so the structured-output path works directly: the helper
   * methods consume Orca's auto-generated JSON schema; no caller-side
@@ -67,117 +77,170 @@ object Plan:
     val digest = md.digest(userPrompt.getBytes("UTF-8"))
     digest.iterator.take(6).map(b => f"${b & 0xff}%02x").mkString
 
-  /** Interactive planning helpers — the LLM call opens a conversation the user
-    * can drive (clarifying questions, refinements) before producing the plan.
-    * Returns just the [[Plan]]: the planner's session isn't exposed because
-    * resuming it for implementation isn't supported (the conversation is in a
-    * planning frame; the implementer should mint its own session via
-    * `llm.newSession`).
+  /** Autonomous planning — a single agentic turn, no human in the loop. The
+    * agent runs read-only (`.withReadOnly`), so it can verify claims via
+    * Read/Grep but can't edit during the planning turn. Sibling of
+    * [[interactive]]; the choice between the two is visible at the call site
+    * (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`), mirroring
+    * `LlmTool`'s own `autonomous` / `interactive` split.
     *
-    * The `B: CanAskUser` constraint means these helpers compile only with
-    * backends that can host an `ask_user` tool — claude and codex (both via the
-    * shared `AskUserMcpServer`). A future stdin-only backend without MCP
-    * support would fail this at compile time rather than degrade silently. Use
-    * `Plan.autonomous.*` if you don't need mid-session questions.
+    * Each operation returns a [[Sessioned]]: the read-only planning turn's
+    * session is still resumable by a later writable call, so the caller can
+    * continue it into implementation or discard it for a fresh session.
+    *
+    * No `CanAskUser` bound (unlike [[interactive]]): an autonomous turn never
+    * calls `ask_user`, so it works with any backend.
     */
-  object interactive:
-    def from[B <: BackendTag: CanAskUser](
+  object autonomous:
+    /** Produce a [[Plan]] directly from `userPrompt`. */
+    def from[B <: BackendTag](
+        userPrompt: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.Planning
+    )(using FlowContext): Sessioned[B, Plan] =
+      autonomousResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
+
+    /** Skeptically assess `userPrompt` (typically a bug/feature report) and
+      * either proceed with a plan or reject with a [[Verdict.Rejection]] the
+      * caller surfaces to whoever filed it.
+      */
+    def assessThenPlan[B <: BackendTag](
+        userPrompt: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.AssessThenPlan
+    )(using FlowContext): Sessioned[B, Verdict[Plan]] =
+      autonomousResult[B, AssessedPlan, Verdict[Plan]](
+        llm,
+        userPrompt,
+        instructions
+      )(a => getOrFail(a.toVerdict))
+
+    /** Classify a bug report into a [[Triage]] verdict (not-a-bug / untestable
+      * / testable).
+      */
+    def triage[B <: BackendTag](
+        report: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.Triage
+    )(using FlowContext): Sessioned[B, Triage] =
+      autonomousResult[B, BugTriage, Triage](llm, report, instructions)(b =>
+        getOrFail(b.toTriage)
+      )
+
+    /** Persistence convenience: parse `file` if it exists (resume), else
+      * generate via [[from]] and persist. Returns a bare [[Plan]] — unlike the
+      * grid operations above — because the resume branch has no session to
+      * expose. The implementer mints its own session.
+      */
+    def loadOrGenerate[B <: BackendTag](
+        file: os.Path,
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
-      // The interactive planner can call `ask_user` (an MCP tool); claude's
-      // plan mode would disable it, so we don't read-only-restrict here.
-      // The planning prompt still says "don't edit files"; if the agent
-      // violates that during an interactive turn the user sees it happen.
-      llm
-        .resultAs[Plan]
-        .interactive
-        .run(s"$userPrompt\n\n$instructions")
-        ._2
+      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions).value)
 
+  /** Interactive planning — the LLM call opens a conversation the user can
+    * drive (clarifying questions, refinements) before the agent produces the
+    * result. Not read-only: claude's plan mode would disable the `ask_user` MCP
+    * tool, so the agent runs with normal permissions; the prompt asks it not to
+    * edit, and the user sees any violation.
+    *
+    * The `B: CanAskUser` constraint means these compile only with backends that
+    * can host an `ask_user` tool — claude and codex (both via the shared
+    * `AskUserMcpServer`). A future stdin-only backend would fail this at
+    * compile time. Use [[autonomous]] when no mid-session questions are needed.
+    *
+    * Each operation returns a [[Sessioned]] so the conversation can carry into
+    * implementation (e.g. a triage agent's exploration informs the fix).
+    */
+  object interactive:
+    /** Produce a [[Plan]] directly from `userPrompt`. */
+    def from[B <: BackendTag: CanAskUser](
+        userPrompt: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.Planning
+    )(using FlowContext): Sessioned[B, Plan] =
+      interactiveResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
+
+    /** Skeptically assess `userPrompt`, but able to ask the reporter clarifying
+      * questions mid-turn rather than only rejecting with a
+      * [[Verdict.RejectionKind.Question]].
+      */
+    def assessThenPlan[B <: BackendTag: CanAskUser](
+        userPrompt: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.AssessThenPlan
+    )(using FlowContext): Sessioned[B, Verdict[Plan]] =
+      interactiveResult[B, AssessedPlan, Verdict[Plan]](
+        llm,
+        userPrompt,
+        instructions
+      )(a => getOrFail(a.toVerdict))
+
+    /** Classify a bug report into a [[Triage]] verdict, able to ask the
+      * reporter clarifying questions before deciding.
+      */
+    def triage[B <: BackendTag: CanAskUser](
+        report: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.Triage
+    )(using FlowContext): Sessioned[B, Triage] =
+      interactiveResult[B, BugTriage, Triage](llm, report, instructions)(b =>
+        getOrFail(b.toTriage)
+      )
+
+    /** Persistence convenience: parse `file` if it exists (resume), else
+      * generate via [[from]] and persist. Returns a bare [[Plan]] — see the
+      * autonomous counterpart for why no session is exposed.
+      */
     def loadOrGenerate[B <: BackendTag: CanAskUser](
         file: os.Path,
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
-      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions))
+      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions).value)
 
-    /** Interactive triage of a bug report. The agent may ask clarifying
-      * questions via `ask_user`. The returned [[Triaged]] bundles the
-      * session id with the verdict — the session is reusable for the
-      * downstream implementation phase so the implementer inherits the
-      * triage's mental model.
-      *
-      * Sibling of [[autonomous.assessThenPlan]]: same shape (LLM-driven
-      * assessment that returns a sum type the caller dispatches on), the
-      * mode and session-reuse contract differ.
-      */
-    def triage[B <: BackendTag: CanAskUser](
-        report: String,
-        llm: LlmTool[B],
-        instructions: String = PlanPrompts.Triage
-    )(using FlowContext): Triaged[B] =
-      val (sessionId, raw) =
-        llm.resultAs[BugTriage].interactive.run(s"$report\n\n$instructions")
-      val triage = raw.toTriage.fold(
-        msg => throw OrcaFlowException(msg),
-        identity
-      )
-      Triaged(sessionId, triage)
+  /** Append the operation's instruction block to the caller's input. */
+  private def withInstructions(input: String, instructions: String): String =
+    s"$input\n\n$instructions"
 
-  /** Autonomous planning helpers — a single agentic turn, no human in the loop.
-    * Sibling of [[interactive]]; the choice between the two is visible at the
-    * call site (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`).
-    * Returns just the [[Plan]] for the same reason as the interactive variant:
-    * the planner runs read-only (`.withReadOnly`) so its session can't be
-    * resumed for implementation anyway.
+  /** Surface a structured-contract violation (a `toVerdict` / `toTriage`
+    * `Left`) as a flow failure. The decode succeeded but the field combination
+    * was incoherent past the retry loop, so it's a system-level failure.
     */
-  object autonomous:
-    def from(
-        userPrompt: String,
-        llm: LlmTool[?],
-        instructions: String = PlanPrompts.Planning
-    )(using FlowContext): Plan =
-      llm.withReadOnly
-        .resultAs[Plan]
-        .autonomous
-        .run(s"$userPrompt\n\n$instructions")
-        ._2
+  private def getOrFail[A](result: Either[String, A]): A =
+    result.fold(msg => throw OrcaFlowException(msg), identity)
 
-    def loadOrGenerate(
-        file: os.Path,
-        userPrompt: String,
-        llm: LlmTool[?],
-        instructions: String = PlanPrompts.Planning
-    )(using FlowContext): Plan =
-      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions))
+  /** Run one read-only autonomous turn producing wire type `O`, convert it to
+    * the public result `A`, and pair it with the session. Shared by every
+    * `autonomous.*` operation.
+    */
+  private def autonomousResult[B <: BackendTag, O: JsonData: Announce, A](
+      llm: LlmTool[B],
+      input: String,
+      instructions: String
+  )(convert: O => A)(using FlowContext): Sessioned[B, A] =
+    val (sessionId, raw) = llm.withReadOnly
+      .resultAs[O]
+      .autonomous
+      .run(withInstructions(input, instructions))
+    Sessioned(sessionId, convert(raw))
 
-    /** Skeptically assess `userPrompt` (typically a bug/feature report) and
-      * either return a plan to implement, or a [[Verdict.Rejection]] the caller
-      * can surface to whoever filed it. Runs read-only so the agent can verify
-      * claims via Read/Grep without making edits.
-      *
-      * Returns just the verdict — no session id. The assess session is in plan
-      * mode; implementation turns should start a fresh session so they get full
-      * write access.
-      */
-    def assessThenPlan[B <: BackendTag](
-        userPrompt: String,
-        llm: LlmTool[B],
-        instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext): Verdict[Plan] =
-      val (_, assessed) =
-        llm.withReadOnly
-          .resultAs[AssessedPlan]
-          .autonomous
-          .run(s"$userPrompt\n\n$instructions")
-      // The decode succeeded but the field combination is incoherent — past
-      // the retry loop, treat it as a system-level failure with the structured
-      // error attached.
-      assessed.toVerdict
-        .fold(msg => throw OrcaFlowException(msg), identity)
+  /** Interactive counterpart to [[autonomousResult]]. */
+  private def interactiveResult[
+      B <: BackendTag: CanAskUser,
+      O: JsonData: Announce,
+      A
+  ](
+      llm: LlmTool[B],
+      input: String,
+      instructions: String
+  )(convert: O => A)(using FlowContext): Sessioned[B, A] =
+    val (sessionId, raw) =
+      llm.resultAs[O].interactive.run(withInstructions(input, instructions))
+    Sessioned(sessionId, convert(raw))
 
   /** Common load-or-generate body: read+log on resume, otherwise call
     * `generate` and persist its result. The two public variants differ only in
@@ -222,11 +285,15 @@ object Plan:
     os.write.over(file, render(updated))
 
   /** Acquire a persistent plan: resume from `file` if it exists, otherwise
-    * evaluate `generate` (typically `Plan.autonomous.from(...)`) and lay down
-    * the branch + on-disk plan for a fresh run. Callers should allocate their
-    * own implementer session at the script level via `llm.newSession` — the
-    * planning helpers ([[Plan.autonomous.from]] etc.) intentionally don't
-    * expose their session, so each downstream phase starts cleanly.
+    * evaluate `generate` (typically `Plan.autonomous.from(...).value`) and lay
+    * down the branch + on-disk plan for a fresh run.
+    *
+    * `generate` is a bare `=> Plan`, not a `Sessioned`: on the resume branch
+    * there's no planning session to carry, so this helper can't expose one
+    * consistently. Callers that want session reuse should drive the grid
+    * operation directly instead of through `recoverOrCreate`; flows here mint a
+    * fresh implementer session via `llm.newSession` (so `.value` the planning
+    * result).
     *
     * `stashMessage` is used when a fresh start finds a dirty tree; pass a
     * flow-specific string so `git stash list` is searchable.

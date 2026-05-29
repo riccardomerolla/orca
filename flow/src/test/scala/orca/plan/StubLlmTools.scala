@@ -14,10 +14,12 @@ import orca.llm.{
   SessionId
 }
 
-/** Test double whose `resultAs[Plan].autonomous.run` returns a pre-built
-  * `Plan`. Other call shapes throw so accidental use surfaces immediately.
+/** Test double whose `resultAs[O].autonomous.run` returns a pre-built `value`
+  * (cast to `O`) paired with a fixed session id. Other call shapes throw so
+  * accidental use surfaces immediately. One stub serves every autonomous
+  * planning operation — pass a `Plan`, `AssessedPlan`, or `BugTriage`.
   */
-private[plan] class CannedPlanLlm(plan: Plan)
+private[plan] class CannedResultLlm[T](value: T)
     extends LlmTool[BackendTag.ClaudeCode.type]:
   val name: String = "stub"
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
@@ -38,35 +40,7 @@ private[plan] class CannedPlanLlm(plan: Plan)
           ): (SessionId[BackendTag.ClaudeCode.type], O) =
             (
               SessionId[BackendTag.ClaudeCode.type]("stub-sid"),
-              plan.asInstanceOf[O]
-            )
-      def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
-
-/** Test double whose `resultAs[AssessedPlan].autonomous.run` returns a
-  * pre-built `AssessedPlan`. Other call shapes throw.
-  */
-private[plan] class CannedAssessedPlanLlm(assessed: AssessedPlan)
-    extends LlmTool[BackendTag.ClaudeCode.type]:
-  val name: String = "stub-assessed"
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
-
-  def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    new LlmCall[BackendTag.ClaudeCode.type, O]:
-      val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
-        new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
-          def run[I: AgentInput](
-              input: I,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              config: LlmConfig,
-              emitPrompt: Boolean
-          ): (SessionId[BackendTag.ClaudeCode.type], O) =
-            (
-              SessionId[BackendTag.ClaudeCode.type]("stub-sid"),
-              assessed.asInstanceOf[O]
+              value.asInstanceOf[O]
             )
       def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 

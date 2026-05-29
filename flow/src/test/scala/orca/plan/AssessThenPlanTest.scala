@@ -67,12 +67,14 @@ class AssessThenPlanTest extends munit.FunSuite:
       rejectKind = Some("rebuff"),
       rejectBody = Some("duplicate of #42")
     )
-    val verdict = Plan.autonomous.assessThenPlan(
+    val result = Plan.autonomous.assessThenPlan(
       "the report",
-      new CannedAssessedPlanLlm(assessed)
+      new CannedResultLlm(assessed)
     )
+    // The verdict is carried alongside the session that produced it.
+    assertEquals(result.sessionId.value, "stub-sid")
     assertEquals(
-      verdict,
+      result.value,
       Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42")
     )
 
@@ -84,6 +86,6 @@ class AssessThenPlanTest extends munit.FunSuite:
     val ex = intercept[orca.OrcaFlowException]:
       Plan.autonomous.assessThenPlan(
         "the report",
-        new CannedAssessedPlanLlm(malformed)
+        new CannedResultLlm(malformed)
       )
     assert(ex.getMessage.contains("no plan"), ex.getMessage)

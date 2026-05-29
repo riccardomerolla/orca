@@ -126,29 +126,46 @@ object FlowCanary:
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
 
-  /** Assess-then-plan + Verdict surface; exercised by `plans/issue-pr.sc`. Pins
-    * the type-level shape (`Verdict[Plan]` is sum-matchable; `RejectionKind` is
-    * an enum with these three cases) so script changes — or an enum rename/case
-    * removal — can't silently bypass the assess gate.
+  /** Planning grid surface; exercised across `plans/`. Pins the full `mode ×
+    * operation` grid: every cell returns `Sessioned[B, <result>]` where the
+    * result is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
+    * (`triage`). A hole in the grid, a return-type drift, or an enum
+    * rename/case removal surfaces here instead of at the next live run.
     */
-  def assessThenPlanSurface(): Unit =
+  def planningGridSurface(): Unit =
     flow(OrcaArgs()):
-      stage("assess"):
-        // Pin both return-type contracts: assessThenPlan → Verdict[Plan],
-        // and Plan.{autonomous,interactive}.from → Plan (no SessionId pair).
-        val autoPlan: Plan = Plan.autonomous.from(userPrompt, claude.opus)
-        val intPlan: Plan = Plan.interactive.from(userPrompt, claude)
-        // Codex now also satisfies `CanAskUser`, so `Plan.interactive.from`
-        // compiles against it too (the agent uses the same shared
-        // AskUserMcpServer via codex's MCP support).
-        val intPlanCodex: Plan = Plan.interactive.from(userPrompt, codex)
-        val _ = autoPlan
-        val _ = intPlan
-        val _ = intPlanCodex
-        val verdict =
+      stage("grid"):
+        // --- from → Sessioned[B, Plan], both modes ---
+        val autoFrom: Sessioned[?, Plan] =
+          Plan.autonomous.from(userPrompt, claude.opus)
+        val intFrom: Sessioned[?, Plan] =
+          Plan.interactive.from(userPrompt, claude)
+        // Codex also satisfies `CanAskUser`, so the interactive cells compile
+        // against it too (shared AskUserMcpServer via codex's MCP support).
+        val intFromCodex: Sessioned[?, Plan] =
+          Plan.interactive.from(userPrompt, codex)
+        val _ = (autoFrom.value, intFrom.value, intFromCodex.value)
+
+        // --- assessThenPlan → Sessioned[B, Verdict[Plan]], both modes ---
+        val autoAssess: Sessioned[?, Verdict[Plan]] =
           Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
-        verdict match
+        val intAssess: Sessioned[?, Verdict[Plan]] =
+          Plan.interactive.assessThenPlan(userPrompt, claude)
+        val _ = intAssess
+        autoAssess.value match
           case Verdict.Proceed(_)                                   => ()
           case Verdict.Rejection(Verdict.RejectionKind.Question, _) => ()
           case Verdict.Rejection(Verdict.RejectionKind.Critique, _) => ()
           case Verdict.Rejection(Verdict.RejectionKind.Rebuff, _)   => ()
+
+        // --- triage → Sessioned[B, Triage], both modes ---
+        val autoTriage: Sessioned[?, Triage] =
+          Plan.autonomous.triage(userPrompt, claude.opus)
+        val _ = autoTriage.value
+        // Destructure the concretely-typed interactive result, as the bugfix
+        // plan does (`val Sessioned(session, triage) = ...`).
+        val Sessioned(_, triage) = Plan.interactive.triage(userPrompt, claude)
+        triage match
+          case Triage.NotABug(_)        => ()
+          case Triage.Untestable(_, _)  => ()
+          case Triage.Testable(_, _, _) => ()

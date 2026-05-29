@@ -11,11 +11,10 @@ case class CommitInfo(hash: String, message: String, author: String)
   *
   *   - [[DiffMode.MergeBase]] (default) — three-dot syntax (`base...HEAD`).
   *     Matches what GitHub renders in a PR view: changes the current branch
-  *     introduces since it forked off `base`, ignoring any commits `base`
-  *     has gained since the fork. The right choice for `summarisePr`.
+  *     introduces since it forked off `base`, ignoring any commits `base` has
+  *     gained since the fork. The right choice for `summarisePr`.
   *   - [[DiffMode.Direct]] — two-dot syntax (`base..HEAD`). Compares HEAD
-  *     directly to `base`'s current tip. Useful for "what would a fast-
-  *     forward merge change" or rebase-status views.
+  *     directly to `base`'s current tip (fast-forward preview, rebase status).
   */
 enum DiffMode:
   case MergeBase
@@ -115,27 +114,25 @@ trait GitTool:
   /** Diff of the current branch vs `base`.
     *
     * `mode = MergeBase` (default) returns the cumulative change a PR against
-    * `base` would carry (three-dot, merge-base semantics — GitHub's PR
-    * view). `mode = Direct` compares HEAD directly to `base`'s tip.
+    * `base` would carry (three-dot, merge-base semantics — GitHub's PR view).
+    * `mode = Direct` compares HEAD directly to `base`'s tip.
     *
     * Typical bases: `"origin/HEAD"` (the remote's default branch, set
     * automatically on `git clone`), `"main"`, `"master"`. For a freshly `git
-    * init`ed local repo, `origin/HEAD` may not be set — see
-    * [[defaultBase]] for a probe-with-fallback helper.
+    * init`ed local repo, `origin/HEAD` may not be set — see [[defaultBase]] for
+    * a probe-with-fallback helper.
     */
   def diffVsBase(base: String, mode: DiffMode = DiffMode.MergeBase): String
 
-  /** Best-effort default base ref for "branch vs main" diffs.
+  /** Best-effort default base ref for "branch vs main" diffs. Tries
+    * `origin/HEAD` first (set automatically by `git clone`; resolves to the
+    * remote's default branch), then falls back to `origin/main` and
+    * `origin/master` — common defaults on a freshly `git init`ed + pushed repo
+    * where `origin/HEAD` was never set.
     *
-    * Tries, in order:
-    *   1. `origin/HEAD` — set automatically by `git clone`; resolves to the
-    *      remote's default branch.
-    *   2. `origin/main`, `origin/master` — common defaults on a freshly
-    *      `git init`ed + pushed repo where `origin/HEAD` was never set.
-    *
-    * Throws `OrcaFlowException` when none of these refs exist — typically
-    * means the repo has no remote configured, in which case the caller can
-    * substitute a local branch name (e.g. `"main"`).
+    * Throws `OrcaFlowException` when none of these refs exist — typically means
+    * the repo has no remote configured, in which case the caller can substitute
+    * a local branch name (e.g. `"main"`).
     */
   def defaultBase(): String
 
@@ -314,10 +311,10 @@ private[orca] class OsGitTool(
         )
       )
 
-  /** Resolve the remote's recorded default branch via `git symbolic-ref`.
-    * `-q` suppresses stderr and lets us read the answer off the exit code,
-    * so a missing `origin/HEAD` ref becomes a clean `None` rather than a
-    * thrown subprocess error.
+  /** Resolve the remote's recorded default branch via `git symbolic-ref`. `-q`
+    * suppresses stderr and lets us read the answer off the exit code, so a
+    * missing `origin/HEAD` ref becomes a clean `None` rather than a thrown
+    * subprocess error.
     */
   private def resolveOriginHead: Option[String] =
     val result = QuietProc.call(

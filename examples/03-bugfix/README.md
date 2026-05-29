@@ -26,9 +26,10 @@ Only after those three gates does the implementation start.
 ## Stages
 
 1. **Read issue** — `gh.readIssue`.
-2. **Triage** *(opus, interactive)* — agent returns a `Triage` sum
-   type: `NotABug(explanation)`, `Untestable(summary, steps)`, or
-   `Testable(summary, branch, testPath)`.
+2. **Triage** *(opus, interactive)* — `Plan.interactive.triage` returns
+   a `Sessioned[B, Triage]`: the triage agent's session (reused for the
+   fix) paired with a `Triage` sum type — `NotABug(explanation)`,
+   `Untestable(summary, steps)`, or `Testable(summary, branch, testPath)`.
 3. **Bail-out paths** — `NotABug` and `Untestable` post a comment on
    the issue and stop.
 4. **Write the failing test** — autonomous turn, same session. Committed.
@@ -41,11 +42,12 @@ Only after those three gates does the implementation start.
    never pulls the log into memory.
 8. **Verify failure matches the report** *(sonnet)* — same gh-driven
    inspection, structured `BugReportMatch` verdict.
-9. **Plan the fix** — `Plan.autonomous.from`, persisted under
-   `.orca/plan-<hash>.md` so a crash resumes.
-10. **Implement the fix** — `Plan.implementTaskLoop` runs each task
-    through implementation, `sbt scalafmtAll`, and `reviewAndFixLoop`
-    with `sbt test` as the lint command.
+9. **Plan the fix** — `Plan.autonomous.from(...).value`. Not persisted:
+    the earlier stages (triage, CI-red, repro verification) can't be
+    replayed from a plan file, so this flow uses the in-memory loop.
+10. **Implement the fix** — the file-less `Plan.implementTaskLoop(plan)`
+    runs each task on the reused triage session through implementation,
+    `sbt scalafmtAll`, and `reviewAndFixLoop` with `sbt test` as lint.
 11. **Push the fix** — no final CI wait; a human picks the PR up.
 
 ## Prerequisites

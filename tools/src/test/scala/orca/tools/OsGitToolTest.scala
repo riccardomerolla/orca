@@ -85,14 +85,15 @@ class OsGitToolTest extends munit.FunSuite:
       // Simulate a freshly `git init`ed repo that pushed to an `origin/main`
       // remote without setting origin/HEAD — fake a remote-tracking ref via
       // `git update-ref` instead of pulling in a real second repo.
-      val _ = os.proc("git", "update-ref", "refs/remotes/origin/main", "HEAD")
+      val _ = os
+        .proc("git", "update-ref", "refs/remotes/origin/main", "HEAD")
         .call(cwd = dir)
       assertEquals(git.defaultBase(), "origin/main")
 
   test("defaultBase throws when no candidate ref exists"):
     withRepo: (git, _) =>
       // No remote-tracking refs at all → none of the fallbacks resolve.
-      intercept[orca.OrcaFlowException](git.defaultBase())
+      val _ = intercept[orca.OrcaFlowException](git.defaultBase())
 
   test("diffVsBase returns the cumulative branch diff vs base"):
     withRepo: (git, dir) =>

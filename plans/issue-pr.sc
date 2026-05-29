@@ -62,7 +62,7 @@ flow(OrcaArgs(args)):
     Plan
       .recover(planFile)
       .orElse:
-        Plan.autonomous.assessThenPlan(issuePayload, claude.opus) match
+        Plan.autonomous.assessThenPlan(issuePayload, claude.opus).value match
           case Verdict.Rejection(_, body) =>
             stage("Post assessment on the issue"):
               gh.writeComment(issueHandle, body)

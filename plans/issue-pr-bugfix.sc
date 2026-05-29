@@ -51,7 +51,7 @@ flow(OrcaArgs(args)):
   // Interactive triage so the agent can clarify edge cases. The session
   // returned here is reused below for the failing-test write and the fix
   // implementation, so the implementer inherits the triage's mental model.
-  val Triaged(session, triage) = stage("Triage"):
+  val Sessioned(session, triage) = stage("Triage"):
     Plan.interactive.triage(
       s"""Title: ${issue.title}
          |Reporter: ${issue.author}
@@ -167,14 +167,16 @@ flow(OrcaArgs(args)):
       // Plan + implement the fix. The flow's earlier stages (triage,
       // failing test push, CI-red wait, repro verification) aren't
       // restartable from a plan file alone, so no `.orca/plan-*.md` —
-      // use the in-memory `implementTaskLoop` variant.
+      // use the in-memory `implementTaskLoop` variant. The fix-plan's own
+      // (read-only) planning session is discarded via `.value`; the fix
+      // tasks run on the triage `session` opened above.
       val fixPlan = stage("Plan the fix"):
         Plan.autonomous.from(
           s"""Implement the fix for ${issueHandle.shortRef}. A failing
              |test is already on this branch (`$branchName`) — the fix
              |must make it pass without regressing other tests.""".stripMargin,
           claude
-        )
+        ).value
 
       Plan.implementTaskLoop(fixPlan): task =>
         stage(s"Implement task: ${task.title}"):

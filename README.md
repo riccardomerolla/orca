@@ -31,13 +31,14 @@ flow(OrcaArgs(args)):
   // Plan persists to `.orca/plan-<hash>.md` so a re-run with the same
   // prompt resumes from the first incomplete task. Plan.autonomous.from
   // runs the planner as a single agentic turn (use Plan.interactive.from
-  // to let the planner ask clarifying questions). `recoverOrCreate`
-  // ensures the branch is checked out and the file is on disk before we
-  // start implementing.
+  // to let the planner ask clarifying questions). It returns the plan
+  // paired with the planner's session; `.value` keeps just the plan (the
+  // implementer below opens its own session). `recoverOrCreate` ensures the
+  // branch is checked out and the file is on disk before we start.
   val planFile = Plan.defaultPath(userPrompt)
   val plan = stage("Acquire plan"):
     Plan.recoverOrCreate(planFile, "orca: starting work"):
-      Plan.autonomous.from(userPrompt, claude)
+      Plan.autonomous.from(userPrompt, claude).value
 
   // Stable session reused across every task so the implementer retains
   // cross-task context. The planner's session isn't carried forward — it
@@ -128,17 +129,39 @@ Top-level, available via `import orca.*`:
 
 Planning utilities, available via `import orca.plan.*`:
 
+The planning entry points form a **mode × operation grid**. The two axes are
+orthogonal — every combination is valid. Mode is picked at the call site
+(`Plan.autonomous.*` vs `Plan.interactive.*`), mirroring how `LlmTool` itself
+splits `autonomous` / `interactive`:
+
+| Operation | Result | `autonomous` (read-only, no human) | `interactive` (agent can `ask_user`) |
+|---|---|---|---|
+| `from(userPrompt, llm, instructions?)` | `Plan` | plan in one agentic turn | drive the planner conversationally |
+| `assessThenPlan(userPrompt, llm, instructions?)` | `Verdict[Plan]` | assess, then `Proceed(plan)` or `Rejection(kind, body)` | same, but can ask the reporter to clarify instead of rejecting |
+| `triage(report, llm, instructions?)` | `Triage` | classify a bug report (not-a-bug / untestable / testable) | same, with clarifying questions |
+
+Every cell returns `Sessioned[B, <result>]` — the result paired with the agent
+session that produced it. Continue that session into implementation
+(`llm.autonomous.run(task, sessioned.sessionId)` — the read-only planning turn's
+session is still resumable with write access), or `.value` it and mint a fresh
+session via `llm.newSession`. Destructure positionally when you want both:
+`val Sessioned(session, plan) = Plan.autonomous.from(...)`.
+
+`assessThenPlan` returns a `Verdict`: `Verdict.Proceed(plan)` to implement, or
+`Verdict.Rejection(kind, body)` — a follow-up question, critique, or rebuff the
+caller surfaces back to the reporter. `triage` returns a `Triage` sum type the
+caller pattern-matches (`NotABug` / `Untestable` / `Testable`).
+
+Persistence + iteration helpers:
+
 | Method | Use |
 |---|---|
-| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns just the `Plan`; the implementer allocates its own session via `llm.newSession`. |
-| `Plan.autonomous.from(userPrompt, llm, instructions?)` | Same shape as `interactive.from` but the planning runs as a single agentic turn, no human in the loop. Runs read-only — the planner can read/grep but can't edit. |
-| `Plan.autonomous.assessThenPlan(userPrompt, llm, instructions?)` | Skeptically assess `userPrompt` (typically a bug/feature report) against the repo and either return a plan (`Verdict.Proceed`) or a critique/follow-up question/rebuff the caller surfaces back to the reporter (`Verdict.Rejection`). Used by `issue-pr.sc`. |
-| `Plan.interactive.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition with interactive generation: parse `file` if it exists (resume), otherwise drive the planner conversationally and persist the result as markdown. |
-| `Plan.autonomous.loadOrGenerate(file, userPrompt, llm, instructions?)` | Same, but generation is autonomous. |
+| `Plan.{autonomous,interactive}.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition: parse `file` if it exists (resume), otherwise generate (in the chosen mode) and persist as markdown. |
 | `Plan.defaultPath(userPrompt, workDir?)` | Returns `<workDir>/.orca/plan-<hash>.md` — the conventional persistent-plan path. `<hash>` is the first 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars, so unrelated prompts in the same repo don't collide. |
-| `Plan.recover(file)` | Resume-from-crash entry point. If `file` exists: stash pending edits (`git stash pop` recovers them), switch to the plan's branch, parse the file, return `Some(plan)`. Otherwise `None` so the caller can fall back to generating. |
-| `Plan.implementTaskLoop(file, plan)(body)` | Iterate `plan` running `body(task)` per task; tick the checkbox + commit per task; remove `file` and commit the cleanup at the end. Body owns the per-task work (implement, review, lint). |
-| `Plan.persistComplete(file, title)` | Mark one task complete on disk. Lower-level primitive that `implementTaskLoop` is built on. |
+| `Plan.recoverOrCreate(file, stashMessage?)(generate)` | Resume from `file` if it exists, else `ensureClean` + evaluate `generate`, check out the plan's branch, and persist. The acquisition entry point for resumable flows. |
+| `Plan.recover(file)` | Lower-level resume-from-crash: if `file` exists, stash pending edits (`git stash pop` recovers them), switch to the plan's branch, parse, return `Some(plan)`; else `None`. |
+| `Plan.implementTaskLoop(file, plan)(body)` / `Plan.implementTaskLoop(plan)(body)` | Iterate `plan` running `body(task)` per task, committing each. The `file` overload also ticks the on-disk checkbox and removes the file at the end (resumable); the file-less overload tracks completion in memory (for flows with their own non-restartable state machine). |
+| `Plan.persistComplete(file, title)` | Mark one task complete on disk. Lower-level primitive that the `file` loop is built on. |
 
 Picking interactive vs autonomous is visible at the call site rather than
 hidden behind a parameter default — `Plan.interactive.*` and `Plan.autonomous.*`
@@ -191,7 +214,7 @@ Plan.interactive.from(
 ```
 
 Where the defaults live:
-- `orca.plan.PlanPrompts` — `Planning`
+- `orca.plan.PlanPrompts` — `Planning`, `AssessThenPlan`, `Triage`
 - `orca.pr.PrPrompts` — `Summarise`
 - `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
@@ -207,21 +230,28 @@ Common types you'll see in flow scripts. All `derives JsonData`, so the agent
 can generate them as structured output via `claude.resultAs[T]`:
 
 - **`orca.plan.Plan(epicId, tasks)`** — list of tasks the agent generates in
-  one round-trip; the same type backs both in-memory use (`Plan.interactive.from` /
-  `Plan.autonomous.from`) and the markdown-persisted resume path
-  (`Plan.interactive.loadOrGenerate` / `Plan.autonomous.loadOrGenerate`).
-  `epicId` is a
+  one round-trip; the same type backs both in-memory use (`Plan.*.from`) and
+  the markdown-persisted resume path (`Plan.*.loadOrGenerate`). `epicId` is a
   kebab-case identifier used as the git branch name for the whole plan.
 - **`orca.plan.Task(title, description, completed?)`** — `title` is the
   human-readable label shown in the event log and used as the
   `## Task: <title>` markdown header when persisted.
+- **`orca.plan.Sessioned(sessionId, value)`** — every `Plan.{autonomous,
+  interactive}.*` operation returns one: the result paired with the agent
+  session that produced it, so the caller can continue that session into
+  implementation or `.value` it and start fresh.
+- **`orca.plan.Verdict[A]`** — `Verdict.Proceed(value)` or
+  `Verdict.Rejection(kind, body)` (kind ∈ Question / Critique / Rebuff).
+  Returned by `assessThenPlan` as `Verdict[Plan]`.
+- **`orca.plan.Triage`** — sum type returned by `triage`: `NotABug`,
+  `Untestable`, or `Testable` — each carrying exactly the fields its branch
+  needs.
+- **`orca.plan.BugReportMatch`** — the agent's decision on whether a CI failure
+  matches the original report.
 - **`orca.Title`** — opaque alias of `String` shared by `Task.title` and
   `ReviewIssue.title`. Construct via `Title("…")`; recover the string with
   `.value`. Keeps short labels from being silently swapped with descriptions
   or raw user input.
-- **`orca.bug.BugTriage`** / **`orca.bug.BugReportMatch`** — the agent's
-  decision on whether a bug can be reproduced as a unit test, and whether a CI
-  failure matches the report.
 - **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
   fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.

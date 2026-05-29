@@ -149,7 +149,9 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (_, gh) = stubGh(CliResult(0, json, ""))
     assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
 
-  test("buildStatus reports Pending on an empty check list (CI not registered yet)"):
+  test(
+    "buildStatus reports Pending on an empty check list (CI not registered yet)"
+  ):
     // Closes the race where waitForBuild would return Success on the first
     // poll after a push, before GitHub had registered the workflow run.
     val (_, gh) = stubGh(CliResult(0, """{"statusCheckRollup":[]}""", ""))
@@ -205,7 +207,8 @@ class OsGitHubToolTest extends munit.FunSuite:
     // No CI configured: every poll comes back with an empty rollup. With
     // noChecksGrace < timeout, returning NoChecksConfigured proves the
     // fast-path fired — it's only reachable via the grace branch.
-    val cli = new StubCliRunner(CliResult(0, """{"statusCheckRollup":[]}""", ""))
+    val cli =
+      new StubCliRunner(CliResult(0, """{"statusCheckRollup":[]}""", ""))
     val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
     val result = gh.waitForBuild(
       samplePr,

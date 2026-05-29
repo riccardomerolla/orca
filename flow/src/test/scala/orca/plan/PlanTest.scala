@@ -211,7 +211,7 @@ class PlanTest extends munit.FunSuite:
     val plan = Plan.autonomous.loadOrGenerate(
       target,
       "Add a divide method",
-      new CannedPlanLlm(expected)
+      new CannedResultLlm(expected)
     )
     assert(os.exists(target))
     assertEquals(plan, expected)

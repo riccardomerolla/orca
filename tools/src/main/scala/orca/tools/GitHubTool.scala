@@ -101,17 +101,16 @@ sealed abstract class BuildWaitFailed(message: String)
     extends OrcaFlowException(message)
 
 /** Returned when the overall `waitForBuild` deadline elapsed while the build
-  * was still pending (real CI was running, just slowly). The caller can
-  * decide whether to keep waiting, escalate to a human, or abort.
+  * was still pending (real CI was running, just slowly). The caller can decide
+  * whether to keep waiting, escalate to a human, or abort.
   */
 final class BuildTimedOut(timeout: FiniteDuration)
     extends BuildWaitFailed(s"build did not finish within $timeout")
 
 /** Returned when no CI check was ever registered against the PR after
-  * `noChecksGrace`. Typically means the target repo has no CI workflow set
-  * up — distinct from a real CI run that timed out. Surfaced as a separate
-  * type so the caller can give a more actionable error message than
-  * "CI didn't finish".
+  * `noChecksGrace`. Typically means the target repo has no CI workflow set up —
+  * distinct from a real CI run that timed out. Surfaced as a separate type so
+  * the caller can give a more actionable error message than "CI didn't finish".
   */
 final class NoChecksConfigured(grace: FiniteDuration)
     extends BuildWaitFailed(
@@ -149,28 +148,28 @@ trait GitHubTool:
     * no PR will be opened.
     */
   def writeComment(issue: IssueHandle, body: String): Unit
+
   /** Aggregate status of the checks attached to `pr`.
     *
-    * Contract for the empty-rollup case: implementations MUST treat an
-    * empty check list as `BuildOutcome.Pending`, not `Success`. GitHub
-    * returns an empty rollup for several seconds after a push while the
-    * workflow is being registered — collapsing to `Success` there races
-    * with CI startup and produces a false "build green". The
-    * [[waitForBuild]] grace period is what disambiguates the "no CI
-    * configured" case after the fact.
+    * Contract for the empty-rollup case: implementations MUST treat an empty
+    * check list as `BuildOutcome.Pending`, not `Success`. GitHub returns an
+    * empty rollup for several seconds after a push while the workflow is being
+    * registered — collapsing to `Success` there races with CI startup and
+    * produces a false "build green". The [[waitForBuild]] grace period is what
+    * disambiguates the "no CI configured" case after the fact.
     */
   def buildStatus(pr: PrHandle): BuildStatus
 
   /** Poll [[buildStatus]] every `pollInterval` (impl-defined) until the build
     * reaches a terminal outcome or one of two timeouts fires:
     *
-    *   - `timeout` is the overall deadline. When it elapses while the build
-    *     is still pending, returns `Left(BuildTimedOut)`.
-    *   - `noChecksGrace` catches the "repo has no CI workflow configured"
-    *     case. When no check has registered after that grace, returns
-    *     `Left(NoChecksConfigured)` immediately rather than burning the
-    *     rest of `timeout`. Defaults to 90 seconds — long enough to absorb
-    *     normal CI startup, short enough to give a useful error fast.
+    *   - `timeout` is the overall deadline. When it elapses while the build is
+    *     still pending, returns `Left(BuildTimedOut)`.
+    *   - `noChecksGrace` catches the "repo has no CI workflow configured" case.
+    *     When no check has registered after that grace, returns
+    *     `Left(NoChecksConfigured)` immediately rather than burning the rest of
+    *     `timeout`. Defaults to 90 seconds — long enough to absorb normal CI
+    *     startup, short enough to give a useful error fast.
     */
   def waitForBuild(
       pr: PrHandle,
@@ -384,14 +383,13 @@ private[orca] object OsGitHubTool:
   private val LegacyStatePending = "PENDING"
 
   /** Reduce a heterogeneous list of check entries to a single outcome. Empty
-    * list is treated as Pending: just after a push, GitHub returns zero
-    * checks for several seconds while the workflow is being registered, so
-    * collapsing empty to Success would race with CI startup and surface as a
-    * false "build green" before CI even ran. Callers that hit a repo with no
-    * CI configured at all will see Pending until `waitForBuild`'s
-    * `noChecksGrace` window elapses, at which point it converts to
-    * `NoChecksConfigured` — a more actionable diagnostic than a generic
-    * "build didn't finish" timeout.
+    * list is treated as Pending: just after a push, GitHub returns zero checks
+    * for several seconds while the workflow is being registered, so collapsing
+    * empty to Success would race with CI startup and surface as a false "build
+    * green" before CI even ran. Callers that hit a repo with no CI configured
+    * at all will see Pending until `waitForBuild`'s `noChecksGrace` window
+    * elapses, at which point it converts to `NoChecksConfigured` — a more
+    * actionable diagnostic than a generic "build didn't finish" timeout.
     */
   def aggregateOutcome(checks: List[GhCheck]): BuildOutcome =
     if checks.isEmpty then BuildOutcome.Pending
