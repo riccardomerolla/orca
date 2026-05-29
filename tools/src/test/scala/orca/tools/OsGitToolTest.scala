@@ -78,6 +78,22 @@ class OsGitToolTest extends munit.FunSuite:
       assert(d.contains("-first"))
       assert(d.contains("+second"))
 
+  test("defaultBase falls back to origin/main when origin/HEAD is unset"):
+    withRepo: (git, dir) =>
+      os.write(dir / "file.txt", "x")
+      git.commit("seed").orThrow
+      // Simulate a freshly `git init`ed repo that pushed to an `origin/main`
+      // remote without setting origin/HEAD — fake a remote-tracking ref via
+      // `git update-ref` instead of pulling in a real second repo.
+      val _ = os.proc("git", "update-ref", "refs/remotes/origin/main", "HEAD")
+        .call(cwd = dir)
+      assertEquals(git.defaultBase(), "origin/main")
+
+  test("defaultBase throws when no candidate ref exists"):
+    withRepo: (git, _) =>
+      // No remote-tracking refs at all → none of the fallbacks resolve.
+      intercept[orca.OrcaFlowException](git.defaultBase())
+
   test("diffVsBase returns the cumulative branch diff vs base"):
     withRepo: (git, dir) =>
       // base branch with one commit

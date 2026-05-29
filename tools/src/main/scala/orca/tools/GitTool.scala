@@ -120,10 +120,24 @@ trait GitTool:
     *
     * Typical bases: `"origin/HEAD"` (the remote's default branch, set
     * automatically on `git clone`), `"main"`, `"master"`. For a freshly `git
-    * init`ed local repo, `origin/HEAD` may not be set — pass an explicit
-    * branch name in that case.
+    * init`ed local repo, `origin/HEAD` may not be set — see
+    * [[defaultBase]] for a probe-with-fallback helper.
     */
   def diffVsBase(base: String, mode: DiffMode = DiffMode.MergeBase): String
+
+  /** Best-effort default base ref for "branch vs main" diffs.
+    *
+    * Tries, in order:
+    *   1. `origin/HEAD` — set automatically by `git clone`; resolves to the
+    *      remote's default branch.
+    *   2. `origin/main`, `origin/master` — common defaults on a freshly
+    *      `git init`ed + pushed repo where `origin/HEAD` was never set.
+    *
+    * Throws `OrcaFlowException` when none of these refs exist — typically
+    * means the repo has no remote configured, in which case the caller can
+    * substitute a local branch name (e.g. `"main"`).
+    */
+  def defaultBase(): String
 
   def log(n: Int = 10): List[CommitInfo]
 
@@ -288,6 +302,35 @@ private[orca] class OsGitTool(
       case DiffMode.MergeBase => s"$base...HEAD"
       case DiffMode.Direct    => s"$base..HEAD"
     git("diff", spec)
+
+  def defaultBase(): String =
+    // `git symbolic-ref -q` resolves origin/HEAD without throwing on absence
+    // (-q suppresses stderr; exit code carries the answer).
+    val originHead = QuietProc.call(
+      Seq("git", "symbolic-ref", "-q", "refs/remotes/origin/HEAD"),
+      cwd = workDir
+    )
+    if originHead.exitCode == 0 then
+      // Output looks like "refs/remotes/origin/main"; strip the prefix to
+      // get the short form callers can pass back into `diff`.
+      originHead.out.text().trim.stripPrefix("refs/remotes/")
+    else
+      // origin/HEAD not set — fall back to common defaults.
+      List("origin/main", "origin/master").find(refExists).getOrElse(
+        throw OrcaFlowException(
+          "no default base ref found: tried origin/HEAD, origin/main, origin/master. " +
+            "Either set the remote's HEAD (`git remote set-head origin -a`) or " +
+            "pass an explicit base to diffVsBase."
+        )
+      )
+
+  private def refExists(ref: String): Boolean =
+    QuietProc
+      .call(
+        Seq("git", "rev-parse", "--verify", "--quiet", ref),
+        cwd = workDir
+      )
+      .exitCode == 0
 
   def log(n: Int): List[CommitInfo] =
     // Fields are separated with the ASCII unit separator (0x1F) so commit
