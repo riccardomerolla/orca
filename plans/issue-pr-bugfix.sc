@@ -51,7 +51,7 @@ flow(OrcaArgs(args)):
   // Interactive triage so the agent can clarify edge cases. The session
   // returned here is reused below for the failing-test write and the fix
   // implementation, so the implementer inherits the triage's mental model.
-  val (session, triage) = stage("Triage"):
+  val Triaged(session, triage) = stage("Triage"):
     Plan.interactive.triage(
       s"""Title: ${issue.title}
          |Reporter: ${issue.author}
