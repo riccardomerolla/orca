@@ -91,7 +91,13 @@ object ReviewerSelector:
       val names = cached.getOrElse:
         val infos = eligible.map: r =>
           ReviewerInfo(
-            name = r.name,
+            // Show the picker the bare slug, not the `reviewer: …`
+            // cost-attribution prefix: the prefix plus the `name: description`
+            // serialization made the name ambiguous (a `:`-in-name inside a
+            // `:`-separated line), so the model echoed something that didn't
+            // match and selection collapsed to zero. `pick` matches either
+            // form back.
+            name = ReviewerPrompts.stripNamePrefix(r.name),
             description = descriptions.getOrElse(r.name, "")
           )
         if eligible.nonEmpty && infos.forall(_.description.isEmpty) then
@@ -127,7 +133,21 @@ object ReviewerSelector:
         picked
       // Post-filter against `eligible`, not `all`, so a picker that hallucinates
       // a name pre-filtered out can't resurrect it.
-      SelectedReviewers(names).pick(eligible)
+      val selected = SelectedReviewers(names).pick(eligible)
+      // Safety floor: the picker is an optimisation that *narrows* the set, not
+      // a gate that can skip review entirely. If it picks nothing (a refusal, a
+      // hallucinated set that matches nothing) while reviewers are eligible,
+      // fall back to all eligible so a real change is never silently unreviewed
+      // — orca's contract is that AI-written code gets reviewed.
+      if selected.isEmpty && eligible.nonEmpty then
+        ctx.emit(
+          OrcaEvent.Step(
+            s"reviewer selection: picker returned no usable names; " +
+              s"falling back to all ${eligible.size} eligible reviewer(s)"
+          )
+        )
+        eligible
+      else selected
 
 private case class ReviewerInfo(name: String, description: String)
     derives JsonData

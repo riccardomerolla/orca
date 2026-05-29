@@ -77,7 +77,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
   test("file-pattern reviewers are dropped before the picker sees them"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(
-      SelectedReviewers(List("reviewer: scala-fp", "reviewer: generic")),
+      SelectedReviewers(List("scala-fp", "generic")),
       captured
     )
     val selector = ReviewerSelector.llmDriven(
@@ -88,10 +88,41 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // Even though the picker tried to include scala-fp, it was never offered
     // and the post-filter drops it from the result.
     assertEquals(picked.map(_.name), List("reviewer: generic"))
+    // The picker is shown bare slugs, not the `reviewer: ` cost-attribution
+    // prefix.
     assertEquals(
       captured.get().map(_.availableReviewers.map(_.name)),
-      Some(List("reviewer: generic"))
+      Some(List("generic"))
     )
+
+  test("picker reply matches whether it echoes the slug or the full name"):
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    // Mixed: slug for one, full prefixed name for the other — both resolve.
+    val picker = new RecordingPicker(
+      SelectedReviewers(List("generic", "reviewer: scala-fp")),
+      captured
+    )
+    val selector = ReviewerSelector.llmDriven(llm = picker)
+    val picked =
+      selector(Nil, all, Title("any"), List("src/main/scala/Foo.scala"))
+    assertEquals(
+      picked.map(_.name).toSet,
+      Set("reviewer: generic", "reviewer: scala-fp")
+    )
+
+  test(
+    "empty picker selection falls back to all eligible (review never skipped)"
+  ):
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val picker = new RecordingPicker(SelectedReviewers(Nil), captured)
+    val selector = ReviewerSelector.llmDriven(
+      llm = picker,
+      filePatterns = filePatterns
+    )
+    // scala-fp is filtered out for a .rs change; generic is eligible. The
+    // picker picks nothing, so the floor falls back to the eligible set.
+    val picked = selector(Nil, all, Title("any"), List("src/lib.rs"))
+    assertEquals(picked.map(_.name), List("reviewer: generic"))
 
   test("file-pattern reviewers are offered when matching files are present"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)

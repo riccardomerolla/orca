@@ -29,6 +29,21 @@ private[review] case class Reviewer(
   */
 private[review] object ReviewerPrompts:
 
+  /** Prefix on every reviewer tool's name (e.g. `reviewer: performance`). Its
+    * job is purely cost attribution — the `OrcaEvent.TokensUsed` breakdown
+    * groups all `reviewer: …` agents together. The LLM-driven selector strips
+    * it before showing names to the picker (and matches the picker's reply back
+    * leniently), so this grouping detail never leaks into the selection
+    * contract.
+    */
+  val NamePrefix: String = "reviewer: "
+
+  /** Drop the [[NamePrefix]] from a reviewer tool name, yielding the bare slug.
+    * Used both to present clean names to the selection picker and to match its
+    * reply back, so the cost-attribution prefix never gates selection.
+    */
+  def stripNamePrefix(name: String): String = name.stripPrefix(NamePrefix)
+
   private def load(slug: String): Reviewer =
     val parsed = PromptResource.loadWithMetadata(
       s"/orca/review/prompts/reviewers/$slug.md"
@@ -82,7 +97,7 @@ private[review] object ReviewerPrompts:
     * build the actual tools.
     */
   val descriptionsByToolName: Map[String, String] =
-    all.map(r => s"reviewer: ${r.name}" -> r.description).toMap
+    all.map(r => s"$NamePrefix${r.name}" -> r.description).toMap
 
   /** File-filter regexes keyed by the prefixed tool name. The selector drops
     * reviewers whose pattern doesn't match any of the iteration's changed
@@ -90,7 +105,7 @@ private[review] object ReviewerPrompts:
     * `files:` frontmatter entry appear here.
     */
   val filePatternsByToolName: Map[String, Regex] =
-    all.flatMap(r => r.filePattern.map(p => s"reviewer: ${r.name}" -> p)).toMap
+    all.flatMap(r => r.filePattern.map(p => s"$NamePrefix${r.name}" -> p)).toMap
 
 /** Build LlmTools for every reviewer the library ships with. The picker in
   * [[ReviewerSelector.llmDriven]] (the default in [[reviewAndFixLoop]]) narrows
@@ -124,5 +139,5 @@ private def buildReviewers[B <: BackendTag](
   reviewers.map: r =>
     base
       .withSystemPrompt(r.systemPrompt)
-      .withName(s"reviewer: ${r.name}")
+      .withName(s"${ReviewerPrompts.NamePrefix}${r.name}")
       .withReadOnly
