@@ -325,29 +325,30 @@ object Plan:
       advance: (Plan, Task) => Plan,
       cleanup: () => Unit
   )(body: Task => Unit)(using ctx: FlowContext): Unit =
-    var current = initial
-    var task = current.firstIncomplete
-    while task.isDefined do
-      val t = task.get
-      body(t)
-      current = advance(current, t)
-      // `NothingToCommit` is non-fatal here: a body that produced only
-      // gitignored output (the plan-file tick when `.orca/` is in
-      // `.gitignore`, or a no-op task by design) shouldn't abort the loop
-      // and leave the next run skipping a task on the strength of an
-      // on-disk tick alone. Same swallow the cleanup commit already does.
-      // Surface the swallow as a Step so a body that silently produced
-      // nothing (e.g. an LLM turn that ended without edits) is still
-      // visible in the event log.
-      ctx.git.commit(s"task: ${t.title}") match
-        case Right(_) => ()
-        case Left(_) =>
-          ctx.emit(
-            OrcaEvent.Step(
-              s"task '${t.title.value}' produced no tracked changes — advancing without commit"
+    @scala.annotation.tailrec
+    def loop(current: Plan): Unit = current.firstIncomplete match
+      case None => ()
+      case Some(t) =>
+        body(t)
+        val next = advance(current, t)
+        // `NothingToCommit` is non-fatal here: a body that produced only
+        // gitignored output (the plan-file tick when `.orca/` is in
+        // `.gitignore`, or a no-op task by design) shouldn't abort the
+        // loop and leave the next run skipping a task on the strength of
+        // an on-disk tick alone. Same swallow the cleanup commit already
+        // does. Surface the swallow as a Step so a body that silently
+        // produced nothing (e.g. an LLM turn that ended without edits)
+        // is still visible in the event log.
+        ctx.git.commit(s"task: ${t.title}") match
+          case Right(_) => ()
+          case Left(_) =>
+            ctx.emit(
+              OrcaEvent.Step(
+                s"task '${t.title.value}' produced no tracked changes — advancing without commit"
+              )
             )
-          )
-      task = current.firstIncomplete
+        loop(next)
+    loop(initial)
     cleanup()
 
   /** Parse a plan from its markdown representation. Strict — throws
