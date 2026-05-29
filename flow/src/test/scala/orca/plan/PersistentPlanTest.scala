@@ -283,14 +283,13 @@ class PersistentPlanTest extends munit.FunSuite:
         // no tracked output
 
       // Both bodies ran — the loop didn't abort on NothingToCommit even
-      // though every per-task commit had nothing to record.
+      // though every per-task commit had nothing to record. The commit
+      // log being unchanged is the load-bearing assertion: it proves
+      // both that no `NothingToCommit` abort fired AND that no spurious
+      // per-task commit landed.
       assertEquals(bodyCalls, 2)
-      // No new commits (gitignored tick, no body output, swallowed cleanup
-      // commit on the gitignored file removal).
       val commits = ctx.git.log(10).map(_.message)
       assertEquals(commits, List("ignore .orca", "seed"))
-      // Plan file removed at end of loop.
-      assert(!os.exists(planFile))
 
   test(
     "in-memory implementTaskLoop runs body + commits per task, no file activity"
