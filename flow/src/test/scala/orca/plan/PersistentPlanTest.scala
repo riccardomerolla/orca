@@ -251,6 +251,47 @@ class PersistentPlanTest extends munit.FunSuite:
       assertEquals(commits, List("seed"))
 
   test(
+    "file-backed implementTaskLoop tolerates a no-op body with a gitignored plan file"
+  ):
+    // Regression: the .orca/ dir is conventionally gitignored, so a no-op
+    // body produces a working tree with no tracked changes — the per-task
+    // `commit().orThrow` would raise NothingToCommit even though
+    // `persistComplete` had already written the tick to disk. On the next
+    // resume the (still-on-disk, ticked) plan file would advance past a
+    // task whose body never actually committed.
+    withRepoCtx: (ctx, dir, _) =>
+      given FlowContext = ctx
+      // Mark `.orca/` as gitignored before the plan file is written, so the
+      // tick goes onto disk but git ignores it. Commit the .gitignore so it
+      // sticks for the rest of the test.
+      os.write(dir / ".gitignore", ".orca/\n")
+      val _ = os.proc("git", "add", "-A").call(cwd = dir)
+      val _ = os.proc("git", "commit", "-m", "ignore .orca").call(cwd = dir)
+
+      val plan = Plan(
+        epicId = "feat-gitignored",
+        description = "",
+        tasks = List(Task(Title("t1"), "body1"), Task(Title("t2"), "body2"))
+      )
+      val planFile = dir / ".orca" / "plan.md"
+      os.write(planFile, Plan.render(plan), createFolders = true)
+
+      var bodyCalls = 0
+      Plan.implementTaskLoop(planFile, plan): _ =>
+        bodyCalls += 1
+        // no tracked output
+
+      // Both bodies ran — the loop didn't abort on NothingToCommit even
+      // though every per-task commit had nothing to record.
+      assertEquals(bodyCalls, 2)
+      // No new commits (gitignored tick, no body output, swallowed cleanup
+      // commit on the gitignored file removal).
+      val commits = ctx.git.log(10).map(_.message)
+      assertEquals(commits, List("ignore .orca", "seed"))
+      // Plan file removed at end of loop.
+      assert(!os.exists(planFile))
+
+  test(
     "in-memory implementTaskLoop runs body + commits per task, no file activity"
   ):
     withRepoCtx: (ctx, dir, _) =>
