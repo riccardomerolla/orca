@@ -386,9 +386,10 @@ private[orca] object OsGitHubTool:
     * checks for several seconds while the workflow is being registered, so
     * collapsing empty to Success would race with CI startup and surface as a
     * false "build green" before CI even ran. Callers that hit a repo with no
-    * CI configured at all will see Pending until `waitForBuild`'s timeout
-    * fires and converts to `BuildTimedOut`, which is the right diagnostic
-    * for that case anyway.
+    * CI configured at all will see Pending until `waitForBuild`'s
+    * `noChecksGrace` window elapses, at which point it converts to
+    * `NoChecksConfigured` — a more actionable diagnostic than a generic
+    * "build didn't finish" timeout.
     */
   def aggregateOutcome(checks: List[GhCheck]): BuildOutcome =
     if checks.isEmpty then BuildOutcome.Pending
