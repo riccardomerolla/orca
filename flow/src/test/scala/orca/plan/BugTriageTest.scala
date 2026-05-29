@@ -14,12 +14,15 @@ class BugTriageTest extends munit.FunSuite:
     summary = ""
   )
 
+  // Whitespace-only literals catch both an empty-string regression AND a
+  // `.isEmpty`-without-`.trim` regression; plain `""` would only catch the
+  // first. One literal per missing field is enough.
+
   test("toTriage(NotABug) requires a non-empty explanation"):
     assertEquals(
       empty.copy(notBugExplanation = "intended behavior").toTriage,
       Right(Triage.NotABug("intended behavior"))
     )
-    assert(empty.toTriage.isLeft)
     assert(empty.copy(notBugExplanation = "   ").toTriage.isLeft)
 
   test("toTriage(Untestable) requires summary + reproductionSteps"):
@@ -33,8 +36,8 @@ class BugTriageTest extends munit.FunSuite:
       ok.toTriage,
       Right(Triage.Untestable("race in shutdown", "1. run 2. ctrl-c"))
     )
-    assert(ok.copy(summary = "").toTriage.isLeft)
-    assert(ok.copy(reproductionSteps = "").toTriage.isLeft)
+    assert(ok.copy(summary = "   ").toTriage.isLeft)
+    assert(ok.copy(reproductionSteps = "   ").toTriage.isLeft)
 
   test("toTriage(Testable) requires summary + branchName + failingTestPath"):
     val ok = empty.copy(
@@ -54,7 +57,9 @@ class BugTriageTest extends munit.FunSuite:
         )
       )
     )
+    // failingTestPath has two distinct rejection paths (None vs whitespace
+    // after the Some-unwrap) — exercise both.
     assert(ok.copy(failingTestPath = None).toTriage.isLeft)
-    assert(ok.copy(failingTestPath = Some("  ")).toTriage.isLeft)
-    assert(ok.copy(branchName = "").toTriage.isLeft)
-    assert(ok.copy(summary = "").toTriage.isLeft)
+    assert(ok.copy(failingTestPath = Some("   ")).toTriage.isLeft)
+    assert(ok.copy(branchName = "   ").toTriage.isLeft)
+    assert(ok.copy(summary = "   ").toTriage.isLeft)
