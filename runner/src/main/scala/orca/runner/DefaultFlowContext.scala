@@ -55,7 +55,11 @@ private[orca] object DefaultFlowContext:
       claude = claude.getOrElse(
         new DefaultClaudeTool(
           backend = new ClaudeBackend(OsProcCliRunner),
-          config = LlmConfig.default,
+          // Bare `claude` defaults to Opus with the 1M context window — the
+          // implementer session is long-lived, so it needs the big window.
+          // `claude.sonnet` / `claude.haiku` opt down for cheap one-shots.
+          config =
+            LlmConfig.default.copy(model = Some(DefaultClaudeTool.Opus1M)),
           prompts = prompts,
           workDir = workDir,
           events = dispatcher,

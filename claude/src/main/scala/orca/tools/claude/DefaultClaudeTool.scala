@@ -36,7 +36,7 @@ private[orca] class DefaultClaudeTool(
 
   def haiku: ClaudeTool = withModel(Model("claude-haiku-4-5"))
   def sonnet: ClaudeTool = withModel(Model("claude-sonnet-4-6"))
-  def opus: ClaudeTool = withModel(Model("claude-opus-4-7"))
+  def opus: ClaudeTool = withModel(DefaultClaudeTool.Opus1M)
 
   protected def copyTool(
       config: LlmConfig = config,
@@ -51,3 +51,14 @@ private[orca] class DefaultClaudeTool(
       interaction,
       name
     )
+
+private[orca] object DefaultClaudeTool:
+  /** The default coding model: Opus with the 1M-token context window, selected
+    * via the documented `[1m]` model-alias suffix (Claude Code model-config; no
+    * beta header needed). The main implementer session is long-lived and
+    * accumulates context across tasks, so 1M is what keeps it from overflowing
+    * ("Prompt is too long"). Both bare `claude` (see `DefaultFlowContext`) and
+    * `claude.opus` resolve to this; cheaper one-shot / auxiliary calls go
+    * through `claude.sonnet` / `claude.haiku`.
+    */
+  val Opus1M: Model = Model("claude-opus-4-8[1m]")

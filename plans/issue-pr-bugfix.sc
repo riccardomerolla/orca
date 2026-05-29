@@ -129,12 +129,11 @@ flow(OrcaArgs(args)):
               "doesn't actually reproduce — re-triage and try again."
           )
 
-      // Sonnet inspects the failed run via gh — the flow never pulls the
-      // log into memory. Fresh sonnet session, shared across the two
-      // sonnet turns below so the verifier can lean on what the
-      // summariser found.
-      val sonnetSession = claude.sonnet.newSession
-
+      // Sonnet inspects the failed run via gh — the flow never pulls the log
+      // into memory. Each sonnet turn is a fresh one-shot session: only the
+      // implementer (on the 1M model) holds a long-lived session; cheap
+      // auxiliary calls don't accumulate context. Each turn re-inspects the
+      // run via gh, so it's self-contained.
       stage("Post focused failure comment"):
         val (_, failureSummary) = claude.sonnet.autonomous.run(
           s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
@@ -146,22 +145,21 @@ flow(OrcaArgs(args)):
              |--log-failed --repo ${pr.owner}/${pr.repo}`. Produce a
              |short, focused failure summary — the most informative
              |excerpt, not the whole log. Output only the summary text;
-             |it goes verbatim into a PR comment.""".stripMargin,
-          session = sonnetSession
+             |it goes verbatim into a PR comment.""".stripMargin
         )
         gh.writeComment(pr, failureSummary)
 
       stage("Verify failure matches the report"):
         val (_, verdict) =
           claude.sonnet.resultAs[BugReportMatch].autonomous.run(
-            s"""Using the same failed run you inspected just now on PR
-               |${pr.shortRef}, decide whether the failure matches the
-               |original report below. Be strict — a different stack
-               |trace or assertion error counts as a mismatch.
+            s"""Inspect the failed CI run on PR ${pr.shortRef} via `gh`
+               |(`gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}`,
+               |then `gh run view <run-id> --log-failed`), then decide whether
+               |the failure matches the original report below. Be strict — a
+               |different stack trace or assertion error counts as a mismatch.
                |
                |Original report:
-               |${issue.body}""".stripMargin,
-            session = sonnetSession
+               |${issue.body}""".stripMargin
           )
         if !verdict.matches then
           fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
