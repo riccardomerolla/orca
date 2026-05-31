@@ -29,3 +29,9 @@ class OrcaLogTest extends munit.FunSuite:
     val second = new ByteArrayOutputStream()
     orcaLog.finish(new PrintStream(second, true, "UTF-8"), dump = true)
     assertEquals(second.toString("UTF-8"), "")
+
+  test("finish with dump=false prints nothing (path is shown by the banner)"):
+    val orcaLog = OrcaLog.start()
+    val captured = new ByteArrayOutputStream()
+    orcaLog.finish(new PrintStream(captured, true, "UTF-8"), dump = false)
+    assertEquals(captured.toString("UTF-8"), "")

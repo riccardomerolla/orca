@@ -16,8 +16,8 @@ import java.nio.charset.StandardCharsets.UTF_8
   * lands there: events (via [[LoggingListener]]) and subprocess invocations
   * (logger `orca.proc`). The console stays quiet — `logback.xml` filters STDERR
   * to WARN+ — and the trace is surfaced only on demand: [[finish]] dumps the
-  * file to the console on a flow exception or when `--verbose` is passed, and
-  * always prints the file path.
+  * file to the console on a flow exception or when `--verbose` is passed. The
+  * file path itself is shown once at startup by the banner.
   *
   * The file is intentionally NOT deleted on exit, so it can be inspected after
   * the run. If logback isn't the active slf4j backend, file logging is skipped
@@ -31,9 +31,10 @@ private[orca] final class OrcaLog private (
 ):
   private var finished = false
 
-  /** Detach the appender; when `dump` is true also print the file contents to
-    * `out`. Always prints the file path. Idempotent — safe to call from both
-    * the error path (before `System.exit`) and the success/finally path.
+  /** Detach the appender; when `dump` is true print the file contents to
+    * `out` (the path is already shown by the startup banner, so it isn't
+    * repeated here). Idempotent — safe to call from both the error path
+    * (before `System.exit`) and the success/finally path.
     */
   def finish(out: PrintStream, dump: Boolean): Unit =
     if !finished then
@@ -41,12 +42,12 @@ private[orca] final class OrcaLog private (
       appender.foreach(_.stop())
       for a <- appender; r <- rootLogger do r.detachAppender(a)
       // Only dump when an appender actually captured the run; the no-op
-      // fallback (logback absent) leaves an empty file, so just print the path.
+      // fallback (logback absent) leaves an empty file, so there's nothing
+      // worth printing.
       if dump && appender.isDefined && os.exists(file) then
         out.println(s"[orca] execution trace ($file):")
         out.print(os.read(file))
         out.flush()
-      else out.println(s"[orca] execution trace: $file")
 
 private[orca] object OrcaLog:
   /** Attach a fresh per-run DEBUG file appender and return the handle. Must be
