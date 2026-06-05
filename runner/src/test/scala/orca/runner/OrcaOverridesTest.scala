@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, flow, fs}
+import orca.{FlowContext, OrcaArgs, flow, fs, pi}
 import orca.tools.{FsTool}
 import orca.llm.{
   Announce,
@@ -8,6 +8,7 @@ import orca.llm.{
   BackendTag,
   ClaudeTool,
   JsonData,
+  PiTool,
   LlmCall,
   LlmConfig,
   Model,
@@ -73,6 +74,39 @@ class OrcaOverridesTest extends munit.FunSuite:
       ):
         observed = summon[FlowContext].claude.autonomous.run("hi")._2
     assertEquals(observed, "echo: hi")
+
+  test("flow uses a custom PiTool when supplied"):
+    val fakePi = new PiTool:
+      val name = "fake-pi"
+      def withConfig(c: LlmConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withReadOnly = this
+      val autonomous: AutonomousTextCall[BackendTag.Pi.type] =
+        new AutonomousTextCall[BackendTag.Pi.type]:
+          def run(
+              p: String,
+              session: SessionId[BackendTag.Pi.type],
+              c: LlmConfig,
+              emitPrompt: Boolean
+          ): (SessionId[BackendTag.Pi.type], String) =
+            (SessionId[BackendTag.Pi.type]("fake-pi-sid"), s"pi: $p")
+      def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.Pi.type, O] =
+        ???
+    var observed: String = ""
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(),
+        pi = Some(fakePi),
+        interaction = Some(interaction)
+      ):
+        observed = pi.autonomous.run("hi")._2
+    assertEquals(observed, "pi: hi")
 
   test("flow collects extra listeners alongside the interaction's"):
     val buf = new ByteArrayOutputStream()

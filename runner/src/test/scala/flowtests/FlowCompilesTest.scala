@@ -59,6 +59,9 @@ object FlowCanary:
         // Per-tool config knobs resolve and chain on both backends.
         val _ = claude.withReadOnly.withSelfManagedGit
         val _ = codex.withSelfManagedGit
+        val _ = pi.withConfig(
+          LlmConfig.default.copy(model = Some(Model("gpt-5.5")))
+        )
 
   /** Review-and-fix loop; pulls in `allReviewers` and the internal `stage`/fork
     * machinery.
@@ -144,11 +147,18 @@ object FlowCanary:
           Plan.autonomous.from(userPrompt, claude.opus)
         val intFrom: Sessioned[?, Plan] =
           Plan.interactive.from(userPrompt, claude)
-        // Codex also satisfies `CanAskUser`, so the interactive cells compile
-        // against it too (shared AskUserMcpServer via codex's MCP support).
+        // Codex and Pi also satisfy `CanAskUser`, so the interactive cells
+        // compile against them too.
         val intFromCodex: Sessioned[?, Plan] =
           Plan.interactive.from(userPrompt, codex)
-        val _ = (autoFrom.value, intFrom.value, intFromCodex.value)
+        val intFromPi: Sessioned[?, Plan] =
+          Plan.interactive.from(userPrompt, pi)
+        val _ = (
+          autoFrom.value,
+          intFrom.value,
+          intFromCodex.value,
+          intFromPi.value
+        )
 
         // --- assessThenPlan → Sessioned[B, Verdict[Plan]], both modes ---
         val autoAssess: Sessioned[?, Verdict[Plan]] =

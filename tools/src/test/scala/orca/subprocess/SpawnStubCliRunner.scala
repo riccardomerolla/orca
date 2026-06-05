@@ -13,9 +13,11 @@ import java.util.concurrent.atomic.AtomicReference
 class SpawnStubCliRunner(prepared: List[FakePipedCliProcess]) extends CliRunner:
   private val queue = new AtomicReference[List[FakePipedCliProcess]](prepared)
   private val recorded =
-    new AtomicReference[List[List[String]]](Nil)
+    new AtomicReference[List[SpawnStubCliRunner.SpawnCall]](Nil)
 
-  def calls: List[List[String]] = recorded.get().reverse
+  def calls: List[List[String]] = spawnCalls.map(_.args)
+
+  def spawnCalls: List[SpawnStubCliRunner.SpawnCall] = recorded.get().reverse
 
   def run(
       args: Seq[String],
@@ -33,7 +35,9 @@ class SpawnStubCliRunner(prepared: List[FakePipedCliProcess]) extends CliRunner:
       cwd: os.Path,
       pipeStderr: Boolean
   ): PipedCliProcess =
-    val _ = recorded.updateAndGet(args.toList :: _)
+    val _ = recorded.updateAndGet(
+      SpawnStubCliRunner.SpawnCall(args.toList, env, cwd, pipeStderr) :: _
+    )
     val next = queue
       .getAndUpdate(_.drop(1))
       .headOption
@@ -41,3 +45,11 @@ class SpawnStubCliRunner(prepared: List[FakePipedCliProcess]) extends CliRunner:
         throw new IllegalStateException("ran out of prepared processes")
       )
     next
+
+object SpawnStubCliRunner:
+  case class SpawnCall(
+      args: List[String],
+      env: Map[String, String],
+      cwd: os.Path,
+      pipeStderr: Boolean
+  )

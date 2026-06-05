@@ -40,7 +40,13 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
       * the user-facing backend name.
       */
     backendName: String,
-    initialPrompt: String = ""
+    initialPrompt: String = "",
+    /** Some backends expose user-question support through their own protocol
+      * rather than the shared MCP [[AskUserSession]] bridge. Setting this flag
+      * lets those drivers report [[Conversation.canAskUser]] without starting
+      * the MCP drainer machinery below.
+      */
+    canAskUserFlag: Boolean = false
 ) extends Conversation[B]:
 
   import StreamConversation.*
@@ -59,7 +65,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     */
   protected def askUser: Option[AskUserSession] = None
 
-  final def canAskUser: Boolean = askUser.isDefined
+  final def canAskUser: Boolean = canAskUserFlag || askUser.isDefined
 
   // Surface the opening prompt to the channel before any agent
   // output. Without this, the channel sits silent while the agent

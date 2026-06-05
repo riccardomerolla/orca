@@ -10,6 +10,7 @@ package orca.llm
 enum BackendTag:
   case ClaudeCode
   case Codex
+  case Pi
 
 opaque type SessionId[B <: BackendTag] = String
 

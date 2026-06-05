@@ -86,6 +86,8 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 
+trait PiTool extends LlmTool[BackendTag.Pi.type]
+
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
   * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the
   * default fresh one) and the library starts the session on the first call,
