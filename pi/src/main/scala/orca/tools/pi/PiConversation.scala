@@ -44,6 +44,13 @@ private[pi] class PiConversation(
   private val modelRef = new AtomicReference[Option[String]](None)
   private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
+  // All stdin writes funnel through this lock: `sendPrompt` runs on the caller's
+  // thread, the ask-user reply on the event consumer's, and the reader thread
+  // may write an extension cancel. `writeLine` is an unsynchronised write+flush,
+  // so concurrent callers would otherwise interleave JSONL frames. Declared
+  // before `start()` so the reader thread never observes a null lock.
+  private val stdinLock = new AnyRef
+
   /** Pi normally streams text deltas, but tests and future protocol variants
     * may only emit a completed message. Track whether this assistant message
     * already streamed text so message_end can act as a fallback without
@@ -54,7 +61,13 @@ private[pi] class PiConversation(
   start()
 
   def sendPrompt(prompt: String): Unit =
-    process.writeLine(OutboundMessage.prompt(prompt))
+    sendLine(OutboundMessage.prompt(prompt))
+
+  private def sendLine(line: String): Unit =
+    stdinLock.synchronized(process.writeLine(line))
+
+  private def closeStdin(): Unit =
+    stdinLock.synchronized(process.closeStdin())
 
   /** Pi RPC prompts are command messages rather than a writable chat stdin.
     * Orca's interactive Pi support currently routes human input through the
@@ -151,7 +164,7 @@ private[pi] class PiConversation(
       model = modelRef.get().map(Model.apply)
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
-    process.closeStdin()
+    closeStdin()
     process.sendSigInt()
 
   private def handleExtensionUiRequest(
@@ -165,7 +178,7 @@ private[pi] class PiConversation(
           ConversationEvent.UserQuestion(
             question,
             answer =>
-              process.writeLine(OutboundMessage.extensionUiValue(id, answer))
+              sendLine(OutboundMessage.extensionUiValue(id, answer))
           )
         )
       case method if FireAndForgetUiMethods.contains(method) =>
@@ -178,7 +191,7 @@ private[pi] class PiConversation(
             s"Unsupported Pi extension UI request '$other': $question"
           )
         )
-        process.writeLine(OutboundMessage.extensionUiCancelled(id))
+        sendLine(OutboundMessage.extensionUiCancelled(id))
 
 private[pi] object PiConversation:
 
