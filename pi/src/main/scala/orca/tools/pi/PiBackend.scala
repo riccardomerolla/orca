@@ -16,9 +16,18 @@ import orca.subprocess.CliRunner
 import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
-/** Pi backend driven through `pi --mode rpc` JSONL over stdio. Each Orca call
-  * owns one Pi RPC subprocess; Pi's persisted `--session` threads context
-  * across calls using the caller-supplied Orca session id.
+/** Pi backend driven through `pi --mode rpc` JSONL over stdio.
+  *
+  * Pi exposes no HTTP server and its in-process SDK is Node-only, so a
+  * subprocess is the only way to embed it from the JVM; `--mode rpc` is the
+  * bidirectional channel (needed within a turn for `ask_user` extension-UI
+  * replies).
+  *
+  * Lifecycle is deliberately per-call: each Orca call spawns its own
+  * `pi --mode rpc` process, sends one `prompt`, reads to `agent_end`, then lets
+  * the process exit. Context carries across calls through Pi's persisted
+  * `--session <id>` (keyed on the caller-supplied Orca session id) rather than a
+  * long-lived process — simpler, and stateless between turns.
   */
 private[orca] class PiBackend(cli: CliRunner)
     extends LlmBackend[BackendTag.Pi.type]:
