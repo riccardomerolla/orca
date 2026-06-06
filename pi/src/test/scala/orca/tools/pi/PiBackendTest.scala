@@ -44,7 +44,7 @@ class PiBackendTest extends munit.FunSuite:
     assertEquals(call.cwd, workDir)
     assertEquals(call.pipeStderr, true)
     assert(call.args.containsSlice(Seq("pi", "--mode", "rpc")), call.args)
-    assert(call.args.containsSlice(Seq("--session-id", SessionId.value(sid))))
+    assert(call.args.containsSlice(Seq("--session", SessionId.value(sid))))
     assert(process.writes.exists(_.contains("\"type\":\"prompt\"")))
     assert(process.writes.exists(_.contains("do it")))
 

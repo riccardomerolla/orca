@@ -11,7 +11,7 @@ class PiArgsTest extends munit.FunSuite:
     val args = PiArgs.rpc(sid, LlmConfig.default, None)
     assertEquals(
       args.take(5),
-      Seq("pi", "--mode", "rpc", "--session-id", "sid")
+      Seq("pi", "--mode", "rpc", "--session", "sid")
     )
 
   test("model and system prompt file are rendered"):

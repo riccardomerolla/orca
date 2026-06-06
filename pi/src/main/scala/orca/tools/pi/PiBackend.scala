@@ -17,7 +17,7 @@ import scala.collection.mutable.ListBuffer
 import scala.util.control.NonFatal
 
 /** Pi backend driven through `pi --mode rpc` JSONL over stdio. Each Orca call
-  * owns one Pi RPC subprocess; Pi's persisted `--session-id` threads context
+  * owns one Pi RPC subprocess; Pi's persisted `--session` threads context
   * across calls using the caller-supplied Orca session id.
   */
 private[orca] class PiBackend(cli: CliRunner)

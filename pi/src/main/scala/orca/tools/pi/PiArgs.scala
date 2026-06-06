@@ -21,7 +21,7 @@ private[pi] object PiArgs:
       "pi",
       "--mode",
       "rpc",
-      "--session-id",
+      "--session",
       SessionId.value(session)
     ) ++
       CliArgs.modelArgs(config) ++
