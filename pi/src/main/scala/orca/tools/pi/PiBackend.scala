@@ -25,12 +25,21 @@ import scala.util.control.NonFatal
   *
   * Lifecycle is deliberately per-call: each Orca call spawns its own
   * `pi --mode rpc` process, sends one `prompt`, reads to `agent_end`, then lets
-  * the process exit. Context carries across calls through Pi's persisted
-  * `--session <id>` (keyed on the caller-supplied Orca session id) rather than a
-  * long-lived process — simpler, and stateless between turns.
+  * the process exit. Context carries across calls through a per-session
+  * `--session-dir` (one dir per Orca session id) that Pi creates on the first
+  * turn and `--continue` resumes on later turns — rather than a long-lived
+  * process.
   */
 private[orca] class PiBackend(cli: CliRunner)
     extends LlmBackend[BackendTag.Pi.type]:
+
+  // Pi persists each session in a directory; one dir per Orca session id gives
+  // caller-stable continuity. `started` records which ids have had their first
+  // turn, so the next turn on the same id adds `--continue`.
+  private val sessionsBase: os.Path =
+    os.temp.dir(prefix = "orca-pi-sessions-", deleteOnExit = true)
+  private val started: java.util.Set[String] =
+    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 
   def runAutonomous(
       prompt: String,
@@ -104,8 +113,11 @@ private[orca] class PiBackend(cli: CliRunner)
       val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
         .map(register)
 
+      val sessionId = SessionId.value(session)
+      val resume = !started.add(sessionId) // first turn creates, later resume
       val args = PiArgs.rpc(
-        session = session,
+        sessionDir = sessionsBase / sessionId,
+        resume = resume,
         config = config,
         systemPromptFile = systemPromptFile.map(_.file),
         askUserExtension = askUserExtension.map(_.file)

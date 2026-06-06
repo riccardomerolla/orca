@@ -130,8 +130,8 @@ for task <- tasks do
 
 The first call opens the session; subsequent calls resume it. The library
 tracks fresh-vs-resume internally per backend (`--session-id` then `--resume`
-on claude; a client→server mapping on codex and opencode; caller-supplied
-`--session` on pi).
+on claude; a client→server mapping on codex and opencode; a per-session
+`--session-dir` resumed with `--continue` on pi).
 
 A minimal Pi-backed flow looks the same; Pi reads your normal Pi configuration
 and is driven through RPC mode under the hood:

@@ -44,9 +44,28 @@ class PiBackendTest extends munit.FunSuite:
     assertEquals(call.cwd, workDir)
     assertEquals(call.pipeStderr, true)
     assert(call.args.containsSlice(Seq("pi", "--mode", "rpc")), call.args)
-    assert(call.args.containsSlice(Seq("--session", SessionId.value(sid))))
+    // A fresh session opens a dir named for the session id, without --continue.
+    val dir = call.args(call.args.indexOf("--session-dir") + 1)
+    assert(dir.endsWith(SessionId.value(sid)), dir)
+    assert(!call.args.contains("--continue"), call.args)
     assert(process.writes.exists(_.contains("\"type\":\"prompt\"")))
     assert(process.writes.exists(_.contains("do it")))
+
+  test("a second turn on the same session resumes with --continue"):
+    val runner =
+      new SpawnStubCliRunner(List(successfulProcess(), successfulProcess()))
+    val backend = new PiBackend(runner)
+    val workDir = os.temp.dir()
+
+    val _ = backend.runAutonomous("one", sid, LlmConfig.default, workDir)
+    val _ = backend.runAutonomous("two", sid, LlmConfig.default, workDir)
+
+    val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
+    assert(!first.args.contains("--continue"), first.args)
+    assert(second.args.contains("--continue"), second.args)
+    // Same session dir both times.
+    def dirOf(a: List[String]) = a(a.indexOf("--session-dir") + 1)
+    assertEquals(dirOf(first.args), dirOf(second.args))
 
   test("model and autonomous read-only config map to Pi flags"):
     val process = successfulProcess()

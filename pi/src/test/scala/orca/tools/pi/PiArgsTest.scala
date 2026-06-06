@@ -1,22 +1,28 @@
 package orca.tools.pi
 
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
+import orca.llm.{LlmConfig, Model}
 
 class PiArgsTest extends munit.FunSuite:
 
-  private val sid: SessionId[BackendTag.Pi.type] =
-    SessionId[BackendTag.Pi.type]("sid")
+  private val dir: os.Path = os.Path("/tmp/orca-pi-session")
 
-  test("rpc args include mode and session id"):
-    val args = PiArgs.rpc(sid, LlmConfig.default, None)
+  test("a fresh turn opens the session dir without --continue"):
+    val args = PiArgs.rpc(dir, resume = false, LlmConfig.default, None)
     assertEquals(
       args.take(5),
-      Seq("pi", "--mode", "rpc", "--session", "sid")
+      Seq("pi", "--mode", "rpc", "--session-dir", dir.toString)
     )
+    assert(!args.contains("--continue"), args)
+
+  test("a resumed turn adds --continue for the same session dir"):
+    val args = PiArgs.rpc(dir, resume = true, LlmConfig.default, None)
+    assert(args.containsSlice(Seq("--session-dir", dir.toString)), args)
+    assert(args.contains("--continue"), args)
 
   test("model and system prompt file are rendered"):
     val args = PiArgs.rpc(
-      sid,
+      dir,
+      resume = false,
       LlmConfig.default.copy(model = Some(Model("openai/gpt-5"))),
       Some(os.Path("/tmp/system.md"))
     )
@@ -27,12 +33,14 @@ class PiArgsTest extends munit.FunSuite:
     )
 
   test("read-only tools exclude writes"):
-    val args = PiArgs.rpc(sid, LlmConfig.default.copy(readOnly = true), None)
+    val args =
+      PiArgs.rpc(dir, resume = false, LlmConfig.default.copy(readOnly = true), None)
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
 
   test("interactive ask-user extension adds extension and ask_user tool"):
     val args = PiArgs.rpc(
-      sid,
+      dir,
+      resume = false,
       LlmConfig.default.copy(readOnly = true),
       None,
       askUserExtension = Some(os.Path("/tmp/ask-user.ts"))
