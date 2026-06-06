@@ -35,3 +35,9 @@ metals.sbt
 # OS
 .DS_Store
 Thumbs.db
+
+# Local agent/workflow files
+.pi/
+openspec/
+.envrc
+.nvmrc
