@@ -195,7 +195,11 @@ private[pi] class PiConversation(
           ConversationEvent.UserQuestion(
             question,
             answer =>
-              sendLine(OutboundMessage.extensionUiValue(id, answer))
+              // The turn may have already reached agent_end (stdin closed) by
+              // the time a human answers; a late reply is moot, so don't let the
+              // write blow up the consumer thread.
+              try sendLine(OutboundMessage.extensionUiValue(id, answer))
+              catch case NonFatal(_) => ()
           )
         )
       case method if FireAndForgetUiMethods.contains(method) =>
@@ -241,7 +245,3 @@ private[pi] object PiConversation:
     while result.size > 1 && result.map(_.length).sum > StderrMaxBytes do
       result = result.tail
     result
-
-  private def closeQuietly(resource: AutoCloseable): Unit =
-    try resource.close()
-    catch case NonFatal(_) => ()

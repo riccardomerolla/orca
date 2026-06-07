@@ -175,7 +175,3 @@ private[orca] class PiBackend(cli: CliRunner)
   private case class TempFileResource(dir: os.Path, file: os.Path)
       extends AutoCloseable:
     def close(): Unit = os.remove.all(dir)
-
-  private def closeQuietly(resource: AutoCloseable): Unit =
-    try resource.close()
-    catch case NonFatal(_) => ()
