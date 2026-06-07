@@ -104,8 +104,9 @@ private[orca] class PiBackend(cli: CliRunner)
     // Temp files (ask-user extension, system prompt) Pi reads for the whole
     // turn. Ownership passes to the conversation once it's constructed — it
     // closes them in `onFinalize` when the turn ends; `closeResources` here is
-    // the backstop for a failure before that point. All closes are idempotent
-    // (`closeQuietly` + `os.remove.all`), so the paths can't leak or double-fail.
+    // the backstop for a failure before that point. Closes are idempotent
+    // (`closeQuietly` + `os.remove.all`); the temp dirs are also `deleteOnExit`,
+    // so a hard JVM kill mid-turn still reclaims them.
     val resources = ListBuffer.empty[AutoCloseable]
     def register[A <: AutoCloseable](resource: A): A =
       resources += resource
@@ -166,7 +167,7 @@ private[orca] class PiBackend(cli: CliRunner)
       .combine(config, extraHint)
       .map: text =>
         val dir =
-          os.temp.dir(prefix = "orca-pi-system-prompt-", deleteOnExit = false)
+          os.temp.dir(prefix = "orca-pi-system-prompt-", deleteOnExit = true)
         val file = dir / "system-prompt.md"
         os.write(file, text)
         TempFileResource(dir, file)

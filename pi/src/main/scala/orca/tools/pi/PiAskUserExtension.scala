@@ -28,7 +28,7 @@ private[pi] object PiAskUserExtension:
       "do not ask if you can make a reasonable assumption."
 
   def allocate(): PiAskUserExtension =
-    val dir = os.temp.dir(prefix = "orca-pi-ask-user-", deleteOnExit = false)
+    val dir = os.temp.dir(prefix = "orca-pi-ask-user-", deleteOnExit = true)
     val file = dir / "ask-user.ts"
     os.write(file, Source)
     new PiAskUserExtension(dir, file)
