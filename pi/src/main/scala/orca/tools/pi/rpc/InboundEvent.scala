@@ -118,6 +118,10 @@ private[pi] object InboundEvent:
       .getOrElse(method)
     ExtensionUiRequest(wire.id, method, question)
 
+  /** Pi's `message.content` is polymorphic: either a JSON string, or an array of
+    * content blocks (of which we keep the `text` ones). Decode by shape; fall
+    * back to the raw trimmed value if it's neither, or fails to parse.
+    */
   private def renderContent(raw: RawJson): String =
     val trimmed = raw.value.trim
     if trimmed.isEmpty || trimmed == "null" then ""
@@ -125,10 +129,7 @@ private[pi] object InboundEvent:
       try readFromString[String](trimmed)
       catch case NonFatal(_) => trimmed
     else if trimmed.startsWith("[") then
-      try
-        readFromString[List[ContentBlockWire]](trimmed)
-          .flatMap(c => c.text.filter(_ => c.`type` == "text"))
-          .mkString
+      try renderTextBlocks(readFromString[List[ContentBlockWire]](trimmed))
       catch case NonFatal(_) => trimmed
     else trimmed
 
@@ -136,11 +137,14 @@ private[pi] object InboundEvent:
     val trimmed = raw.value.trim
     if trimmed.isEmpty || trimmed == "null" then ""
     else
-      try
-        readFromString[ToolResultWire](trimmed).content
-          .flatMap(c => c.text.filter(_ => c.`type` == "text"))
-          .mkString
+      try renderTextBlocks(readFromString[ToolResultWire](trimmed).content)
       catch case NonFatal(_) => trimmed
+
+  /** Concatenate the `"type":"text"` blocks; other kinds (tool, image, …) are
+    * dropped.
+    */
+  private def renderTextBlocks(blocks: List[ContentBlockWire]): String =
+    blocks.flatMap(b => Option.when(b.`type` == "text")(b.text).flatten).mkString
 
   private def renderJsonString(raw: RawJson): Option[String] =
     val trimmed = raw.value.trim
