@@ -183,3 +183,36 @@ object FlowCanary:
           case Triage.NotABug(_)        => ()
           case Triage.Untestable(_, _)  => ()
           case Triage.Testable(_, _, _) => ()
+
+  /** Post-planning steps (`reviewed` / `briefed`) and the brief-aware
+    * persistence surface — exercised by `plans/implement-enhanced.sc`. Pins
+    * that the `Sessioned[B, Plan]` / `Sessioned[B, PlanWithBrief]` extensions
+    * resolve through `import orca.*` alone (implicit scope = the `Plan` /
+    * `PlanWithBrief` companions), and that both step orders type-check.
+    */
+  def planReviewAndBriefSurface(): Unit =
+    flow(OrcaArgs()):
+      stage("review+brief"):
+        // review-then-brief and brief-then-review both yield a PlanWithBrief.
+        val reviewedThenBriefed: Sessioned[?, PlanWithBrief] =
+          Plan.autonomous
+            .from(userPrompt, claude)
+            .reviewed(claude)
+            .briefed(claude)
+        val briefedThenReviewed: Sessioned[?, PlanWithBrief] =
+          Plan.autonomous
+            .from(userPrompt, claude)
+            .briefed(claude)
+            .reviewed(claude)
+        val _ = briefedThenReviewed
+        // review alone stays a bare Plan.
+        val reviewedOnly: Sessioned[?, Plan] =
+          Plan.autonomous.from(userPrompt, claude).reviewed(claude)
+        val _ = reviewedOnly
+
+        val planFile = Plan.defaultPath(userPrompt)
+        val plan: PlanLike =
+          Plan.recoverOrCreate(planFile)(reviewedThenBriefed.value)
+        Plan.implementTaskLoop(planFile, plan): task =>
+          val _ =
+            claude.autonomous.run(plan.taskPrompt(task), claude.newSession)

@@ -37,3 +37,16 @@ object PlanPrompts:
     */
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")
+
+  /** Used by `Sessioned[B, Plan].reviewed` / `Sessioned[B, PlanWithBrief]
+    * .reviewed`. The current plan is appended after this block; the agent
+    * returns an improved plan (and refines the brief when one is present).
+    */
+  val Review: String =
+    PromptResource.load("/orca/plan/prompts/review.md")
+
+  /** Used by `Sessioned[B, Plan].briefed`. Asks the planner to write a codebase
+    * briefing for the implementing agents, without restating the plan.
+    */
+  val Brief: String =
+    PromptResource.load("/orca/plan/prompts/brief.md")

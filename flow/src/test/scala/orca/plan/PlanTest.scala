@@ -118,6 +118,67 @@ class PlanTest extends munit.FunSuite:
     val original = Plan.parse(sample)
     assertEquals(Plan.parse(Plan.render(original)), original)
 
+  // --- PlanWithBrief: the trailing ## Brief section ---
+
+  private val samplePlan =
+    Plan("epic", "desc", List(Task(Title("t"), "implement t")))
+
+  test("parse without a ## Brief section yields a bare Plan"):
+    assert(Plan.parse(sample).isInstanceOf[Plan])
+
+  test("parse with a ## Brief section yields a PlanWithBrief"):
+    Plan.parse(sample + "\n## Brief\n\nUse the existing Foo helper.\n") match
+      case PlanWithBrief(plan, brief) =>
+        assertEquals(plan.tasks.size, 2)
+        assertEquals(brief, "Use the existing Foo helper.")
+      case other => fail(s"expected PlanWithBrief, got $other")
+
+  test("render + parse round-trips a PlanWithBrief, brief preserved"):
+    val pwb = PlanWithBrief(samplePlan, "Build on bar/Baz.scala.")
+    assertEquals(Plan.parse(Plan.render(pwb)), pwb)
+
+  test("a literal ## Brief line in the description does not swallow the tasks"):
+    val tricky =
+      """# Plan: x
+        |
+        |Context.
+        |## Brief
+        |more context
+        |
+        |## Task: t
+        |Status: [ ]
+        |
+        |body
+        |""".stripMargin
+    Plan.parse(tricky) match
+      case p: Plan =>
+        assertEquals(p.tasks.size, 1)
+        assert(p.description.contains("## Brief"))
+      case other => fail(s"expected a bare Plan, got $other")
+
+  test("a brief is kept verbatim even if it contains ## Task lines"):
+    // The brief is split off before task parsing, so its markdown can't be
+    // mistaken for plan tasks.
+    val brief = "## Task: not a real task\nsome notes"
+    Plan.parse(Plan.render(PlanWithBrief(samplePlan, brief))) match
+      case PlanWithBrief(plan, b) =>
+        assertEquals(plan.tasks.size, 1)
+        assertEquals(b, brief)
+      case other => fail(s"expected PlanWithBrief, got $other")
+
+  test("markComplete on a PlanWithBrief flips the task and keeps the brief"):
+    val updated = PlanWithBrief(samplePlan, "CONTEXT").markComplete(Title("t"))
+    assertEquals(updated.tasks.head.completed, true)
+    assertEquals(updated.brief, "CONTEXT")
+
+  test("taskPrompt prepends the brief only for a PlanWithBrief"):
+    val task = samplePlan.tasks.head
+    assertEquals(samplePlan.taskPrompt(task), "implement t")
+    assertEquals(
+      PlanWithBrief(samplePlan, "CONTEXT").taskPrompt(task),
+      "CONTEXT\n\n---\n\nimplement t"
+    )
+
   test("markComplete flips one task's checkbox without touching others"):
     val plan = Plan.parse(sample)
     val updated = plan.markComplete(Title("add-divide"))
