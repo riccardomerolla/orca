@@ -16,7 +16,7 @@ package orca.llm
   * Mirrors `Conversation.canAskUser` at the type level. The runtime flag stays
   * useful for programmatic queries on a concrete `Conversation[?]`; the
   * typeclass catches mistakes one step earlier — at the
-  * `Plan.interactive.from(claude/codex, …)` call site — without requiring
+  * `Plan.interactive.from(claude/codex/pi, …)` call site — without requiring
   * pattern-matching on `B`.
   */
 trait CanAskUser[B <: BackendTag]
@@ -44,3 +44,10 @@ object CanAskUser:
     */
   given CanAskUser[BackendTag.Opencode.type] =
     new CanAskUser[BackendTag.Opencode.type] {}
+
+  /** Pi's interactive sessions load Orca's temporary ask-user extension, which
+    * forwards extension UI prompts into the same Orca `UserQuestion` event used
+    * by the other interactive backends.
+    */
+  given CanAskUser[BackendTag.Pi.type] =
+    new CanAskUser[BackendTag.Pi.type] {}

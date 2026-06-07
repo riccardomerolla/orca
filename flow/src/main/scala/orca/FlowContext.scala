@@ -4,7 +4,7 @@ import orca.events.OrcaEvent
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
-import orca.llm.{ClaudeTool, CodexTool, OpencodeTool}
+import orca.llm.{ClaudeTool, CodexTool, OpencodeTool, PiTool}
 
 /** Ambient context a flow script operates in. Bundles every tool the top- level
   * accessors (`claude`, `codex`, `git`, `gh`, `fs`) resolve against, the user's
@@ -20,6 +20,7 @@ trait FlowContext:
   def claude: ClaudeTool
   def codex: CodexTool
   def opencode: OpencodeTool
+  def pi: PiTool
   def git: GitTool
   def gh: GitHubTool
   def fs: FsTool

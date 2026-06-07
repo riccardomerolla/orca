@@ -11,6 +11,7 @@ enum BackendTag:
   case ClaudeCode
   case Codex
   case Opencode
+  case Pi
 
 opaque type SessionId[B <: BackendTag] = String
 

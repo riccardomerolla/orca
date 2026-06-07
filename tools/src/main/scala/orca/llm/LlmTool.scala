@@ -108,6 +108,8 @@ trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
   def withModel(provider: String, modelId: String): OpencodeTool =
     withModel(s"$provider/$modelId")
 
+trait PiTool extends LlmTool[BackendTag.Pi.type]
+
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
   * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the
   * default fresh one) and the library starts the session on the first call,

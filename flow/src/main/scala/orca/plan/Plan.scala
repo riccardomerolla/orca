@@ -148,8 +148,9 @@ object Plan:
     *
     * The `B: CanAskUser` constraint means these compile only with backends that
     * can host an `ask_user` tool — claude and codex (both via the shared
-    * `AskUserMcpServer`). A future stdin-only backend would fail this at
-    * compile time. Use [[autonomous]] when no mid-session questions are needed.
+    * `AskUserMcpServer`) and pi (via Orca's temporary ask-user extension). A
+    * future stdin-only backend would fail this at compile time. Use
+    * [[autonomous]] when no mid-session questions are needed.
     *
     * Each operation returns a [[Sessioned]] so the conversation can carry into
     * implementation (e.g. a triage agent's exploration informs the fix).

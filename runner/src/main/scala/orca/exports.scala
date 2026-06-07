@@ -17,6 +17,7 @@ export orca.llm.{
   ClaudeTool,
   CodexTool,
   OpencodeTool,
+  PiTool,
   LlmCall,
   AutonomousTextCall,
   AutonomousLlmCall,

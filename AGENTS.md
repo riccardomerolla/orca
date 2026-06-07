@@ -90,8 +90,11 @@ outside of `os.temp.dir()`.
 
 ### Iterating quickly
 
-- `sbt --client <cmd>` talks to a persistent sbt server; round-trips drop
-  from ~20s to ~2s.
+- Prefer plain `sbt <cmd>` in agent/non-interactive shells. Avoid
+  `sbt --client` unless you know the persistent sbt server was started with
+  the repo's direnv/JDK 21 environment; otherwise the client can attach to a
+  stale server running a different Java and fail despite the current shell's
+  `JAVA_HOME`.
 - `sbt ~test` re-runs tests on save.
 - Metals MCP is configured (`.metals/mcp.json`), so AI-assisted tooling can
   query real type info across modules.
