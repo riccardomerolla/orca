@@ -63,6 +63,7 @@ private[review] object ReviewerPrompts:
   val Readability: Reviewer = load("readability")
   val ScalaFp: Reviewer = load("scala-fp")
   val Security: Reviewer = load("security")
+  val Simplicity: Reviewer = load("simplicity")
   val Test: Reviewer = load("test")
 
   /** Every reviewer the library ships with. Order matches how `allReviewers`
@@ -73,6 +74,7 @@ private[review] object ReviewerPrompts:
     Test,
     Readability,
     CodeStructure,
+    Simplicity,
     Performance,
     Security,
     ScalaFp

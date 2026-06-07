@@ -18,7 +18,7 @@ scripts shell out to `git`, `gh`, and arbitrary `os.proc` calls).
 
 ## Decision
 
-### Roster (7 reviewers)
+### Roster (8 reviewers)
 
 Each reviewer covers a thematically connected group of aspects. The
 groups are designed so a reviewer either applies to the change or
@@ -31,6 +31,7 @@ reviewer.
 | **test** | minimality; no duplicate tests; single property per test; coverage of new behaviour; edge-case exercise; setup clarity |
 | **readability** | naming clarity; comments (why, not what); control-flow shape; magic values; local consistency |
 | **code-structure** | duplication and abstraction quality; module boundaries; package/dependency direction (no cycles, no layering violations); symbol visibility (narrowest enclosing scope) |
+| **simplicity** | speculative generality; gold-plating / behaviour beyond the ask; handling of impossible cases; needless indirection; convoluted logic; deletion over addition |
 | **performance** | algorithmic complexity; memory and allocations; I/O batching (n+1, pooling, overfetch); concurrency (races, deadlocks, ordering, cancellation); resource lifecycle |
 | **security** | input validation; injection (shell/SQL/path/template); secret handling; unsafe deserialisation; privilege and authz; TLS/transport |
 | **scala-fp** | no shared mutable state; pure functions, explicit deps; immutable data and ADTs; opaque types for domain values; no boolean blindness; failures as values; direct-style hygiene (braceless, `using Ox` discipline) |
@@ -50,6 +51,12 @@ Notes on the design:
   either, but the dominant axis is what defines the reviewer.
 - **scala-fp is language-specific.** It only runs on Scala changes;
   applying it to non-Scala code wastes tokens.
+- **Simplicity is deliberately cross-cutting** — the one exception to the
+  one-slice-per-reviewer rule. It asks a single question ("is this more complex
+  than the problem requires?") that spans design (vs. code-structure), behaviour
+  (vs. code-functionality), and implementation (vs. readability). The overlap is
+  accepted because the *judgment* differs — minimise, not verify or clarify — and
+  its negative scope keeps it from re-reporting the others' findings.
 
 ### Reviewers dropped
 
