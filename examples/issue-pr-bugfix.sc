@@ -163,9 +163,11 @@ flow(OrcaArgs(args)):
 
   /** Plan + implement the fix on the same branch. No `.orca/plan-*.md`: the
     * earlier stages (triage, CI red, repro verification) aren't restartable from
-    * a plan file alone, so use the in-memory `implementTaskLoop`. The fix-plan's
-    * own (read-only) planning session is discarded via `.value`; the fix tasks
-    * run on the triage `session`.
+    * a plan file alone, so use the in-memory `implementTaskLoop`. The draft plan
+    * is self-reviewed and given a codebase brief (`reviewed`/`briefed`, both
+    * resuming the planning session read-only); that planning session is then
+    * discarded via `.value`, and the fix tasks — each carrying the brief via
+    * `taskPrompt` — run on the triage `session`.
     */
   def planAndImplementFix(branchName: String): Unit =
     val fixPlan = stage("Plan the fix"):
@@ -174,12 +176,12 @@ flow(OrcaArgs(args)):
            |test is already on this branch (`$branchName`) — the fix
            |must make it pass without regressing other tests.""".stripMargin,
         claude
-      ).value
+      ).reviewed(claude).briefed(claude).value
 
     Plan.implementTaskLoop(fixPlan): task =>
       stage(s"Implement task: ${task.title}"):
         stage("Implementation"):
-          val _ = claude.autonomous.run(task.description, session)
+          val _ = claude.autonomous.run(fixPlan.taskPrompt(task), session)
         reviewAndFixLoop(
           coder = claude,
           sessionId = session,
