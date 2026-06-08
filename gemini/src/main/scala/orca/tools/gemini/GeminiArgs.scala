@@ -70,5 +70,5 @@ private[gemini] object GeminiArgs:
     if config.readOnly then Seq("--approval-mode", "plan")
     else
       config.autoApprove match
-        case AutoApprove.All     => Seq("--approval-mode", "yolo")
-        case AutoApprove.Only(_) => Seq("--approval-mode", "yolo")
+        case AutoApprove.All | AutoApprove.Only(_) =>
+          Seq("--approval-mode", "yolo")

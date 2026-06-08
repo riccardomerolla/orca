@@ -77,8 +77,9 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       // client id they passed in. Future calls resolve via the registry.
       result.copy(sessionId = session)
     catch
-      // Preserve the non-retryable type: a turn that ran and failed must not
-      // be retried (it would reopen the now-registered session id).
+      // Preserve the non-retryable type: a turn that genuinely ran and failed
+      // must keep its `AgentTurnFailed` so the corrective-retry loop (which only
+      // retries parse failures) doesn't re-run it.
       case e: AgentTurnFailed => throw e
       case e: OrcaFlowException =>
         throw new OrcaFlowException(s"gemini CLI failed: ${e.getMessage}")
