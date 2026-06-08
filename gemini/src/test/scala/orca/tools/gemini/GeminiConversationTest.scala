@@ -133,6 +133,30 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
+  test("a tool whose name merely contains 'ask_user' is NOT suppressed"):
+    // Suppression matches gemini's exact MCP qualification (orca__ask_user),
+    // not any name containing the slug — an unrelated tool must still surface.
+    val process = new FakePipedCliProcess()
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStdout("""{"type":"init","session_id":"s"}""")
+    process.enqueueStdout(
+      """{"type":"tool_use","tool_name":"ask_user_for_help","tool_id":"x1","parameters":{}}"""
+    )
+    process.enqueueStdout(result())
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.AssistantToolCall("ask_user_for_help", _) => true
+        case _ => false
+      },
+      s"a non-MCP tool must not be suppressed; got: $events"
+    )
+    val _ = conv.awaitResult()
+
   test("tool_result with a non-success status yields ok=false"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)

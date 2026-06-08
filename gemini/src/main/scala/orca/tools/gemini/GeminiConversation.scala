@@ -163,7 +163,7 @@ private[gemini] class GeminiConversation(
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(content))
 
   private def handleToolUse(name: String, id: String, params: String): Unit =
-    if name.contains(AskUserMcpServer.ToolSlug) then
+    if GeminiConversation.isAskUserTool(name) then
       suppressedToolIds = suppressedToolIds + id
     else
       toolNames = toolNames + (id -> name)
@@ -188,6 +188,16 @@ private[gemini] class GeminiConversation(
       )
 
 private[gemini] object GeminiConversation:
+
+  /** The `ask_user` MCP tool as gemini names it in `tool_use` events: gemini
+    * qualifies an MCP tool as `<server>__<tool>` (e.g. `orca__ask_user`). Match
+    * that exact name (or the bare slug) rather than any name *containing*
+    * `ask_user`, so an unrelated tool whose name merely includes the slug isn't
+    * suppressed.
+    */
+  private def isAskUserTool(name: String): Boolean =
+    name == AskUserMcpServer.ToolSlug ||
+      name == s"${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
 
   /** Stderr lines gemini prints on every (successful) headless run that carry
     * no diagnostic value — filtered before they reach the event queue so they
