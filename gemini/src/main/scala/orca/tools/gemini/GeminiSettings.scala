@@ -60,7 +60,11 @@ private[gemini] object GeminiSettings:
       .get("mcpServers")
       .map(raw => readFromString[Map[String, RawJson]](raw.value))
       .getOrElse(Map.empty)
-    val orcaEntry = RawJson(s"""{"httpUrl":"$mcpUrl"}""")
+    // Serialize the URL through the codec rather than interpolating it into a
+    // raw JSON string, so a value containing `"` or `\` stays valid JSON.
+    val orcaEntry = RawJson(
+      writeToString(Map("httpUrl" -> mcpUrl))(using strMapCodec)
+    )
     val mergedServers =
       servers + (AskUserMcpServer.ServerName -> orcaEntry)
     val withServers =
@@ -85,3 +89,6 @@ private[gemini] object GeminiSettings:
           ))
 
   private given listCodec: JsonValueCodec[List[String]] = JsonCodecMaker.make
+
+  private given strMapCodec: JsonValueCodec[Map[String, String]] =
+    JsonCodecMaker.make

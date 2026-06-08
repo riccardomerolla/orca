@@ -29,6 +29,16 @@ class GeminiSettingsTest extends munit.FunSuite:
     assert(servers.contains("orca"), s"expected orca server; got: $servers")
     assert(servers("orca").value.contains("http://127.0.0.1:9999/mcp"))
 
+  test("merge escapes a URL containing JSON metacharacters"):
+    // The URL is serialized through a codec, not interpolated, so a `"` or `\`
+    // can't break out of the string and produce invalid JSON.
+    val merged = GeminiSettings.merge("{}", """http://h/"x\y""")
+    val servers = topLevel(topLevel(merged)("mcpServers").value)
+    val httpUrl = readFromString[Map[String, String]](servers("orca").value)(
+      using JsonCodecMaker.make[Map[String, String]]
+    )
+    assertEquals(httpUrl("httpUrl"), """http://h/"x\y""")
+
   test("register does NOT add an allowlist when the user has none"):
     // allowedMcpServerNames is an allowlist; adding one where there was none
     // would restrict gemini to ONLY orca, hiding the user's other servers.
