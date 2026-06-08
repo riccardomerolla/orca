@@ -313,6 +313,64 @@ class GeminiConversationTest extends munit.FunSuite:
       s"expected the failing status in the message; got: ${ex.getMessage}"
     )
 
+  test("a result event with no status is treated as success"):
+    // The status field is optional; an absent/empty status is success, not a
+    // failed turn.
+    val process = new FakePipedCliProcess()
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStdout("""{"type":"init","session_id":"s"}""")
+    process.enqueueStdout(
+      """{"type":"message","role":"assistant","content":"done"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","stats":{"input_tokens":1,"output_tokens":1}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val Right(r) = conv.awaitResult(): @unchecked
+    assertEquals(r.output, "done")
+
+  test("interleaved tool calls are each keyed back to their own name"):
+    // Two tool calls complete out of order (B before A); each tool_result,
+    // which carries only the id, must resolve to the right tool_name.
+    val process = new FakePipedCliProcess()
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStdout("""{"type":"init","session_id":"s"}""")
+    process.enqueueStdout(
+      """{"type":"tool_use","tool_name":"Read","tool_id":"a","parameters":{}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"tool_use","tool_name":"Bash","tool_id":"b","parameters":{}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"tool_result","tool_id":"b","status":"success","output":"ls-out"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"tool_result","tool_id":"a","status":"success","output":"file-out"}"""
+    )
+    process.enqueueStdout(result())
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.contains(
+        ConversationEvent.ToolResult("Bash", ok = true, "ls-out")
+      ),
+      s"tool_result b must key to Bash; got: $events"
+    )
+    assert(
+      events.contains(
+        ConversationEvent.ToolResult("Read", ok = true, "file-out")
+      ),
+      s"tool_result a must key to Read; got: $events"
+    )
+    val _ = conv.awaitResult()
+
   test("cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)

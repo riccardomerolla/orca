@@ -93,3 +93,17 @@ class GeminiSettingsTest extends munit.FunSuite:
     val allowlist = topLevel(os.read(file))("allowedMcpServerNames").value
     assert(allowlist.contains("github"), s"existing entry lost: $allowlist")
     assert(allowlist.contains("orca"), s"orca not allowlisted: $allowlist")
+
+  test("register does not duplicate orca in an allowlist that already has it"):
+    val workDir = os.temp.dir()
+    val file = settingsFile(workDir)
+    os.write(
+      file,
+      """{"allowedMcpServerNames":["orca"]}""",
+      createFolders = true
+    )
+    val _ = GeminiSettings.register(workDir, "http://orca/mcp")
+    val allowlist = readFromString[List[String]](
+      topLevel(os.read(file))("allowedMcpServerNames").value
+    )(using JsonCodecMaker.make[List[String]])
+    assertEquals(allowlist.count(_ == "orca"), 1)

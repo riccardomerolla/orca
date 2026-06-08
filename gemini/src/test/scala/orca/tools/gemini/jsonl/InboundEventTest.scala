@@ -74,6 +74,22 @@ class InboundEventTest extends munit.FunSuite:
         assertEquals(usage.cachedInputTokens, 120L)
       case other => fail(s"expected Result, got $other")
 
+  test("result falls back to `cached_input_tokens` when `cached` is absent"):
+    val line =
+      """{"type":"result","status":"success","stats":{"input_tokens":9,"output_tokens":1,"cached_input_tokens":77}}"""
+    InboundEvent.parse(line) match
+      case InboundEvent.Result(usage, _) =>
+        assertEquals(usage.cachedInputTokens, 77L)
+      case other => fail(s"expected Result, got $other")
+
+  test("result prefers `cached` over `cached_input_tokens` when both present"):
+    val line =
+      """{"type":"result","status":"success","stats":{"input_tokens":9,"output_tokens":1,"cached":120,"cached_input_tokens":77}}"""
+    InboundEvent.parse(line) match
+      case InboundEvent.Result(usage, _) =>
+        assertEquals(usage.cachedInputTokens, 120L)
+      case other => fail(s"expected Result, got $other")
+
   test("result tolerates missing stats"):
     val line = """{"type":"result","status":"success"}"""
     InboundEvent.parse(line) match
