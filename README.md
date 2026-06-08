@@ -142,6 +142,33 @@ flow(OrcaArgs(args)):
   val _ = pi.autonomous.run(userPrompt, session)
 ```
 
+## Coding agent tools
+
+> [!WARNING]
+> **Coding agent tool usage is auto-approved by default** (`autoApprove = AutoApprove.All`):
+> write-capable turns let the agent edit files and run shell commands without
+> prompting. Constrain this in code, or isolate the whole run in a sandbox.
+
+Tighten approval per tool with `withReadOnly` / `withConfig`:
+
+```scala
+// Read-only: no writes, no edits, no side-effecting shell (planning, review).
+val planner = claude.withReadOnly
+
+// Restrict auto-approval to a named tool set (honoured by claude/codex).
+val limited = claude.withConfig(
+  LlmConfig(autoApprove = AutoApprove.Only(Set("Read", "Edit", "Grep")))
+)
+```
+
+`AutoApprove.Only` fits interactive flows, where a human answers anything outside
+the set; an autonomous turn has no one to approve, so an out-of-set call blocks
+(and `gemini` has no per-tool granularity — `Only` widens to full auto-approve).
+So for an unattended run the practical safety boundary is process isolation: run
+the flow in a sandbox. We recommend [Sandcat](https://github.com/VirtusLab/sandcat),
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other sandboxing
+solution.
+
 ## Flow methods
 
 Top-level, available via `import orca.*`:
