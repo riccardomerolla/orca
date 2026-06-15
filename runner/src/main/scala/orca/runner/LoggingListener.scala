@@ -9,6 +9,11 @@ import org.slf4j.LoggerFactory
   * uses, steps (git / gh / recovery / …), structured results, token usage, and
   * errors. Wired into the flow's `EventDispatcher` alongside the cost tracker.
   *
+  * This is a trace mirror, not a console channel: the whole `orca.*` logger tree
+  * is routed to the trace file only (`OrcaLog` makes it non-additive), so even
+  * the `Error` line — logged at ERROR for greppability — never reaches the
+  * console. The terminal renderer owns the console (it shows the `✖`).
+  *
   * Messages are plain ASCII on purpose — the trace file is read back and dumped
   * to the console verbatim, and glyphs would corrupt under a non-UTF-8 console.
   * slf4j `{}` placeholders defer string building until an appender consumes the
@@ -18,9 +23,9 @@ private[orca] class LoggingListener extends OrcaListener:
   private val log = LoggerFactory.getLogger("orca.flow")
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.StageStarted(name)      => log.info("stage start: {}", name)
-    case OrcaEvent.StageCompleted(name, _) => log.info("stage done:  {}", name)
-    case OrcaEvent.Step(message)           => log.info("step: {}", message)
+    case OrcaEvent.StageStarted(name)     => log.info("stage start: {}", name)
+    case OrcaEvent.StageCompleted(name)   => log.info("stage done:  {}", name)
+    case OrcaEvent.Step(message)          => log.info("step: {}", message)
     case OrcaEvent.UserPrompt(text)       => log.debug("prompt sent:\n{}", text)
     case OrcaEvent.AssistantMessage(text) => log.debug("assistant: {}", text)
     case OrcaEvent.ToolUse(tool, args) =>
