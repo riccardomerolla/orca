@@ -10,13 +10,17 @@ import orca.util.PromptResource
   * use a different structured-output convention.
   */
 trait Prompts:
-  /** Prompt for a non-interactive call: the model is expected to emit the
-    * structured JSON response directly, with no user turn in between.
+  /** Prompt for a non-interactive call: the model produces the structured
+    * response in a single agentic turn, with no user turn in between. `mode` is
+    * the backend's declared [[StructuredOutputMode]] — how the wire expects the
+    * payload (a StructuredOutput tool call vs raw reply text) — so the delivery
+    * instruction names the actual mechanism instead of contradicting it.
     */
   def autonomous(
       input: String,
       outputSchema: String,
-      config: AgentConfig
+      config: AgentConfig,
+      mode: StructuredOutputMode
   ): String
 
   /** Prompt for an interactive call: the model converses with the user on
@@ -41,26 +45,38 @@ trait Prompts:
   * `src/main/resources/orca/agents/prompts/` and are loaded once at object
   * init.
   *
-  * Autonomous calls ship the JSON Schema inline in the prompt and rely on
-  * `ResponseParser` + the retry loop for structural validation — they don't
-  * pass `--json-schema` to the CLI today (the backend's autonomous path opens a
-  * stream-json subprocess without a schema arg). Interactive calls pass
-  * `--json-schema` for CLI-side enforcement and let the agent reply in natural
-  * conversation until it has the final structured value; the schema is still
-  * summarised in the prompt so the model knows the target shape.
+  * Both call modes ship the JSON Schema inline in the prompt AND hand it to the
+  * backend (`outputSchema = Some(...)`): claude passes `--json-schema`, which
+  * enforces the schema CLI-side via an injected StructuredOutput tool whose
+  * parameters are the schema's top-level properties; text-only backends rely on
+  * `ResponseParser` + the retry loop for structural validation. The autonomous
+  * delivery rules follow the backend's declared [[StructuredOutputMode]]:
+  * `Tool` backends are told to call the StructuredOutput tool, `RawText`
+  * backends keep the raw-JSON contract.
   */
 object DefaultPrompts extends Prompts:
 
   private val RawJsonRules: String =
     PromptResource.load("/orca/agents/prompts/raw-json-rules.md")
 
-  // Substitute the shared rules fragment once at init so each call only pays
+  private val ToolCallRules: String =
+    PromptResource.load("/orca/agents/prompts/tool-call-rules.md")
+
+  // Substitute the shared rules fragments once at init so each call only pays
   // for the dynamic `{{input}}` / `{{outputSchema}}` / `{{failedResponse}}` /
-  // `{{parseError}}` replacements.
-  private val AutonomousTemplate: String =
-    PromptResource
-      .load("/orca/agents/prompts/autonomous.md")
-      .replace("{{rawJsonRules}}", RawJsonRules)
+  // `{{parseError}}` replacements. The autonomous template exists in one
+  // variant per StructuredOutputMode: same task framing, delivery rules
+  // matching what the backend's wire actually expects. Selection happens via
+  // an exhaustive match in [[autonomous]], so a new mode is a compile error
+  // here rather than a lookup failure at call time.
+  private val AutonomousBase: String =
+    PromptResource.load("/orca/agents/prompts/autonomous.md")
+
+  private val AutonomousRawTextTemplate: String =
+    AutonomousBase.replace("{{resultRules}}", RawJsonRules)
+
+  private val AutonomousToolTemplate: String =
+    AutonomousBase.replace("{{resultRules}}", ToolCallRules)
 
   private val InteractiveTemplate: String =
     PromptResource
@@ -75,10 +91,14 @@ object DefaultPrompts extends Prompts:
   def autonomous(
       input: String,
       outputSchema: String,
-      config: AgentConfig
+      config: AgentConfig,
+      mode: StructuredOutputMode
   ): String =
+    val template = mode match
+      case StructuredOutputMode.RawText => AutonomousRawTextTemplate
+      case StructuredOutputMode.Tool    => AutonomousToolTemplate
     PromptResource.render(
-      AutonomousTemplate,
+      template,
       "input" -> input,
       "outputSchema" -> outputSchema
     )

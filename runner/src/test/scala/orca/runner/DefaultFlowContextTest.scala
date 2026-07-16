@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.FlowContext
+import orca.StackSettings
 import orca.agents.{
   Announce,
   AutonomousTextCall,
@@ -33,25 +33,37 @@ class DefaultFlowContextTest extends munit.FunSuite:
     "close() closes every agent even when an earlier one's close() throws"
   ):
     var codexClosed = false
-    val workDir = TempDirs.dir()
-    val ctx = new DefaultFlowContext[BackendTag.ClaudeCode.type](
-      userPrompt = "test",
-      dispatcher = new EventDispatcher(Nil),
-      agentSelector = (_: FlowContext) => ThrowingClaude,
-      claude = ThrowingClaude,
-      codex = new RecordingCodex(() => codexClosed = true),
-      opencode = NoopOpencode,
-      pi = NoopPi,
-      gemini = NoopGemini,
-      git = new OsGitTool(workDir),
-      gh = new OsGitHubTool(OsProcCliRunner, workDir),
-      fs = new OsFsTool(workDir),
-      progressStore = ProgressStore.default(workDir, "test")
-    )
+    val ctx = newContext(codex = new RecordingCodex(() => codexClosed = true))
     ctx.close()
     assert(
       codexClosed,
       "codex.close() must run despite claude.close() throwing"
+    )
+
+  /** A context over throwaway tools and the throwing/noop agent stubs below;
+    * `codex` is the only agent the test swaps (to record its close).
+    */
+  private def newContext(
+      codex: CodexAgent
+  ): DefaultFlowContext[BackendTag.ClaudeCode.type] =
+    val workDir = TempDirs.dir()
+    new DefaultFlowContext[BackendTag.ClaudeCode.type](
+      userPrompt = "test",
+      workDir = workDir,
+      dispatcher = new EventDispatcher(Nil),
+      agent = ThrowingClaude,
+      wired = new WiredAgents(
+        claude = ThrowingClaude,
+        codex = codex,
+        opencode = NoopOpencode,
+        pi = NoopPi,
+        gemini = NoopGemini
+      ),
+      git = new OsGitTool(workDir),
+      gh = new OsGitHubTool(OsProcCliRunner, workDir),
+      fs = new OsFsTool(workDir),
+      progressStore = ProgressStore.default(workDir, "test"),
+      stackSettings = StackSettings.empty
     )
 
   /** Throws from every LLM call and from `close()` — pins that a throwing

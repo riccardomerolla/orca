@@ -5,6 +5,8 @@ import orca.{
   BranchNamingStrategy,
   FlowContext,
   OrcaArgs,
+  OrcaDir,
+  StackSettings,
   WorkspaceWrite,
   runFlow,
   stage,
@@ -65,6 +67,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs("lifecycle-success"),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -192,6 +195,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         progressStore = Some(store),
@@ -340,15 +344,14 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "runFlow: a pre-ctx agent-factory failure escapes UNWRAPPED, not as SurfacedFlowFailure"
   ):
-    // The `SurfacedFlowFailure` discriminator's other half: `FlowLifecycle.run`'s
-    // `surfaced` bracket only wraps phases that run once `ctx` exists (setup,
-    // rehydration, body, success teardown). A per-backend agent factory
-    // (`wiring.claude`, etc.) runs eagerly inside `DefaultFlowContext.withDefaults`
-    // — called from `runFlow` at flow.scala:234-242, BEFORE `ctx` (and hence
-    // before any bracket) exists — so its failure has no event surface to report
-    // to and must escape this exit-free seam as a plain, unwrapped exception.
-    // (In production, `flow()`'s backstop catches it — stderr line + `System.exit(1)`
-    // — but that tail is untestable here by design: `runFlow` never exits.)
+    // The `SurfacedFlowFailure` discriminator's other half: the `surfaced`
+    // brackets only wrap lead resolution, setup, rehydration and the body. A
+    // per-backend agent factory (`wiring.claude`, etc.) runs eagerly inside
+    // `WiredAgents.build` — called from `runFlow` BEFORE any bracket exists —
+    // so its failure has no event surface to report to and must escape this
+    // exit-free seam as a plain, unwrapped exception. (In production,
+    // `flow()`'s backstop catches it — stderr line + `System.exit(1)` — but
+    // that tail is untestable here by design: `runFlow` never exits.)
     val workDir = GitRepo.seeded()
     val prompt = "factory-boom"
     val thrown = intercept[RuntimeException]:
@@ -360,6 +363,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -471,7 +475,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       args = OrcaArgs(prompt),
       agent = StubAgent.claude,
       git = git,
+      workDir = workDir,
       branchNaming = None,
+      settingsOverride = Some(StackSettings.empty),
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -495,6 +501,510 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(loaded.isDefined, "a fresh header must have been written")
     assertEquals(loaded.get.header.branch, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
+
+  // Pinned ADR-0019 migration warning: names the settings path and the likely
+  // gitignore line to remove.
+  private val settingsIgnoredWarning =
+    "stack settings at .orca/settings.properties are gitignored — remove the " +
+      "'.orca/' line from .gitignore so they can be committed (scratch " +
+      "self-ignores under .orca/cache/)"
+
+  /** Runs `setup` in a seeded repo — with `.gitignore` committed first when a
+    * body is given — and returns the collected Step messages. The no-override
+    * arms pre-write a settings file so discovery (which the stub agent cannot
+    * serve) never runs.
+    */
+  private def setupStepsWithGitignore(
+      gitignore: Option[String],
+      settingsOverride: Option[StackSettings],
+      prompt: String
+  ): List[String] =
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    gitignore.foreach: body =>
+      given WorkspaceWrite = WorkspaceWrite.unsafe
+      os.write(workDir / ".gitignore", body)
+      assert(git.commit("add .gitignore").isRight)
+    if settingsOverride.isEmpty then
+      os.write(
+        OrcaDir.settingsPath(workDir),
+        "format = echo fmt\n",
+        createFolders = true
+      )
+    val store = ProgressStore.default(workDir, prompt)
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val _ = FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = StubAgent.claude,
+      git = git,
+      workDir = workDir,
+      branchNaming = None,
+      settingsOverride = settingsOverride,
+      store = store,
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    emitted.get().collect { case s: OrcaEvent.Step => s.message }
+
+  test(
+    "setup: warns when the settings path is gitignored (legacy .orca/ ignore)"
+  ):
+    val steps = setupStepsWithGitignore(
+      Some(".orca/\n"),
+      settingsOverride = None,
+      prompt = "ignored-settings"
+    )
+    assert(
+      steps.contains(settingsIgnoredWarning),
+      s"expected the pinned gitignored-settings warning, got: $steps"
+    )
+
+  test(
+    "setup: no gitignored-settings warning when the settings path is not ignored"
+  ):
+    val steps = setupStepsWithGitignore(
+      None,
+      settingsOverride = None,
+      prompt = "not-ignored"
+    )
+    assert(
+      !steps.exists(_.contains("gitignored")),
+      s"no gitignored-settings warning expected, got: $steps"
+    )
+
+  test(
+    "setup: no gitignored-settings warning under a programmatic override, even with the ignored path"
+  ):
+    // An override means the run neither reads nor writes the file — the
+    // migration warning would be noise.
+    val steps = setupStepsWithGitignore(
+      Some(".orca/\n"),
+      settingsOverride = Some(StackSettings.empty),
+      prompt = "override-ignored"
+    )
+    assert(
+      !steps.exists(_.contains("gitignored")),
+      s"no gitignored-settings warning expected under an override, got: $steps"
+    )
+
+  // --- stack-settings resolution during setup (ADR 0019) --------------------
+
+  /** Drives `setup` directly against `workDir` with a throwaway store and a
+    * null event sink — the fixture for the stack-settings resolution tests.
+    */
+  private def setupForSettings(
+      workDir: os.Path,
+      settingsOverride: Option[StackSettings] = None,
+      prompt: String = "settings-resolution"
+  ): FlowLifecycle.FlowSetup =
+    FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = StubAgent.claude,
+      git = new OsGitTool(workDir),
+      workDir = workDir,
+      branchNaming = None,
+      settingsOverride = settingsOverride,
+      store = ProgressStore.default(workDir, prompt),
+      emit = _ => ()
+    )
+
+  test("setup: a committed settings file resolves into FlowSetup"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "format = cargo fmt\nlint = cargo check\ntest = cargo test\n",
+      createFolders = true
+    )
+    assert(git.commit("add stack settings").isRight)
+    val setup = setupForSettings(workDir)
+    assertEquals(
+      setup.stackSettings,
+      StackSettings(
+        format = List("cargo fmt"),
+        lint = List("cargo check"),
+        test = List("cargo test")
+      )
+    )
+
+  test(
+    "setup: an UNTRACKED settings file in a dirty tree is read before the stash sweeps it"
+  ):
+    // The read happens pre-`ensureClean`: the stash sweeps the untracked file
+    // away (asserted below), so the values held in FlowSetup can only come
+    // from the pre-stash read.
+    val workDir = GitRepo.seeded()
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "lint = npm run lint\n",
+      createFolders = true
+    )
+    val setup = setupForSettings(workDir)
+    assert(
+      !os.exists(OrcaDir.settingsPath(workDir)),
+      "stash must have swept the untracked settings file"
+    )
+    assertEquals(
+      setup.stackSettings,
+      StackSettings(lint = List("npm run lint"))
+    )
+
+  test(
+    "setup: a malformed settings file aborts BEFORE ensureClean — no stash, branch unchanged"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "not-a-key = cargo fmt\n",
+      createFolders = true
+    )
+    val startBranch = git.currentBranch()
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupForSettings(workDir)
+    assert(
+      thrown.getMessage.contains("invalid stack settings") &&
+        thrown.getMessage.contains(OrcaDir.settingsPath(workDir).toString) &&
+        thrown.getMessage.contains("not-a-key"),
+      s"abort message must name the path and the parser's error: ${thrown.getMessage}"
+    )
+    val stashes =
+      os.proc("git", "stash", "list").call(cwd = workDir).out.text().trim
+    assertEquals(stashes, "", "the abort must precede the ensureClean stash")
+    assertEquals(
+      git.currentBranch(),
+      startBranch,
+      "the abort must precede any branch mutation"
+    )
+
+  test("setup: an explicit override wins over a present file, file untouched"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val fileContent = "format = cargo fmt\n"
+    os.write(OrcaDir.settingsPath(workDir), fileContent, createFolders = true)
+    assert(git.commit("add stack settings").isRight)
+    val override_ = StackSettings(format = List("scalafmt"))
+    val setup = setupForSettings(workDir, settingsOverride = Some(override_))
+    assertEquals(setup.stackSettings, override_)
+    assertEquals(os.read(OrcaDir.settingsPath(workDir)), fileContent)
+
+  /** Drives `setup` with no settings file and no override, so discovery runs
+    * against `agent`; returns the setup outcome and the collected Step
+    * messages. The store is resolved exactly as production does, so a pre-built
+    * progress log in `workDir` makes this the resume arm.
+    */
+  private def setupDiscovering(
+      workDir: os.Path,
+      agent: Agent[?],
+      prompt: String
+  ): (FlowLifecycle.FlowSetup, List[String]) =
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val setup = FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = agent,
+      git = new OsGitTool(workDir),
+      workDir = workDir,
+      branchNaming = None,
+      settingsOverride = None,
+      store = ProgressStore.default(workDir, prompt),
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    (
+      setup,
+      emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
+    )
+
+  /** The paths a single commit touched (`git show --name-only`), sorted, so an
+    * assertion can pin a commit to EXACTLY its files.
+    */
+  private def commitFiles(workDir: os.Path, rev: String): List[String] =
+    os.proc("git", "show", "--name-only", "--pretty=format:", rev)
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toList
+      .sorted
+
+  /** A single commit's subject line (`git log -1 --pretty=format:%s`). */
+  private def commitMessage(workDir: os.Path, rev: String): String =
+    os.proc("git", "log", "-1", "--pretty=format:%s", rev)
+      .call(cwd = workDir)
+      .out
+      .text()
+      .trim
+
+  test(
+    "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, before the header commit"
+  ):
+    val workDir = GitRepo.seeded()
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt", Some("seeded fixture")))
+      ),
+      lint = DiscoveredTask(unsetReason = Some("no lint config found")),
+      test = DiscoveredTask()
+    )
+    val (setup, steps) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-fresh")
+    // The discovered settings are the run's settings…
+    assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
+    // …and the written file is the byte-exact render of the checked entries.
+    assertEquals(
+      os.read(OrcaDir.settingsPath(workDir)),
+      """# orca stack settings — edit freely, commit with the project.
+        |# Delete this file to re-run auto-discovery.
+        |# seed.txt; seeded fixture
+        |format = echo fmt
+        |# lint =   (no lint config found)
+        |# test =   (no evidence found)
+        |""".stripMargin
+    )
+    // The dedicated settings commit sits immediately before the header commit
+    // (HEAD~1), carries EXACTLY the settings file, and bears the pinned message.
+    assertEquals(
+      commitFiles(workDir, "HEAD~1"),
+      List(".orca/settings.properties")
+    )
+    assertEquals(
+      commitMessage(workDir, "HEAD~1"),
+      "orca: stack settings (discovered)"
+    )
+    // The header commit (HEAD) carries only the progress log its message names —
+    // NOT the settings file.
+    assertEquals(commitMessage(workDir, "HEAD"), "orca: progress log")
+    assert(
+      !commitFiles(workDir, "HEAD").contains(".orca/settings.properties"),
+      s"the header commit must NOT include the settings file, got: ${commitFiles(workDir, "HEAD")}"
+    )
+    // The bracketing discovery events reached the event surface.
+    assert(
+      steps.contains(
+        "no .orca/settings.properties — running stack discovery"
+      ),
+      s"expected the running-discovery Step, got: $steps"
+    )
+    assert(
+      steps.contains(
+        "written to .orca/settings.properties — review and edit as needed."
+      ),
+      s"expected the written Step, got: $steps"
+    )
+
+  test(
+    "discovery: an unresolvable command is demoted in the file, with a gate-disabled warning"
+  ):
+    val workDir = GitRepo.seeded()
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt"))
+      ),
+      lint = DiscoveredTask(commands =
+        List(DiscoveredCommand("definitely-not-a-cmd-xyz check", "seed.txt"))
+      ),
+      test = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo test", "seed.txt"))
+      )
+    )
+    val (setup, steps) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-demote")
+    val content = os.read(OrcaDir.settingsPath(workDir))
+    assert(
+      content.contains(
+        "# lint = definitely-not-a-cmd-xyz check   " +
+          "(definitely-not-a-cmd-xyz: not found on PATH)"
+      ),
+      s"the demoted command must be a commented-out line with its reason: $content"
+    )
+    // Parsing the written file yields only the surviving commands…
+    assertEquals(
+      orca.settings.SettingsFile.parse(content),
+      Right(StackSettings(format = List("echo fmt"), test = List("echo test")))
+    )
+    // …which are also what the run got.
+    assertEquals(setup.stackSettings.lint, Nil)
+    assert(
+      steps.contains(
+        "warning: stack settings: no lint command — gate disabled"
+      ),
+      s"expected the gate-disabled warning for lint, got: $steps"
+    )
+
+  test(
+    "discovery: resume arm (log present, file deleted) rediscovers and gives the file its own commit"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "discover-resume"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    // The delete-to-rediscover fixture: feature branch, committed header — and
+    // NO settings file when the run resumes.
+    val _ = git.createBranch("feat/discover-resume")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/discover-resume",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val headBefore =
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt"))
+      ),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (setup, _) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)
+    assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
+    // The resume arm gives the rediscovered file its own dedicated commit
+    // (the branch already existed): HEAD advances by exactly that commit,
+    // which carries EXACTLY the settings file under the pinned message — the
+    // file is no longer left untracked.
+    assertEquals(
+      os.proc("git", "rev-parse", "HEAD~1").call(cwd = workDir).out.text().trim,
+      headBefore,
+      "the dedicated settings commit is the only new commit on the resume arm"
+    )
+    assertEquals(
+      commitMessage(workDir, "HEAD"),
+      "orca: stack settings (discovered)"
+    )
+    assertEquals(
+      commitFiles(workDir, "HEAD"),
+      List(".orca/settings.properties")
+    )
+
+  test(
+    "discovery: legacy-ignored repo — file written, no dedicated commit, stays untracked, ignored-warning fires"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    locally:
+      given WorkspaceWrite = WorkspaceWrite.unsafe
+      os.write(workDir / ".gitignore", ".orca/\n")
+      assert(git.commit("add .gitignore").isRight)
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt"))
+      ),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (_, steps) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-legacy")
+    assert(
+      os.exists(OrcaDir.settingsPath(workDir)),
+      "the file must be written even in a legacy-ignored repo"
+    )
+    // The dedicated commit is SKIPPED when the path is ignored: neither the
+    // header commit nor any settings commit carries the file, and it stays
+    // ignored on disk for the user to commit after fixing the ignore.
+    assert(
+      !commitFiles(workDir, "HEAD").contains(".orca/settings.properties"),
+      s"an ignored settings file must not ride the header commit: ${commitFiles(workDir, "HEAD")}"
+    )
+    assertNotEquals(
+      commitMessage(workDir, "HEAD"),
+      "orca: stack settings (discovered)",
+      "no dedicated settings commit may exist in a legacy-ignored repo"
+    )
+    val tracked = os
+      .proc("git", "ls-files", "--", ".orca/settings.properties")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .trim
+    assertEquals(
+      tracked,
+      "",
+      "an ignored settings file stays untracked after discovery"
+    )
+    assert(
+      steps.contains(settingsIgnoredWarning),
+      s"the ADR-0019 ignored-settings warning must fire, got: $steps"
+    )
+
+  test(
+    "discovery: a failing agent aborts setup as a surfaced failure — no file written, no stage ran"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "discover-failure"
+    val store = ProgressStore.default(workDir, prompt)
+    var stageRan = false
+    val throwing = new CannedDiscoveryAgent(() =>
+      throw new RuntimeException("discovery boom")
+    )
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt),
+          agent = _ => throwing,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage("never-runs"):
+            stageRan = true
+            "x"
+    assertEquals(thrown.cause.getMessage, "discovery boom")
+    // NEVER degraded to writing an empty/all-commented file (ADR 0019): the
+    // frozen-file semantics would make a transient outage permanent.
+    assert(
+      !os.exists(OrcaDir.settingsPath(workDir)),
+      "a discovery failure must not write a settings file"
+    )
+    assert(!stageRan, "setup aborts before any stage can run")
+
+  test(
+    "discovery: an all-unset result writes an all-commented file, warns per gate, and yields empty settings"
+  ):
+    val workDir = GitRepo.seeded()
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(unsetReason = Some("no formatter config found")),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask(unsetReason = Some("no test directory found"))
+    )
+    val (setup, steps) = setupDiscovering(
+      workDir,
+      CannedDiscoveryAgent(canned),
+      "discover-all-unset"
+    )
+    assertEquals(setup.stackSettings, StackSettings.empty)
+    assertEquals(
+      os.read(OrcaDir.settingsPath(workDir)),
+      """# orca stack settings — edit freely, commit with the project.
+        |# Delete this file to re-run auto-discovery.
+        |# format =   (no formatter config found)
+        |# lint =   (no evidence found)
+        |# test =   (no test directory found)
+        |""".stripMargin
+    )
+    val warnings = steps.filter(_.contains("gate disabled"))
+    assertEquals(
+      warnings,
+      List(
+        "warning: stack settings: no format command — gate disabled",
+        "warning: stack settings: no lint command — gate disabled",
+        "warning: stack settings: no test command — gate disabled"
+      )
+    )
 
   test(
     "rehydrateSessions replays a codex-tagged record into the codex agent, not the lead"
@@ -688,6 +1198,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => recorder,
         workDir = workDir,
         interaction = Some(interaction),
@@ -722,6 +1233,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -778,6 +1290,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -811,6 +1324,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -847,6 +1361,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -888,6 +1403,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -967,6 +1483,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       // branchNaming defaults to None — do not pass it.
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -1001,6 +1518,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1067,6 +1585,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1134,6 +1653,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1277,6 +1797,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => thrower,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1312,6 +1833,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1355,6 +1877,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1367,6 +1890,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           try
             runFlow(
               args = OrcaArgs("inner"),
+              stackSettings = Some(StackSettings.empty),
               agent = _ => StubAgent.claude,
               workDir = workDir,
               interaction = Some(interaction),
@@ -1401,7 +1925,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val livePid = ProcessHandle.current().pid()
     os.write(
-      workDir / ".orca" / "flow.lock",
+      workDir / ".orca" / "cache" / "flow.lock",
       livePid.toString,
       createFolders = true
     )
@@ -1414,6 +1938,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs("live-pid"),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1432,7 +1957,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // The refusal must not steal or clear a lock still held by a live PID.
     assertEquals(
-      os.read(workDir / ".orca" / "flow.lock").trim,
+      os.read(workDir / ".orca" / "cache" / "flow.lock").trim,
       livePid.toString
     )
 
@@ -1444,7 +1969,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     dead.join(): Unit
     val deadPid = dead.wrapped.pid()
     os.write(
-      workDir / ".orca" / "flow.lock",
+      workDir / ".orca" / "cache" / "flow.lock",
       deadPid.toString,
       createFolders = true
     )
@@ -1460,6 +1985,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs("steal"),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1477,15 +2003,15 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // The guard released cleanly after a successful run — no lock left behind.
     assert(
-      !os.exists(workDir / ".orca" / "flow.lock"),
+      !os.exists(workDir / ".orca" / "cache" / "flow.lock"),
       "lock must be released after a successful run"
     )
 
   test("reentrancy guards: the lock file is never swept into a stage commit"):
     // The stage runtime's commit is `git add -A` + a force-add of the progress
     // log only; the lock must stay out of history even though the temp repo
-    // has no `.gitignore` for `.orca/` (the guard writes it to the repo-local
-    // `<git-common-dir>/info/exclude` on acquisition).
+    // has no `.gitignore` for `.orca/` (the lock lives under `.orca/cache/`,
+    // whose own `.gitignore` self-ignores everything in it).
     val workDir = GitRepo.seeded()
     supervised:
       val interaction = TerminalInteraction.start(
@@ -1495,6 +2021,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs("lock-not-committed"),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1516,9 +2043,17 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"the stage's code change must be committed; history files: $everTracked"
     )
     assert(
-      !everTracked.contains(".orca/flow.lock"),
+      !everTracked.contains("flow.lock"),
       "the flow lock must never appear in any commit"
     )
+
+  test("acquireWorkdir places the lock under .orca/cache"):
+    val workDir = GitRepo.seeded()
+    val lockPath = FlowLock.acquireWorkdir(workDir)
+    try
+      assertEquals(lockPath, workDir / ".orca" / "cache" / "flow.lock")
+      assert(os.exists(lockPath))
+    finally FlowLock.releaseWorkdir(lockPath)
 
   /** Records every `OrcaEvent` it sees, so the boundary-emission tests can
     * count how many `OrcaEvent.Error`s a failing run produced.
@@ -1687,6 +2222,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     def git: GitTool = notWired("git")
     def gh: GitHubTool = notWired("gh")
     def fs: FsTool = notWired("fs")
+    def workDir: os.Path = notWired("workDir")
+    def stackSettings: orca.StackSettings = notWired("stackSettings")
     def userPrompt: String = ""
     def emit(event: OrcaEvent): Unit = emitTo(event)
     // Rehydration tests never fail through this stub; a no-op reported-set is fine.

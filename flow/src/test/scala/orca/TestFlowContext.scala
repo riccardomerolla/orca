@@ -37,7 +37,9 @@ private[orca] trait ReportedErrorsSupport:
   */
 class TestFlowContext(
     dispatcher: EventDispatcher,
-    val userPrompt: String = ""
+    val userPrompt: String = "",
+    val workDir: os.Path = orca.testkit.TempDirs.dir(),
+    val stackSettings: StackSettings = StackSettings.empty
 ) extends FlowContext,
       ReportedErrorsSupport:
   private def stub(name: String) =
@@ -66,7 +68,9 @@ class TestFlowControl(
     val git: GitTool,
     val progressStore: ProgressStore,
     val userPrompt: String = "",
-    lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
+    lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
+    val workDir: os.Path = orca.testkit.TempDirs.dir(),
+    val stackSettings: StackSettings = StackSettings.empty
 ) extends FlowControl,
       ReportedErrorsSupport,
       StageFrames:
@@ -98,11 +102,23 @@ object TestFlowControl:
   def create(
       dispatcher: EventDispatcher,
       userPrompt: String = "p",
-      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
+      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
+      stackSettings: StackSettings = StackSettings.empty
   ): (TestFlowControl, os.Path) =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, userPrompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
-    (new TestFlowControl(dispatcher, git, store, userPrompt, lead), dir)
+    (
+      new TestFlowControl(
+        dispatcher,
+        git,
+        store,
+        userPrompt,
+        lead,
+        dir,
+        stackSettings
+      ),
+      dir
+    )

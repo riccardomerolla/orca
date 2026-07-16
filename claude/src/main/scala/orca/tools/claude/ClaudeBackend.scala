@@ -9,6 +9,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   SessionId,
+  StructuredOutputMode,
   ToolSet,
   onWire
 }
@@ -58,8 +59,8 @@ private[orca] class ClaudeBackend(
       * SAME field is what keeps the probe honest — no separate value can drift
       * out of sync with where agents actually spawn. The `os.pwd` default
       * serves only bare/test construction (`new ClaudeBackend(cli)`) where no
-      * flow workDir exists; the runtime (`DefaultFlowContext.withDefaults`)
-      * passes the flow's real `workDir`.
+      * flow workDir exists; the runtime (`WiredAgents.build`) passes the flow's
+      * real `workDir`.
       */
     override val workDir: os.Path = os.pwd,
     /** Threaded straight into [[AgentBackend]]'s `closedFlag` parameter. Bare
@@ -108,6 +109,14 @@ private[orca] class ClaudeBackend(
       autoApprove: AutoApprove
   ): Enforcement =
     ClaudeArgs.enforcement(tools, autoApprove)
+
+  /** `--json-schema` (passed whenever a structured call supplies a schema — see
+    * [[runAutonomous]]) makes the CLI inject a StructuredOutput tool whose
+    * parameters are the schema's top-level properties; the payload arrives as
+    * that tool call, never as reply text.
+    */
+  override def structuredOutputMode: StructuredOutputMode =
+    StructuredOutputMode.Tool
 
   /** The sole session handle. [[IdScheme.ClientClaimed]]: ids are claimed via
     * `--session-id` so subsequent calls use `--resume` (the CLI refuses to

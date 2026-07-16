@@ -24,3 +24,17 @@ private[orca] object TextUtil:
     */
   def pluralize(n: Int, singular: String): String =
     s"$n $singular${if n == 1 then "" else "s"}"
+
+  /** Collapse every whitespace run (including newlines) to a single space — the
+    * one-physical-line guard shared by the settings-file renderer and the
+    * discovery narration.
+    */
+  def collapseWhitespace(s: String): String = s.replaceAll("""\s+""", " ")
+
+  /** Collapse each newline run (with adjacent whitespace) to a single space,
+    * leaving other whitespace intact — the settings-file one-physical-line
+    * contract for command lines. Shared by the renderer (writing `key =
+    * command` lines) and discovery assembly (the commands the first run
+    * executes), so the executed command and the written line are identical.
+    */
+  def collapseNewlines(s: String): String = s.replaceAll("""\s*\R\s*""", " ")

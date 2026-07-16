@@ -52,18 +52,16 @@ flow(OrcaArgs(args), _.claude):
   // one commit. Completed stages are skipped on resume — re-running the same
   // prompt picks up from the first incomplete task.
   for task <- plan.tasks do
-    stage(s"Task: ${task.title}"):      // skipped on resume if already done
+    stage(s"Task: ${task.title}"):
       session.run(task.description)
       reviewAndFixLoop(                  // runs under this stage
         coderSession = session,
         reviewers = allReviewers(agent),
-        // reviewerSelection defaults to agentDriven(agent.cheap).
-        task = task.title.value,
-        // Format after every edit so commits stay formatted and reviewers
-        // skip style nits.
-        formatCommand = Some("cargo fmt"),
-        // Cheap sanity gate; correctness is the reviewers' and CI's job.
-        lint = Some(Lint("cargo check --tests", agent.cheap))
+        // reviewerSelection defaults to agentDriven(agent.cheap). Format and
+        // lint default to the project's stack settings
+        // (`.orca/settings.properties`, auto-discovered on first run) — see
+        // "Stack settings" below.
+        task = task.title.value
       )
 ```
 
@@ -71,22 +69,20 @@ flow(OrcaArgs(args), _.claude):
 scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
-Each flow always starts by creating a branch, named basing on the user's prompt.
-The feature branch name defaults to a short cheap-model-generated label
-(slugged); pass `branchNaming = ...` to override. This flow opens no PR, so on
-success you're left on the feature branch, ready to test or open a PR by hand —
-see [The flow lifecycle](#the-flow-lifecycle) for the full success/failure/
-resume behavior.
+Each flow starts by creating a feature branch, named by a short
+cheap-model-generated label derived from the prompt (slugged; pass
+`branchNaming = ...` to override). This flow opens no PR, so on success you're
+left on the feature branch, ready to test or open a PR by hand — see [The flow
+lifecycle](#the-flow-lifecycle) for the full success/failure/resume behavior.
 
-If the flow is interrupted in the middle, either because of user intervention or
-an intermittent error, it can be resumed, starting from the last commited set of
-changes (so only a small amount of work might have to be repeated); just run the
-same command again. Orca borrows ideas from durable computing, and tracks which
-development stages have completed, and with what results in a progress file. The
-progress file is committed alongside the modified code, using commits as the
-unit of atomicity. This ensures consistency between the progress log and the
-changes in the repository. When the flow is done, the progress log is removed
-from the branch in one last commit.
+If the flow is interrupted — user intervention or an intermittent error — just
+run the same command again: it resumes from the last committed set of changes,
+so only a small amount of work is repeated. Orca borrows ideas from durable
+computing: which stages have completed, and with what results, is tracked in a
+progress file committed alongside the modified code, making commits the unit
+of atomicity — the progress log can't drift from the changes in the
+repository. When the flow is done, the progress log is removed from the branch
+in one last commit.
 
 There are two runnable examples under [`examples/runnable/`](examples/runnable/):
 * [01-simple](examples/runnable/01-simple/) (in-memory plan + review, autonomous
@@ -103,17 +99,26 @@ the [Metals](https://scalameta.org/metals/) VSCode extension.
 
 ## Built-in tools
 
-The following are available inside a `flow(...) { ... }`:
+The following are available inside a `flow(...) { ... }`.
 
-| Tool | Methods | Purpose |
+The five coding agents — `claude`, `codex`, `opencode`, `pi`, `gemini` —
+share one call surface. Durable: `session(name, seed): FlowSession` →
+`.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`,
+`resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn:
+`chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Common tuning:
+`withModel`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`,
+`withReadOnly`, `withNetworkOnly`, `withSelfManagedGit`. The table lists each
+backend's model accessors and backend-specific extras:
+
+| Tool | Backend-specific methods | Purpose |
 |---|---|---|
-| `claude` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. See [Sessions](#sessions) for durable (`session`) vs ephemeral (`run`/`chat`). |
-| `codex` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `mini`, `cheap` (→ mini), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
-| `opencode` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiSol`/`openaiTerra`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
-| `pi` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
-| `gemini` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `flash`, `cheap` (→ flash), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
+| `claude` | `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withNetworkTools` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. See [Sessions](#sessions) for durable (`session`) vs ephemeral (`run`/`chat`). |
+| `codex` | `mini`, `cheap` (→ mini), `withModel(Model)` | OpenAI Codex coding/reviewing agent. |
+| `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiSol`/`openaiTerra`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
+| `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
+| `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined` — `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
-| `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (safe on re-run — use `orcaCommentMarker(userPrompt, purpose)` to embed the prompt hash as the marker). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
+| `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
 The runtime owns git: every write-capable agent turn is told not to commit,
@@ -145,8 +150,7 @@ There are two ways to drive a model in a flow:
 
 - **The leading agent — `agent`.** Backend-agnostic: it's whatever the `flow`
   selector picked (`_.claude`, `_.codex`, …). Use it for the flow's planning,
-  implementation, reviewing, and its durable session (`agent.session(name,
-  seed)` → a `FlowSession`, then `.run(...)` on it). Switch the selector and
+  implementation, reviewing, and its durable session. Switch the selector and
   the whole flow follows; you never name a backend in the body.
 - **A specific agent + model — `claude.opus`, `codex.mini`, `opencode.openaiLuna`.**
   Use a concrete accessor when you want a particular backend or tier, or for
@@ -205,7 +209,7 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
+| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, stackSettings?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#stack-settings) — the settings file is then neither read nor written (the escape hatch for a language-specific flow). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
 | `agent` (in-body accessor) | `agent: Agent[?]` | The leading agent resolved from the `flow` selector — see [Coding agent tools](#coding-agent-tools). |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `agent.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
@@ -268,6 +272,74 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 - **Failure teardown:** discard the failed stage's uncommitted partial edits with
   `git reset --hard`; stay on the feature branch so a re-run resumes in place.
 
+### Stack settings
+
+Flow scripts stay stack-agnostic: the per-project tooling commands (format,
+lint, test) live in **`.orca/settings.properties`** in the target repo, not in
+the script. `reviewAndFixLoop` reads them by default (see [Planning
+utilities](#planning-utilities)), and `flow` setup resolves them once per run
+with this precedence: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
+`flow(stackSettings = Some(...))` > `.orca/settings.properties` >
+auto-discovery (which writes the file).
+
+**The settings file.** Plain `key = value` lines; the keys are `format`,
+`lint`, and `test`. Each value is one shell command, run via `bash -c` in the
+flow's working directory; everything after the first `=` is command text
+(`lint = FOO=bar cargo check` works). Repeating a key appends — the task's
+commands run in file order, so a multi-stack repo lists one line per stack
+half. A `#` line is a comment; discovery places each command's evidence as its
+own `#` line directly above the `key = command` line. A missing or
+commented-out key means the task is disabled (its gate is skipped). Edit the
+file freely and commit it with the project; delete it to re-run
+auto-discovery. A typical discovered file:
+
+```properties
+# orca stack settings — edit freely, commit with the project.
+# Delete this file to re-run auto-discovery.
+# Cargo.toml; via rustfmt
+format = cargo fmt
+# Cargo.toml
+lint = cargo check --tests
+# test =   (no test config found)
+```
+
+**Auto-discovery.** When no settings file exists (and no `flow(stackSettings =
+...)` override is passed), the first run spends one cheap-model, read-only
+agent call inspecting the repo, then writes the file and announces every
+guess in the event log:
+
+```text
+no .orca/settings.properties — running stack discovery
+  format = cargo fmt   # Cargo.toml; via rustfmt
+  lint = cargo check --tests   # Cargo.toml
+warning: stack settings: no test command — gate disabled
+written to .orca/settings.properties — review and edit as needed.
+```
+
+Every discovered command must cite the file that evidences it; two mechanical
+checks run before anything is written — the command's executable must be on
+`PATH`, and the cited evidence file must exist — and a command failing either
+check is demoted to a commented line with its reason (e.g. `# lint = just
+check   (just: not found on PATH)`), never run silently. A discovery failure
+(backend unavailable, invalid output) aborts the run — it is never degraded
+into a written "gates off" file. Runs with an existing file — the steady
+state, including CI — make no model call.
+
+**The `.orca/` directory** is committed by default: settings and the
+progress log ride the branch, while scratch files live under `.orca/cache/`,
+which writes its own `.gitignore` so it can never land in a commit. If your
+`.gitignore` covers all of `.orca/`, every run warns: `stack settings at
+.orca/settings.properties are gitignored — remove the '.orca/' line from
+.gitignore so they can be committed (scratch self-ignores under
+.orca/cache/)`. Do what the warning says — the cache stays ignored on its
+own.
+
+Within a flow body the resolved values are available as
+`summon[FlowContext].stackSettings` — a `StackSettings(format, lint, test:
+List[String])`. The `test` commands are not consumed by `reviewAndFixLoop`
+(the lint gate stays deliberately cheap); they're there for a flow's own
+verification stages.
+
 ### Sessions
 
 Three rungs, by how long the conversation must live — the handle you hold
@@ -326,12 +398,11 @@ the seed on first use; if the backend session is lost on resume it re-seeds
 (with a console warning — the prior conversation history is gone, only seed +
 progress preamble are rebuilt), prepending a progress preamble naming the
 completed stages; if the session is still alive it continues it directly with
-its full history. Note: opencode sessions are durable across a
-process restart too — opencode persists them in its own global on-disk store,
-independent of orca's per-run `opencode serve` process, so a freshly spawned
-server resumes a prior run's session the same way codex/claude resume theirs.
-As with every backend, that holds on the same machine with the backend's store
-intact; otherwise the flow re-seeds safely (the uniform fallback).
+its full history. Note: opencode sessions survive a process restart too —
+opencode persists them in its own global on-disk store, independent of orca's
+per-run `opencode serve` process. As with every backend, that holds on the
+same machine with the backend's store intact; otherwise the flow re-seeds
+safely (the uniform fallback).
 
 `agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
@@ -346,8 +417,8 @@ structural conventions you choose to follow as a flow author.
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
    stage. Pure reads (`git.diff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
    run outside stages — staging them wastes commits and checkpoints.
-   `agent.session(name, seed)` also runs outside stages, but it isn't a pure read
-   — it records a session in the progress log.
+   `agent.session(name, seed)` also belongs outside stages (see
+   [Sessions](#sessions)).
 
 2. **Push lives in a later stage than the edit that produced it.** A stage
    commits only on completion: a `git.push()` in the same stage as the edit would
@@ -464,11 +535,30 @@ Review utilities, available via `import orca.review.*`:
 
 | Method | Use |
 |---|---|
-| `lint(command, agent, instructions?)` | Run a shell lint and have `agent` summarise its output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/` for the agent to read, so unbounded output can't overflow the context. |
-| `reviewAndFixLoop(coderSession, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
+| `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
+| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#stack-settings), see below. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
+
+`reviewAndFixLoop`'s stack-dependent parameters are three-state
+(`orca.Configured`), so omission means "from the project's [stack
+settings](#stack-settings)" while "explicitly off" stays expressible:
+
+```scala
+enum Configured[+A]:
+  case FromSettings   // resolve from the run's stack settings (the default)
+  case Off            // explicitly disabled for this call
+  case Use(value: A)  // explicit value; settings ignored
+```
+
+`FromSettings` resolves `formatCommands` to `stackSettings.format` and builds
+the lint gate as `Lint(stackSettings.lint, agent.cheap)` — commands plus the
+summariser agent bundled in one value (`Lint(commands: List[String], agent)`).
+An empty list resolves to no gate at all: `FromSettings` over empty settings
+behaves exactly like `Off`. A script that omits `lint` gets a lint gate
+whenever the target project's settings define one; for format-only, pass
+`lint = Configured.Off`.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to
 `ReviewerSelector.agentDriven` — a picker LLM on the lead agent's cheap tier
@@ -584,6 +674,19 @@ results.
   re-evaluates iff `fixed` is non-empty.
 - **`orca.review.IgnoredIssues`** — accumulated `IgnoredIssue(title, reason)`
   entries surfaced by `reviewAndFixLoop` once it halts.
+- **`orca.StackSettings(format, lint, test)`** — the resolved per-project
+  tooling commands (each field a `List[String]`, run via `bash -c`; empty =
+  task disabled). Resolved once per run — see [Stack
+  settings](#stack-settings) — and read back via
+  `summon[FlowContext].stackSettings`; pass `flow(stackSettings = Some(...))`
+  to pin it.
+- **`orca.Configured[A]`** — three-state default for `reviewAndFixLoop`'s
+  stack-dependent parameters: `FromSettings` (the default — resolve from the
+  run's stack settings), `Off` (explicitly disabled for this call), or
+  `Use(value)` (explicit value; settings ignored).
+- **`orca.review.Lint(commands, agent)`** — the lint gate bundle
+  `reviewAndFixLoop` runs alongside the reviewers: the shell commands plus the
+  (cheap) agent that summarises their output into a `ReviewResult`.
 
 </details>
 

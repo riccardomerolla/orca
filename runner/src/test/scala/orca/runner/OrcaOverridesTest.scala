@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, flow, fs, pi}
+import orca.{AgentSet, FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
 import orca.tools.{FsTool}
 import orca.testkit.GitRepo
 import orca.agents.{
@@ -33,7 +33,7 @@ class OrcaOverridesTest extends munit.FunSuite:
   // The leading-model selector defaults to `_.claude` (ADR 0018 §2.5); these
   // tests assert tool-override wiring, not LLM behaviour, so they resolve a stub
   // via a `_ => StubAgent.claude` selector.
-  private val stubLead: FlowContext => ClaudeAgent = _ => StubAgent.claude
+  private val stubLead: AgentSet => ClaudeAgent = _ => StubAgent.claude
 
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
@@ -52,6 +52,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         fs = Some(fake),
@@ -96,6 +97,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => fakeClaude,
         workDir = GitRepo.seeded(),
         claude = Some(_ => fakeClaude),
@@ -138,6 +140,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         opencode = Some(_ => fakeOpencode),
@@ -152,7 +155,7 @@ class OrcaOverridesTest extends munit.FunSuite:
     // Item 2 pin: the opencode param is `AgentWiring => Ox ?=> OpencodeAgent`,
     // so `Some(w => OpencodeAgents.default(w))` — the factory that itself needs
     // an Ox — compiles at the `flow(...)` argument position, with the Ox
-    // resolved where `withDefaults` applies it. This is a compiles-and-runs
+    // resolved where `WiredAgents.build` applies it. This is a compiles-and-runs
     // case (not a stub-CLI run): the lead is the claude stub and the body never
     // touches opencode, and the opencode `serve` spawn is lazy, so the flow
     // runs to completion without a real process. Building the default opencode
@@ -166,6 +169,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         opencode = Some(w => OpencodeAgents.default(w)),
@@ -202,6 +206,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         pi = Some(_ => fakePi),
@@ -263,6 +268,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = _.claude,
         workDir = GitRepo.seeded(),
         claude = Some(w => wiredClaude(w.events)),
@@ -286,6 +292,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         interaction = Some(interaction),

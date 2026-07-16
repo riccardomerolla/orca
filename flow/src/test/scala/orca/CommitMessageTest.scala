@@ -90,7 +90,9 @@ class CommitMessageTest extends munit.FunSuite:
       val agentStub: Agent[BackendTag.ClaudeCode.type],
       val git: GitTool,
       val progressStore: ProgressStore,
-      val userPrompt: String = "p"
+      val workDir: os.Path,
+      val userPrompt: String = "p",
+      val stackSettings: StackSettings = StackSettings.empty
   ) extends FlowControl,
         ReportedErrorsSupport,
         StageFrames:
@@ -127,7 +129,7 @@ class CommitMessageTest extends munit.FunSuite:
     store.writeHeader(
       orca.progress.ProgressHeader("main", "feat/test", "deadbeef")
     )
-    body(new FlowControlWithAgent(agentStub, git, store), dir)
+    body(new FlowControlWithAgent(agentStub, git, store, dir), dir)
 
   private def lastCommitMessage(dir: os.Path): String =
     os.proc("git", "log", "-1", "--pretty=%s").call(cwd = dir).out.text().trim
